@@ -1,0 +1,126 @@
+/* ============================================================
+   BI Seminarsuche – Such-/Filterleiste
+   Alle Klassen mit .bi- Präfix (kollisionsfrei).
+   Akzentfarbe über --bi-accent überschreibbar.
+   ============================================================ */
+
+.bi-filter {
+  --bi-accent: #e2001a;            /* IG-Metall-Rot, anpassbar */
+  --bi-accent-dark: #b80016;
+  --bi-bg: #fff;
+  --bi-border: #e3e5e8;
+  --bi-text: #1d2327;
+  --bi-muted: #6b7280;
+  --bi-radius: 14px;
+  font-family: inherit;
+  color: var(--bi-text);
+}
+
+.bi-card {
+  background: var(--bi-bg);
+  border: 1px solid var(--bi-border);
+  border-radius: var(--bi-radius);
+  padding: 22px 24px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, .05);
+}
+
+.bi-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+.bi-kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--bi-accent); font-weight: 700; }
+.bi-title { margin: 2px 0 0; font-size: 26px; line-height: 1.1; font-weight: 800; }
+.bi-count { text-align: right; line-height: 1; }
+.bi-count-num { font-size: 30px; font-weight: 800; color: var(--bi-accent); }
+.bi-count-label { font-size: 12px; color: var(--bi-muted); margin-top: 4px; }
+
+.bi-search { position: relative; display: flex; align-items: center; }
+.bi-search-icon { position: absolute; left: 14px; color: var(--bi-muted); display: flex; }
+.bi-search input {
+  width: 100%; padding: 14px 44px 14px 46px; font-size: 16px;
+  border: 1px solid var(--bi-border); border-radius: 12px; outline: none; box-sizing: border-box;
+}
+.bi-search input:focus { border-color: var(--bi-accent); box-shadow: 0 0 0 3px rgba(226, 0, 26, .12); }
+.bi-search-clear { position: absolute; right: 10px; background: #f1f2f4; border: 0; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--bi-muted); }
+
+.bi-hint { font-size: 12.5px; color: var(--bi-muted); margin: 8px 2px 14px; }
+
+.bi-triggers { display: flex; flex-wrap: wrap; gap: 10px; }
+.bi-trigger {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px;
+  background: #f7f8fa; border: 1px solid var(--bi-border); border-radius: 999px;
+  font-size: 14px; font-weight: 600; cursor: pointer; color: var(--bi-text); transition: .15s;
+}
+.bi-trigger:hover { border-color: var(--bi-accent); background: #fff; }
+.bi-trigger[aria-expanded="true"] { border-color: var(--bi-accent); background: #fff; box-shadow: 0 0 0 3px rgba(226, 0, 26, .1); }
+.bi-trigger-icon { display: flex; color: var(--bi-accent); }
+.bi-trigger-chev { display: flex; color: var(--bi-muted); }
+.bi-badge { background: var(--bi-accent); color: #fff; border-radius: 999px; font-size: 12px; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+.bi-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bi-accent); }
+
+.bi-panel { margin-top: 14px; border: 1px solid var(--bi-border); border-radius: 12px; padding: 14px 16px; background: #fbfbfc; }
+.bi-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.bi-panel-title { font-weight: 700; }
+.bi-panel-actions { display: flex; align-items: center; gap: 10px; }
+.bi-link { background: none; border: 0; color: var(--bi-accent) !important; cursor: pointer; font-size: 13px; text-decoration: underline; } /* überstimmt Theme/Elementor-Linkfarbe */
+.bi-panel-close { background: none; border: 0; cursor: pointer; color: var(--bi-muted); display: flex; }
+
+/* Flowende Pills: Optionen passen sich der Inhaltsbreite an und umbrechen (keine feste Spaltenansicht) */
+.bi-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.bi-opt {
+  display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; text-align: left;
+  background: #fff; border: 1px solid var(--bi-border); border-radius: 999px; cursor: pointer; font-size: 14px; color: var(--bi-text);
+}
+.bi-opt:hover { border-color: var(--bi-accent); }
+.bi-opt[aria-pressed="true"] { border-color: var(--bi-accent); background-color: rgba(226, 0, 26, .06) !important; color: var(--bi-accent-dark) !important; font-weight: 600; } /* Aktiv-Farbe gegen Theme erzwingen */
+.bi-opt svg { color: var(--bi-accent); flex: 0 0 auto; }
+.bi-opt > span:first-of-type { flex: 0 1 auto; }
+/* Dezenter, grauer Zähler hinter dem Label (ohne Klammern) */
+.bi-opt .bi-opt-count { flex: 0 0 auto; color: var(--bi-muted); font-size: 12px; }
+/* Voll­breiter Umbruch: erzwingt eine neue Zeile und setzt die gepinnten Filter optisch ab */
+.bi-opt-break { flex: 0 0 100%; border-top: 1px solid var(--bi-border); margin: 8px 0 4px; }
+
+/* Textfarbe in Filter-Trigger, Optionen und Schließen-Button gegen Theme-Styles erzwingen */
+.bi-trigger,
+.bi-opt,
+.bi-panel-close {
+  color: var(--bi-text) !important;
+}
+
+/* Mehrzeilige Beschriftungen zulassen (z. B. lange Bildungszentrum-Namen) */
+.bi-trigger,
+.bi-opt {
+  white-space: normal !important;   /* überstimmt das nowrap der Button-Basisregel */
+  height: auto !important;          /* überstimmt die feste Höhe von 43px, damit 2 Zeilen passen */
+  line-height: 1.3 !important;      /* optional, für sauberen Zeilenabstand */
+}
+
+/* Hover gegen Theme-Styles erzwingen (weißer Grund, dunkler Text, Akzentrand) */
+.bi-opt:hover {
+  background-color: #fff !important;            /* statt des roten Theme-Hintergrunds */
+  color: var(--bi-text) !important;             /* #1d2327 statt weiß */
+  border-color: var(--bi-accent) !important;    /* #e2001a Akzentrand */
+}
+
+.bi-trigger:hover {
+  background-color: #fff !important;
+  color: var(--bi-text) !important;             /* #1d2327 statt weiß */
+  border-color: var(--bi-accent) !important;    /* #e2001a */
+}
+
+.bi-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.bi-preset { padding: 8px 12px; background: #fff !important; border: 1px solid var(--bi-border) !important; border-radius: 999px; cursor: pointer; font-size: 13px; color: var(--bi-text) !important; } /* Theme-Button-Styles neutralisieren */
+.bi-preset:hover { border-color: var(--bi-accent); }
+.bi-dates { display: flex; gap: 14px; flex-wrap: wrap; }
+.bi-dates label { display: flex; flex-direction: column; font-size: 12px; color: var(--bi-muted); gap: 4px; }
+.bi-dates input { padding: 10px 12px; border: 1px solid var(--bi-border); border-radius: 10px; font-size: 14px; }
+
+.bi-active { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--bi-border); }
+.bi-active-label { font-size: 12px; color: var(--bi-muted); text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
+.bi-chip { display: inline-flex; align-items: center; gap: 6px; background: rgba(226, 0, 26, .08); color: var(--bi-accent-dark); border-radius: 999px; padding: 6px 10px; font-size: 13px; }
+.bi-chip-cat { font-weight: 700; opacity: .7; }
+.bi-chip-x { background: none !important; border: 0 !important; cursor: pointer; color: inherit !important; display: flex; padding: 0; } /* Theme-Button-Styles neutralisieren */
+.bi-reset { margin-left: auto; background: none !important; border: 0 !important; color: var(--bi-muted) !important; text-decoration: underline; cursor: pointer; font-size: 13px; } /* Theme-Button-Styles neutralisieren */
+
+@media (max-width: 600px) {
+  .bi-card { padding: 18px 16px; }
+  .bi-title { font-size: 22px; }
+  .bi-options { grid-template-columns: 1fr; }
+}

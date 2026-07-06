@@ -1,0 +1,54 @@
+/* ── flatpickr im IGM-Rot (#c0392b) ───────────────────────────── */
+
+/* Ausgewählter Tag */
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover,
+.flatpickr-day.selected:focus,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
+}
+
+/* Heute */
+.flatpickr-day.today {
+  border-color: #c0392b;
+}
+.flatpickr-day.today:hover,
+.flatpickr-day.today:focus {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
+}
+
+/* Tage zwischen von und bis (falls du später Range-Modus nutzt) */
+.flatpickr-day.inRange {
+  background: #f7dbd6;
+  border-color: #f7dbd6;
+  box-shadow: -5px 0 0 #f7dbd6, 5px 0 0 #f7dbd6;
+}
+
+/* Hover über normale Tage */
+.flatpickr-day:hover,
+.flatpickr-day:focus {
+  background: #f5e6e3;
+  border-color: #f5e6e3;
+}
+
+/* Monatsnavigation (Pfeile) */
+.flatpickr-months .flatpickr-prev-month:hover svg,
+.flatpickr-months .flatpickr-next-month:hover svg {
+  fill: #c0392b;
+}
+
+/* Eingabefelder (das hübsche Anzeigefeld von altInput) */
+.seminar-suche input.flatpickr-input,
+.seminar-suche input.form-control {
+  background: #fff;
+}
+.seminar-suche input.flatpickr-input:focus {
+  outline: none;
+  border-color: #c0392b;
+  box-shadow: 0 0 0 2px rgba(192,57,43,.2);
+}

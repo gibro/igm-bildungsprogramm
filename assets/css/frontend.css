@@ -1,0 +1,178 @@
+/* ============================================================
+   BI Seminarsuche – Ergebnisliste + Anmeldeformular
+   ============================================================ */
+
+.bi-results { --bi-accent: #e2001a; --bi-border: #e3e5e8; --bi-muted: #6b7280; margin-top: 26px; }
+
+/* ---------------- Ergebnisliste (Zeilen-Layout) ---------------- */
+
+.bi-list { display: flex; flex-direction: column; }
+.bi-row {
+  display: flex; align-items: center; gap: 22px;
+  padding: 22px 4px; border-bottom: 1px solid var(--bi-border); position: relative;
+}
+.bi-row::before { content: ""; position: absolute; left: 0; top: 16px; bottom: 16px; width: 4px; background: var(--bi-accent); border-radius: 2px; }
+.bi-row { padding-left: 22px; }
+.bi-row-ausgebucht { opacity: .7; }
+
+.bi-row-date { flex: 0 0 96px; text-align: left; line-height: 1.15; }
+.bi-row-monthyear { display: block; font-size: 13px; color: var(--bi-muted); text-transform: capitalize; }
+.bi-row-day { display: block; font-size: 34px; font-weight: 800; color: #1d2327; letter-spacing: -.02em; }
+.bi-row-time { display: block; font-size: 13px; color: var(--bi-muted); }
+
+.bi-row-body { flex: 1 1 auto; min-width: 0; }
+.bi-row-title { margin: 0 0 6px; font-size: 20px; line-height: 1.25; font-weight: 800; }
+.bi-row-title a { color: #1d2327; text-decoration: none; }
+.bi-row-title a:hover { color: var(--bi-accent); text-decoration: underline; }
+.bi-row-badge { display: inline-block; vertical-align: middle; margin-left: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #92400e; background: #fef3c7; padding: 3px 8px; border-radius: 999px; }
+.bi-row-ort { font-size: 15px; color: #374151; margin-bottom: 4px; }
+.bi-row-sub { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--bi-muted); }
+.bi-row-sub strong { font-weight: 600; }
+
+.bi-row-action { flex: 0 0 auto; }
+.bi-btn-details {
+  display: inline-block; text-decoration: none; background: var(--bi-accent); color: #fff;
+  font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 14px;
+  padding: 12px 22px; border-radius: 4px; transition: .15s; white-space: nowrap;
+}
+.bi-btn-details:hover { background: #b80016; color: #fff; }
+/* Textfarbe in den Buttons immer weiß erzwingen (gegen Theme-Linkfarben) */
+.bi-btn-details,
+.igm-btn-buchen {
+  color: #fff !important;
+}
+
+.bi-noresults { text-align: center; padding: 40px; color: var(--bi-muted); font-size: 16px; }
+
+.bi-pagination { display: flex; justify-content: center; gap: 6px; margin-top: 28px; }
+.bi-pagination .page-numbers { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; height: 38px; padding: 0 10px; border: 1px solid var(--bi-border); border-radius: 8px; text-decoration: none; color: #374151; }
+.bi-pagination .page-numbers.current { background: var(--bi-accent); color: #fff; border-color: var(--bi-accent); }
+.bi-pagination .page-numbers:hover:not(.current) { border-color: var(--bi-accent); }
+
+/* ---------------- Seminar-Detailansicht (igm-detail) ---------------- */
+
+.igm-detail { --bi-accent: #e2001a; --bi-border: #e3e5e8; --bi-muted: #6b7280; }
+.igm-detail__layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px; align-items: start; }
+.igm-detail__main { min-width: 0; }
+.igm-detail__title { font-size: 32px; line-height: 1.15; font-weight: 800; margin: 0 0 18px; }
+.igm-detail__desc { font-size: 16px; line-height: 1.7; color: #1d2327; }
+.igm-detail__desc p { margin: 0 0 1em; }
+.igm-detail__section-title { font-size: 22px; font-weight: 700; margin: 1.8em 0 .6em; padding-bottom: .3em; border-bottom: 2px solid var(--bi-accent); }
+.igm-detail__topics { font-size: 16px; line-height: 1.7; }
+.igm-detail__topics p { margin: 0 0 .8em; }
+.igm-detail__topics ul,
+.igm-detail__topics ol { margin: 0 0 .8em; padding-left: 1.3em; }
+.igm-detail__topics li { margin: 0 0 .4em; }
+.igm-detail__topics ul li { list-style: disc; }
+.igm-detail__topics ol li { list-style: decimal; }
+
+/* Weitere Termine (Kacheln) */
+.igm-termin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 22px; }
+.igm-termin-card {
+  display: flex; flex-direction: column; background: #f3f4f5;
+  border-radius: 8px; padding: 22px 22px 24px;
+}
+.igm-termin-card__date { font-size: 20px; font-weight: 800; line-height: 1.25; color: #1d2327; text-decoration: none; }
+.igm-termin-card__date:hover { color: var(--bi-accent); }
+.igm-termin-card__ort { margin-top: 10px; font-size: 16px; line-height: 1.4; color: #6b7280; }
+.igm-termin-card__action { margin-top: auto; padding-top: 22px; }
+.igm-termin-card .igm-btn-buchen { display: inline-block; margin-top: 0; }
+
+/* Sidebar */
+.igm-detail__sidebar { position: sticky; top: 24px; }
+.igm-sidebar-box { background: #f7f8fa; border: 1px solid var(--bi-border); border-radius: 12px; padding: 22px 24px; }
+.igm-sidebar-box__headline { margin: 0 0 14px; font-size: 18px; font-weight: 800; }
+.igm-sidebar-row { font-size: 15px; line-height: 1.5; padding: 8px 0; border-bottom: 1px solid var(--bi-border); color: #1d2327; }
+.igm-sidebar-row:last-of-type { border-bottom: 0; }
+.igm-sidebar-row strong { display: block; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--bi-muted); font-weight: 700; margin-bottom: 2px; }
+.igm-sidebar-row a { color: var(--bi-accent); }
+
+.igm-btn-buchen {
+  display: block; text-align: center; margin-top: 18px; text-decoration: none;
+  background: #5a9c5a; color: #fff; font-weight: 700; font-size: 16px;
+  padding: 14px 20px; border-radius: 4px; transition: .15s; border: 0;
+}
+.igm-btn-buchen:hover { background: #4a8a4d; color: #fff; }
+.igm-btn-buchen--alt { background: #374151; }
+.igm-btn-buchen--alt:hover { background: #1f2937; }
+.igm-btn-buchen--disabled { background: #e5e7eb; cursor: not-allowed; }
+.igm-btn-buchen--disabled:hover { background: #e5e7eb; }
+.igm-buchen-hinweis { margin-top: 18px; font-size: 14px; color: #374151; }
+
+@media (max-width: 880px) {
+  .igm-detail__layout { grid-template-columns: 1fr; gap: 28px; }
+  .igm-detail__sidebar { position: static; }
+  .igm-detail__title { font-size: 26px; }
+}
+
+/* ---------------- Anmeldeformular ---------------- */
+
+.bi-form {
+  --bi-accent: #e2001a; --bi-border: #e3e5e8; --bi-muted: #6b7280;
+  max-width: 760px; background: #fff; border: 1px solid var(--bi-border);
+  border-radius: 14px; padding: 28px 30px; box-shadow: 0 2px 14px rgba(0, 0, 0, .05);
+}
+
+/* Honeypot unsichtbar */
+.bi-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+/* Seminar-Kopf */
+.bi-form-seminar { border-left: 4px solid var(--bi-accent); padding: 4px 0 4px 16px; margin-bottom: 22px; }
+.bi-form-seminar-kicker { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bi-accent); }
+.bi-form-seminar-title { margin: 4px 0 8px; font-size: 22px; line-height: 1.2; font-weight: 800; }
+.bi-form-seminar-meta { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 14px; color: #374151; }
+.bi-form-seminar-meta strong { color: var(--bi-muted); font-weight: 600; }
+
+/* Abschnitte */
+.bi-form-section { border: 0; margin: 0 0 22px; padding: 0; }
+.bi-form-legend { font-size: 16px; font-weight: 700; color: var(--bi-text, #1d2327); padding: 0 0 12px; margin-bottom: 4px; border-bottom: 1px solid var(--bi-border); width: 100%; }
+
+/* 12-Spalten-Grid */
+.bi-form-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px 16px; }
+.bi-col-4 { grid-column: span 4; }
+.bi-col-6 { grid-column: span 6; }
+.bi-col-8 { grid-column: span 8; }
+.bi-col-12 { grid-column: span 12; }
+
+.bi-form-row { margin: 0; min-width: 0; }
+.bi-form-row label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+.bi-form-row input,
+.bi-form-row textarea,
+.bi-form-row select {
+  width: 100%; box-sizing: border-box; padding: 11px 13px; font-size: 15px;
+  border: 1px solid var(--bi-border); border-radius: 10px; outline: none; background: #fff;
+}
+.bi-form-row input:focus,
+.bi-form-row textarea:focus,
+.bi-form-row select:focus { border-color: var(--bi-accent); box-shadow: 0 0 0 3px rgba(226, 0, 26, .12); }
+.bi-req { color: var(--bi-accent); }
+
+.bi-form-consent { margin: 6px 0 18px; }
+.bi-form-consent label { font-weight: 400; font-size: 13.5px; color: #374151; display: flex; gap: 8px; align-items: flex-start; }
+.bi-form-consent input { width: auto; margin-top: 3px; }
+.bi-form-submit {
+  background: var(--bi-accent); color: #fff; border: 0; font-size: 16px; font-weight: 700;
+  padding: 14px 30px; border-radius: 10px; cursor: pointer; transition: .15s;
+}
+.bi-form-submit:hover { background: #b80016; }
+.bi-form-note { font-size: 12.5px; color: var(--bi-muted); margin: 10px 0 0; }
+
+.bi-form-success { max-width: 760px; background: #e8f6ec; border: 1px solid #abdcb8; border-radius: 14px; padding: 24px 28px; }
+.bi-form-success h3 { margin-top: 0; color: #1a7f37; }
+.bi-form-error { background: #fde8e8; border: 1px solid #f3b2b2; color: #b32d2e; padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; }
+
+@media (max-width: 640px) {
+  .bi-row { flex-wrap: wrap; gap: 8px 18px; }
+  .bi-row-date { flex-basis: auto; display: flex; align-items: baseline; gap: 8px; }
+  .bi-row-day { font-size: 22px; }
+  .bi-row-monthyear, .bi-row-time { font-size: 12.5px; }
+  .bi-row-body { flex-basis: 100%; order: 3; }
+  .bi-row-action { margin-left: auto; }
+}
+
+@media (max-width: 600px) {
+  .bi-form { padding: 20px 18px; }
+  /* Auf schmalen Schirmen alles volle Breite */
+  .bi-col-4, .bi-col-6, .bi-col-8 { grid-column: span 12; }
+  .bi-form-seminar-title { font-size: 19px; }
+}

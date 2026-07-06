@@ -1,0 +1,141 @@
+/* ============================================================
+   BI Seminarsuche – Marketing-Kacheln [bi_kacheln] / [bi_kachel]
+   Akzentfarbe über --bi-accent überschreibbar (wie Filterleiste).
+   ============================================================ */
+
+.bi-kacheln {
+  --bi-accent: #e2001a;
+  --bi-accent-dark: #b80016;
+  --bi-border: #e3e5e8;
+  --bi-text: #1d2327;
+  --bi-muted: #6b7280;
+  --bi-radius: 14px;
+  display: grid;
+  gap: 24px;
+  margin: 24px 0;
+}
+.bi-kacheln-2 { grid-template-columns: repeat(2, 1fr); }
+.bi-kacheln-3 { grid-template-columns: repeat(3, 1fr); }
+.bi-kacheln-4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (max-width: 980px) {
+  .bi-kacheln-3, .bi-kacheln-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .bi-kacheln-2, .bi-kacheln-3, .bi-kacheln-4 { grid-template-columns: 1fr; }
+}
+
+/* ---------------- Kachel-Grundgerüst ---------------- */
+
+.bi-kachel {
+  --bi-accent: #e2001a;
+  --bi-accent-dark: #b80016;
+  --bi-border: #e3e5e8;
+  --bi-text: #1d2327;
+  --bi-muted: #6b7280;
+  --bi-radius: 14px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;   /* füllt die umgebende Box (z. B. Elementor-Spalte) */
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--bi-border);
+  border-radius: var(--bi-radius);
+  background: #fff;
+  text-decoration: none;
+  color: var(--bi-text);
+  transition: box-shadow .18s, transform .18s, border-color .18s;
+}
+.bi-kachel:hover,
+.bi-kachel:focus-visible {
+  border-color: var(--bi-accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+  transform: translateY(-2px);
+  color: var(--bi-text);
+  text-decoration: none;
+}
+
+.bi-kachel-media { display: block; overflow: hidden; }
+.bi-kachel-img {
+  display: block;
+  width: 100%;
+  /* height:auto hebt das feste height-Attribut von WP-Bildern auf – sonst greift aspect-ratio nie */
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  transition: transform .3s;
+}
+.bi-kachel:hover .bi-kachel-img { transform: scale(1.04); }
+
+.bi-kachel-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 20px 22px 22px;
+  flex: 1 1 auto;
+}
+.bi-kachel-titel {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.25;
+  font-weight: 800;
+  color: inherit;
+}
+.bi-kachel-text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--bi-muted);
+}
+.bi-kachel-btn {
+  margin-top: auto;
+  display: inline-block;
+  background: var(--bi-accent);
+  color: #fff !important; /* gegen Theme-Linkfarben */
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: 13px;
+  padding: 10px 18px;
+  border-radius: 4px;
+  transition: background .15s;
+  white-space: nowrap;
+}
+.bi-kachel:hover .bi-kachel-btn { background: var(--bi-accent-dark); }
+
+/* ---------------- Layout "overlay": Text über dem Bild ---------------- */
+
+.bi-kachel-overlay { justify-content: flex-end; min-height: 300px; background: #2b2f36; }
+.bi-kachel-overlay .bi-kachel-media { position: absolute; inset: 0; }
+.bi-kachel-overlay .bi-kachel-img { height: 100%; aspect-ratio: auto; }
+.bi-kachel-overlay .bi-kachel-body {
+  position: relative;
+  z-index: 1;
+  color: #fff;
+  padding-top: 72px;
+  background: linear-gradient(to top, rgba(0, 0, 0, .78) 0%, rgba(0, 0, 0, .45) 55%, rgba(0, 0, 0, 0) 100%);
+}
+.bi-kachel-overlay .bi-kachel-titel { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+.bi-kachel-overlay .bi-kachel-text { color: rgba(255, 255, 255, .88); }
+.bi-kachel-overlay:hover, .bi-kachel-overlay:focus-visible { color: #fff; }
+
+/* ---------------- Redaktions-Zähler (nur eingeloggt sichtbar) ---------------- */
+
+.bi-kachel-count {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #1d2327;
+  color: #fff;
+  opacity: .88;
+  pointer-events: auto;
+}
+.bi-kachel-count-0 { background: var(--bi-accent, #e2001a); }

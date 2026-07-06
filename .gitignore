@@ -1,0 +1,12 @@
+# Betriebssystem
+.DS_Store
+Thumbs.db
+
+# Editoren / IDEs
+.idea/
+.vscode/
+*.swp
+
+# Abhängigkeiten / Builds (falls später hinzukommend)
+node_modules/
+vendor/composer/
