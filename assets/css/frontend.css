@@ -66,17 +66,22 @@
 .igm-detail__topics ul li { list-style: disc; }
 .igm-detail__topics ol li { list-style: decimal; }
 
-/* Weitere Termine (Kacheln) */
-.igm-termin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 22px; }
-.igm-termin-card {
-  display: flex; flex-direction: column; background: #f3f4f5;
-  border-radius: 8px; padding: 22px 22px 24px;
+/* Weitere Termine (Tabelle) */
+.igm-termin-table { width: 100%; border-collapse: collapse; font-size: 16px; }
+.igm-termin-table th {
+  text-align: left; font-size: 12.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--bi-muted); padding: 10px 16px 10px 0;
+  border-bottom: 2px solid var(--bi-border);
 }
-.igm-termin-card__date { font-size: 20px; font-weight: 800; line-height: 1.25; color: #1d2327; text-decoration: none; }
-.igm-termin-card__date:hover { color: var(--bi-accent); }
-.igm-termin-card__ort { margin-top: 10px; font-size: 16px; line-height: 1.4; color: #6b7280; }
-.igm-termin-card__action { margin-top: auto; padding-top: 22px; }
-.igm-termin-card .igm-btn-buchen { display: inline-block; margin-top: 0; }
+.igm-termin-table td { padding: 14px 16px 14px 0; border-bottom: 1px solid var(--bi-border); vertical-align: middle; }
+.igm-termin-table th:last-child,
+.igm-termin-table td:last-child { padding-right: 0; }
+.igm-termin-table__ort { color: #1d2327; }
+.igm-termin-table__zeitraum { white-space: nowrap; }
+.igm-termin-table__zeitraum a { font-weight: 700; color: #1d2327; text-decoration: none; }
+.igm-termin-table__zeitraum a:hover { color: var(--bi-accent); }
+.igm-termin-table__action { text-align: right; }
+.igm-termin-table .igm-btn-buchen { display: inline-block; margin-top: 0; padding: 10px 18px; font-size: 15px; }
 
 /* Sidebar */
 .igm-detail__sidebar { position: sticky; top: 24px; }
@@ -103,6 +108,21 @@
   .igm-detail__layout { grid-template-columns: 1fr; gap: 28px; }
   .igm-detail__sidebar { position: static; }
   .igm-detail__title { font-size: 26px; }
+}
+
+@media (max-width: 640px) {
+  .igm-termin-table thead { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .igm-termin-table,
+  .igm-termin-table tbody,
+  .igm-termin-table tr,
+  .igm-termin-table td { display: block; }
+  .igm-termin-table tr { padding: 14px 0; border-bottom: 1px solid var(--bi-border); }
+  .igm-termin-table td { padding: 2px 0; border-bottom: 0; }
+  .igm-termin-table td[data-label]::before {
+    content: attr(data-label) ": "; font-size: 12.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .03em; color: var(--bi-muted);
+  }
+  .igm-termin-table__action { text-align: left; padding-top: 10px; }
 }
 
 /* ---------------- Anmeldeformular ---------------- */

@@ -206,7 +206,7 @@ class BI_Detail {
 
 	/**
 	 * „Weitere Termine zu diesem Seminar" – gleiche Titel, aber SPÄTER stattfindende,
-	 * zukünftige Termine. Kachel-Darstellung mit „Jetzt buchen"-Button je Termin.
+	 * zukünftige Termine. Tabelle (Seminarort | Zeitraum | „Jetzt buchen"-Button je Termin).
 	 */
 	private static function weitere_termine( $post_id ) {
 		global $wpdb;
@@ -249,7 +249,12 @@ class BI_Detail {
 		ob_start();
 		echo '<div class="igm-weitere-termine">';
 		echo '<h2 class="igm-detail__section-title">Weitere Termine zu diesem Seminar</h2>';
-		echo '<div class="igm-termin-grid">';
+		echo '<table class="igm-termin-table">';
+		echo '<thead><tr>';
+		echo '<th scope="col">Seminarort</th>';
+		echo '<th scope="col">Zeitraum</th>';
+		echo '<th scope="col"><span class="screen-reader-text">Buchung</span></th>';
+		echo '</tr></thead><tbody>';
 		while ( $q->have_posts() ) {
 			$q->the_post();
 			$id    = get_the_ID();
@@ -262,15 +267,14 @@ class BI_Detail {
 				$datum .= ' – ' . date_i18n( 'd.m.Y', strtotime( $end ) );
 			}
 
-			echo '<div class="igm-termin-card">';
-			echo '<a class="igm-termin-card__date" href="' . esc_url( get_permalink( $id ) ) . '">' . esc_html( $datum ) . '</a>';
-			if ( '' !== $ort ) {
-				echo '<div class="igm-termin-card__ort">' . esc_html( $ort ) . '</div>';
-			}
-			echo '<div class="igm-termin-card__action">' . self::booking_button( $id ) . '</div>';
-			echo '</div>';
+			echo '<tr>';
+			echo '<td class="igm-termin-table__ort" data-label="Seminarort">' . esc_html( $ort ) . '</td>';
+			echo '<td class="igm-termin-table__zeitraum" data-label="Zeitraum">'
+				. '<a href="' . esc_url( get_permalink( $id ) ) . '">' . esc_html( $datum ) . '</a></td>';
+			echo '<td class="igm-termin-table__action">' . self::booking_button( $id ) . '</td>';
+			echo '</tr>';
 		}
-		echo '</div></div>';
+		echo '</tbody></table></div>';
 		wp_reset_postdata();
 		return ob_get_clean();
 	}
