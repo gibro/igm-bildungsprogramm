@@ -532,37 +532,36 @@ class BI_Kacheln {
 	 *  verlinkt auf die Übersicht mit vorausgewähltem Themenfeld.
 	 * =================================================================== */
 
-	/** Alle Themenfeld-Terms, „Grundlagen …" zuerst (wie in der Filterleiste) */
-	private static function vorlagen_terms() {
-		$terms = get_terms( array( 'taxonomy' => BI_TAX_THEMA, 'hide_empty' => false ) );
-		if ( is_wp_error( $terms ) || ! $terms ) {
+	/**
+	 * Themenfeld-Einträge exakt wie in der Frontend-Filterleiste: dieselbe Auswahl
+	 * (nur Einträge mit buchbaren Seminaren), dieselben Labels (thema_label) und
+	 * dieselbe Reihenfolge („Grundlagen …" gepinnt). Quelle: BI_Filter::facet_choices().
+	 */
+	private static function vorlagen_choices() {
+		if ( ! class_exists( 'BI_Filter' ) ) {
 			return array();
 		}
-		$pinned = array();
-		$rest   = array();
-		foreach ( $terms as $t ) {
-			$label = class_exists( 'BI_Filter' ) ? BI_Filter::thema_label( $t->name ) : $t->name;
-			if ( 0 === strpos( $label, 'Grundlagen für ' ) ) {
-				$pinned[ $label ] = $t;
-			} else {
-				$rest[] = $t;
+		$choices = BI_Filter::facet_choices();
+		$out     = array();
+		foreach ( (array) ( $choices['thema'] ?? array() ) as $opt ) {
+			if ( ! empty( $opt['separator'] ) ) {
+				continue;
 			}
+			$term = get_term_by( 'name', $opt['value'], BI_TAX_THEMA );
+			if ( ! $term instanceof WP_Term ) {
+				continue;
+			}
+			$out[] = array( 'term' => $term, 'label' => $opt['label'], 'count' => (int) $opt['count'] );
 		}
-		ksort( $pinned );
-		return array_merge( array_values( $pinned ), $rest );
-	}
-
-	/** Kachel-Überschrift = Anzeige-Label des Filters */
-	private static function vorlage_titel( $term ) {
-		return class_exists( 'BI_Filter' ) ? BI_Filter::thema_label( $term->name ) : $term->name;
+		return $out;
 	}
 
 	/** Fertiger Shortcode einer Themen-Kachel (button="" = nur Überschrift, kein Text) */
-	private static function vorlage_shortcode( $term, $att_id ) {
+	private static function vorlage_shortcode( $term, $att_id, $label ) {
 		$q = function ( $v ) {
 			return str_replace( '"', "'", $v );
 		};
-		return '[bi_kachel layout="2" bild="' . (int) $att_id . '" titel="' . $q( self::vorlage_titel( $term ) )
+		return '[bi_kachel layout="2" bild="' . (int) $att_id . '" titel="' . $q( $label )
 			. '" button="" thema="' . $q( $term->name ) . '"]';
 	}
 
@@ -580,8 +579,8 @@ class BI_Kacheln {
 		}
 
 		$tiles = '';
-		foreach ( self::vorlagen_terms() as $term ) {
-			$att_id = (int) ( $map[ $term->term_id ] ?? 0 );
+		foreach ( self::vorlagen_choices() as $choice ) {
+			$att_id = (int) ( $map[ $choice['term']->term_id ] ?? 0 );
 			if ( ! $att_id ) {
 				continue;
 			}
@@ -589,10 +588,10 @@ class BI_Kacheln {
 				'layout' => '2',
 				'bild'   => (string) $att_id,
 				'ratio'  => $atts['ratio'],
-				'titel'  => self::vorlage_titel( $term ),
+				'titel'  => $choice['label'],
 				'text'   => '',
 				'button' => $atts['button'],
-				'thema'  => $term->name,
+				'thema'  => $choice['term']->name,
 			) );
 		}
 		if ( '' === $tiles ) {
@@ -611,13 +610,22 @@ class BI_Kacheln {
 		}
 		check_admin_referer( 'bi_kachel_vorlagen' );
 
+		// Bestehende Zuordnungen behalten und nur die im Formular gelisteten Filter
+		// aktualisieren – die Liste zeigt nur Themenfelder mit aktuell buchbaren
+		// Seminaren; Zuordnungen ausgeblendeter Felder dürfen nicht verloren gehen.
 		$in  = isset( $_POST['vorlage'] ) && is_array( $_POST['vorlage'] ) ? wp_unslash( $_POST['vorlage'] ) : array();
-		$map = array();
+		$map = get_option( self::OPTION_VORLAGEN, array() );
+		$map = is_array( $map ) ? $map : array();
 		foreach ( $in as $term_id => $att_id ) {
 			$term_id = (int) $term_id;
 			$att_id  = (int) $att_id;
-			if ( $term_id > 0 && $att_id > 0 ) {
+			if ( $term_id <= 0 ) {
+				continue;
+			}
+			if ( $att_id > 0 ) {
 				$map[ $term_id ] = $att_id;
+			} else {
+				unset( $map[ $term_id ] );
 			}
 		}
 		update_option( self::OPTION_VORLAGEN, $map, false );
@@ -629,11 +637,11 @@ class BI_Kacheln {
 		exit;
 	}
 
-	/** Backend-Seite: Bild je Themenfeld zuordnen + fertige Shortcodes kopieren */
+	/** Backend-Seite: Bild je Themenfeld-Filter zuordnen + fertige Shortcodes kopieren */
 	public static function render_vorlagen() {
-		$map   = get_option( self::OPTION_VORLAGEN, array() );
-		$terms = self::vorlagen_terms();
-		$msg   = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
+		$map     = get_option( self::OPTION_VORLAGEN, array() );
+		$choices = self::vorlagen_choices();
+		$msg     = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
 		?>
 		<style>
 			.bi-kv-table td { vertical-align: middle; }
@@ -647,11 +655,15 @@ class BI_Kacheln {
 			<?php if ( $msg ) : ?>
 				<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $msg ); ?></p></div>
 			<?php endif; ?>
-			<p>Ordne jedem Themenfeld ein Bild aus der <strong>Mediathek</strong> zu (lizenzierte IG-Metall-Motive
-				dort hochladen). Daraus entstehen fertige Kacheln im Overlay-Layout – ohne Text, nur mit dem
-				Filter-Label als Überschrift – die auf die Übersicht mit vorausgewähltem Themenfeld verlinken.<br>
+			<p>Die Liste entspricht <strong>exakt der Themenfeld-Filterleiste im Frontend</strong> – gleiche
+				Einträge (nur mit buchbaren Seminaren), gleiche Überschriften, gleiche Reihenfolge. Ordne jedem
+				Filter ein Bild aus der <strong>Mediathek</strong> zu (lizenzierte IG-Metall-Motive dort hochladen).
+				Daraus entstehen fertige Kacheln im Overlay-Layout – ohne Text, nur mit dem Filter-Label als
+				Überschrift – die auf die Übersicht mit vorausgewähltem Themenfeld verlinken.<br>
 				Einzelne Kachel: Shortcode aus der Zeile kopieren. Alle Kacheln auf einmal:
-				<code>[bi_kachel_vorlagen spalten="3"]</code> (zeigt automatisch alle Themenfelder mit Bild).</p>
+				<code>[bi_kachel_vorlagen spalten="3"]</code> (zeigt automatisch alle Filter mit Bild,
+				in der Reihenfolge der Filterleiste). Die Bild-Zuordnung bleibt gespeichert, auch wenn ein
+				Themenfeld zwischenzeitlich keine buchbaren Seminare hat und deshalb hier nicht auftaucht.</p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="bi_save_kachel_vorlagen">
@@ -667,11 +679,16 @@ class BI_Kacheln {
 						</tr>
 					</thead>
 					<tbody>
-						<?php foreach ( $terms as $term ) : ?>
+						<?php if ( ! $choices ) : ?>
+							<tr><td colspan="4"><em>Aktuell bietet die Filterleiste keine Themenfeld-Einträge an
+								(keine buchbaren Seminare mit Themenfeld).</em></td></tr>
+						<?php endif; ?>
+						<?php foreach ( $choices as $choice ) : ?>
 							<?php
+							$term   = $choice['term'];
+							$titel  = $choice['label'];
 							$att_id = (int) ( $map[ $term->term_id ] ?? 0 );
 							$thumb  = $att_id ? wp_get_attachment_image_url( $att_id, 'medium' ) : '';
-							$titel  = self::vorlage_titel( $term );
 							?>
 							<tr>
 								<td>
@@ -681,6 +698,7 @@ class BI_Kacheln {
 								</td>
 								<td>
 									<strong><?php echo esc_html( $titel ); ?></strong>
+									<span style="color:#787c82">(<?php echo esc_html( number_format_i18n( $choice['count'] ) ); ?>)</span>
 									<?php if ( $titel !== $term->name ) : ?>
 										<br><span class="description">Term: <?php echo esc_html( $term->name ); ?></span>
 									<?php endif; ?>
@@ -692,7 +710,7 @@ class BI_Kacheln {
 								<td>
 									<?php if ( $att_id ) : ?>
 										<input type="text" class="bi-kv-shortcode" readonly
-											value="<?php echo esc_attr( self::vorlage_shortcode( $term, $att_id ) ); ?>"
+											value="<?php echo esc_attr( self::vorlage_shortcode( $term, $att_id, $titel ) ); ?>"
 											onclick="this.select()">
 										<button type="button" class="button bi-kv-copy" style="margin-top:4px">Kopieren</button>
 										<span class="bi-kv-copied" style="display:none">✓</span>

@@ -168,16 +168,20 @@ Mehrfachwerte mit `|`): `q` (Titelsuche), `ort`, `thema`, `ziel`, `frei`
 
 #### Vorgefertigte Themen-Kacheln (`[bi_kachel_vorlagen]`)
 
-Unter **Bildungsprogramm → Kachel-Vorlagen** wird jedem Themenfeld ein Bild
-aus der **Mediathek** zugeordnet (die lizenzierten IG-Metall-Motive dort
+Unter **Bildungsprogramm → Kachel-Vorlagen** wird jedem Themenfeld-Filter ein
+Bild aus der **Mediathek** zugeordnet (die lizenzierten IG-Metall-Motive dort
 hochladen – nicht ins Plugin legen, so überleben sie Plugin-Updates und
-WordPress erzeugt automatisch alle Bildgrößen). Daraus entstehen fertige
-Kacheln im Overlay-Layout: ohne Teaser-Text, nur mit dem Filter-Label als
-Überschrift (z. B. „Grundlagen für Betriebsrät*innen"), verlinkt auf die
+WordPress erzeugt automatisch alle Bildgrößen). Die Liste entspricht exakt
+der Themenfeld-Filterleiste im Frontend: gleiche Einträge (nur mit buchbaren
+Seminaren), gleiche Überschriften, gleiche Reihenfolge. Daraus entstehen
+fertige Kacheln im Overlay-Layout: ohne Teaser-Text, nur mit dem Filter-Label
+als Überschrift (z. B. „Grundlagen für Betriebsrät*innen"), verlinkt auf die
 Übersicht mit vorausgewähltem Themenfeld. Pro Zeile steht der fertige
 `[bi_kachel …]`-Shortcode zum Kopieren; `[bi_kachel_vorlagen spalten="3"]`
-rendert alle Themenfelder mit zugeordnetem Bild auf einmal als Grid
-(optional `ratio`, `button`).
+rendert alle Filter mit zugeordnetem Bild auf einmal als Grid – in der
+Reihenfolge der Filterleiste (optional `ratio`, `button`). Bild-Zuordnungen
+bleiben gespeichert, auch wenn ein Themenfeld zwischenzeitlich keine
+buchbaren Seminare hat.
 
 **Darstellungs-Attribute:**
 
