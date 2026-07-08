@@ -15,6 +15,22 @@ class BI_PLZ {
 
 	public static function init() {
 		add_action( 'admin_post_bi_import_plz', array( __CLASS__, 'handle_import' ) );
+		// Frontend-Lookup für die Geschäftsstellen-Anfrage auf der Detailseite.
+		// Bewusst ohne Nonce: rein lesend, öffentliche Daten, muss Seiten-Caching überleben.
+		add_action( 'wp_ajax_bi_plz_lookup', array( __CLASS__, 'ajax_lookup' ) );
+		add_action( 'wp_ajax_nopriv_bi_plz_lookup', array( __CLASS__, 'ajax_lookup' ) );
+	}
+
+	/** AJAX: PLZ -> { geschaeftsstelle, email } */
+	public static function ajax_lookup() {
+		$row = self::lookup( sanitize_text_field( wp_unslash( $_GET['plz'] ?? '' ) ) );
+		if ( ! $row ) {
+			wp_send_json_error( array( 'message' => 'Zu dieser Postleitzahl wurde keine Geschäftsstelle gefunden.' ) );
+		}
+		wp_send_json_success( array(
+			'geschaeftsstelle' => $row['geschaeftsstelle'],
+			'email'            => $row['email'],
+		) );
 	}
 
 	public static function table() {

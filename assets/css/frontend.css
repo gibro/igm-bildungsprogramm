@@ -104,6 +104,26 @@
 .igm-btn-buchen--disabled:hover { background: #e5e7eb; }
 .igm-buchen-hinweis { margin-top: 18px; font-size: 14px; color: #374151; }
 
+/* Geschäftsstellen-Anfrage (PLZ-Suche + mailto) */
+.igm-gs-anfrage__label { display: block; margin-top: 14px; font-size: 13px; font-weight: 600; color: #374151; }
+.igm-gs-anfrage__form { display: flex; gap: 8px; margin-top: 6px; }
+.igm-gs-anfrage__plz {
+  width: 90px; box-sizing: border-box; padding: 10px 12px; font-size: 15px;
+  border: 1px solid var(--bi-border); border-radius: 4px; outline: none;
+}
+.igm-gs-anfrage__plz:focus { border-color: var(--bi-accent); box-shadow: 0 0 0 3px rgba(226, 0, 26, .12); }
+.igm-gs-anfrage__find {
+  flex: 1; background: #374151; color: #fff; border: 0; border-radius: 4px;
+  font-size: 14px; font-weight: 700; padding: 10px 12px; cursor: pointer; transition: .15s;
+}
+.igm-gs-anfrage__find:hover { background: #1f2937; }
+.igm-gs-anfrage__result { margin-top: 14px; }
+.igm-gs-anfrage__gs { margin: 0; font-size: 14px; color: #1d2327; }
+.igm-gs-anfrage__error { margin: 0; font-size: 13.5px; color: #b32d2e; }
+.igm-gs-anfrage__result .igm-btn-buchen { margin-top: 12px; }
+.igm-gs-anfrage__fallback { display: inline-block; margin-top: 12px; font-size: 13px; color: var(--bi-muted); }
+.igm-gs-anfrage__fallback:hover { color: var(--bi-accent); }
+
 @media (max-width: 880px) {
   .igm-detail__layout { grid-template-columns: 1fr; gap: 28px; }
   .igm-detail__sidebar { position: static; }

@@ -126,6 +126,20 @@ Die zuständige Geschäftsstelle wird über die **betriebliche PLZ** ermittelt.
 Pro Seminar steuern Einstellungen und Regeln, ob die Direktanmeldung oder der
 Verweis auf die Geschäftsstelle angeboten wird.
 
+### Geschäftsstellen-Anfrage direkt auf der Detailseite (GS-Variante)
+
+Bei Seminaren mit Geschäftsstellen-Anmeldung (z. B. Bildungsurlaub) enthält
+die Sidebar eine **integrierte PLZ-Suche**: Postleitzahl eingeben →
+AJAX-Lookup gegen die `wp_bi_plz`-Tabelle → die zuständige Geschäftsstelle
+wird angezeigt und ein Button **„Anfrage senden"** öffnet das Mailprogramm
+(`mailto:`) mit vorausgefüllter Anfrage: Seminarnummer und Titel im Betreff,
+Zeitraum, Bildungszentrum, Seminar-Link und ein Datenblock zum Ausfüllen
+(Name, Anschrift, …) im Text. Auch die GS-Buttons in der Tabelle „Weitere
+Termine" werden nach erfolgreicher Suche auf mailto-Links mit den Daten des
+jeweiligen Termins umgeschrieben. Die PLZ wird in `localStorage` gemerkt.
+Ist zur Geschäftsstelle keine E-Mail hinterlegt (oder die PLZ unbekannt),
+bleibt der Fallback-Link zur Geschäftsstellensuche auf igmetall.de.
+
 ### `[bi_kachel]` – Marketing-Kacheln
 
 Eine Kachel ist ein klickbarer Teaser (Bild + Überschrift + Text + Button), der
