@@ -88,6 +88,9 @@ class BI_Registration {
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			created DATETIME NOT NULL,
 			seminar_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			seminar_titel VARCHAR(255) NOT NULL DEFAULT '',
+			seminar_nummer VARCHAR(60) NOT NULL DEFAULT '',
+			seminar_termin VARCHAR(60) NOT NULL DEFAULT '',
 			vorname VARCHAR(190) NOT NULL DEFAULT '',
 			nachname VARCHAR(190) NOT NULL DEFAULT '',
 			email VARCHAR(190) NOT NULL DEFAULT '',
@@ -567,21 +570,27 @@ class BI_Registration {
 			exit;
 		}
 
-		// GS-relevante PLZ = betriebliche PLZ -> Spalte plz
+		// GS-relevante PLZ = betriebliche PLZ -> Spalte plz.
+		// Seminar-Titel/-Nummer/-Termin als Snapshot mitspeichern, damit die Anmeldung
+		// auch nach Löschen/Re-Import des Seminars lesbar bleibt.
+		$info = self::seminar_info( $seminar_id );
 		global $wpdb;
 		$wpdb->insert( self::table(), array(
-			'created'    => current_time( 'mysql' ),
-			'seminar_id' => $seminar_id,
-			'vorname'    => $data['vorname'],
-			'nachname'   => $data['nachname'],
-			'email'      => $data['email'],
-			'telefon'    => $data['telefon'],
-			'betrieb'    => $data['betrieb'],
-			'plz'        => $data['betrieb_plz'],
-			'nachricht'  => $data['bemerkungen'],
-			'data'       => wp_json_encode( $data ),
-			'status'     => 'neu',
-		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
+			'created'        => current_time( 'mysql' ),
+			'seminar_id'     => $seminar_id,
+			'seminar_titel'  => $info['title'],
+			'seminar_nummer' => $info['nummer'],
+			'seminar_termin' => $info['termin'],
+			'vorname'        => $data['vorname'],
+			'nachname'       => $data['nachname'],
+			'email'          => $data['email'],
+			'telefon'        => $data['telefon'],
+			'betrieb'        => $data['betrieb'],
+			'plz'            => $data['betrieb_plz'],
+			'nachricht'      => $data['bemerkungen'],
+			'data'           => wp_json_encode( $data ),
+			'status'         => 'neu',
+		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
 
 		$submission_id = (int) $wpdb->insert_id;
 		if ( $submission_id ) {
@@ -630,8 +639,8 @@ class BI_Registration {
 			BI_CPT,
 			$like
 		) );
-		$cond   = '(vorname LIKE %s OR nachname LIKE %s OR email LIKE %s OR telefon LIKE %s OR betrieb LIKE %s OR plz LIKE %s OR nachricht LIKE %s OR data LIKE %s';
-		$params = array( $like, $like, $like, $like, $like, $like, $like, $like );
+		$cond   = '(vorname LIKE %s OR nachname LIKE %s OR email LIKE %s OR telefon LIKE %s OR betrieb LIKE %s OR plz LIKE %s OR nachricht LIKE %s OR data LIKE %s OR seminar_titel LIKE %s OR seminar_nummer LIKE %s';
+		$params = array( $like, $like, $like, $like, $like, $like, $like, $like, $like, $like );
 		if ( $sids ) {
 			$cond .= ' OR seminar_id IN (' . implode( ',', array_map( 'intval', $sids ) ) . ')';
 		}
@@ -663,6 +672,27 @@ class BI_Registration {
 		$params[] = (int) $limit;
 		$params[] = (int) $offset;
 		return $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+	}
+
+	/**
+	 * Titel/Nummer/Termin einer Anmeldung: Snapshot aus der Zeile,
+	 * sonst live vom Seminar-Post (ältere Anmeldungen ohne Snapshot).
+	 */
+	private static function seminar_display( $r ) {
+		$titel  = trim( (string) ( $r['seminar_titel'] ?? '' ) );
+		$nummer = trim( (string) ( $r['seminar_nummer'] ?? '' ) );
+		$termin = trim( (string) ( $r['seminar_termin'] ?? '' ) );
+
+		if ( '' === $titel || '' === $nummer || '' === $termin ) {
+			$info   = self::seminar_info( (int) $r['seminar_id'] );
+			$titel  = '' !== $titel ? $titel : (string) $info['title'];
+			$nummer = '' !== $nummer ? $nummer : (string) $info['nummer'];
+			$termin = '' !== $termin ? $termin : (string) $info['termin'];
+		}
+		if ( '' === $titel ) {
+			$titel = 'Seminar #' . (int) $r['seminar_id'] . ' (gelöscht)';
+		}
+		return array( 'titel' => $titel, 'nummer' => $nummer, 'termin' => $termin );
 	}
 
 	/** Anzeigewert eines Feldes (Radio/Select-Labels auflösen) */
@@ -733,9 +763,12 @@ class BI_Registration {
 			foreach ( $rows as $r ) {
 				$gs   = BI_PLZ::lookup( $r['plz'] );
 				$link = add_query_arg( array( 'page' => 'bi-anmeldungen', 'view' => $r['id'] ), admin_url( 'admin.php' ) );
+				$sem  = self::seminar_display( $r );
+				$sub  = array_filter( array( $sem['nummer'] ? 'Nr. ' . $sem['nummer'] : '', $sem['termin'] ) );
 				echo '<tr>'
 					. '<td>' . esc_html( date_i18n( 'd.m.Y H:i', strtotime( $r['created'] ) ) ) . '</td>'
-					. '<td>' . esc_html( get_the_title( $r['seminar_id'] ) ?: ( 'ID ' . $r['seminar_id'] ) ) . '</td>'
+					. '<td>' . esc_html( $sem['titel'] )
+						. ( $sub ? '<br><span style="color:#666;font-size:12px">' . esc_html( implode( ' · ', $sub ) ) . '</span>' : '' ) . '</td>'
 					. '<td><a href="' . esc_url( $link ) . '"><strong>' . esc_html( trim( $r['vorname'] . ' ' . $r['nachname'] ) ?: '(ohne Namen)' ) . '</strong></a></td>'
 					. '<td>' . esc_html( $r['email'] ) . '</td>'
 					. '<td>' . esc_html( $r['betrieb'] ) . '</td>'
@@ -784,10 +817,11 @@ class BI_Registration {
 		// Kopf-Box
 		echo '<table class="widefat" style="max-width:780px;margin-bottom:20px"><tbody>';
 		echo '<tr><th style="width:220px">Eingegangen am</th><td>' . esc_html( date_i18n( 'd.m.Y H:i', strtotime( $r['created'] ) ) ) . '</td></tr>';
+		$sem      = self::seminar_display( $r );
 		$sem_link = get_edit_post_link( $r['seminar_id'] );
-		$sem_txt  = get_the_title( $r['seminar_id'] ) ?: ( 'ID ' . $r['seminar_id'] );
-		echo '<tr><th>Seminar</th><td>' . ( $sem_link ? '<a href="' . esc_url( $sem_link ) . '">' . esc_html( $sem_txt ) . '</a>' : esc_html( $sem_txt ) )
-			. ' <span style="color:#666">(Nr. ' . esc_html( get_post_meta( $r['seminar_id'], '_bi_seminarnummer', true ) ?: '—' ) . ')</span></td></tr>';
+		echo '<tr><th>Seminar</th><td>' . ( $sem_link ? '<a href="' . esc_url( $sem_link ) . '">' . esc_html( $sem['titel'] ) . '</a>' : esc_html( $sem['titel'] ) )
+			. ' <span style="color:#666">(Nr. ' . esc_html( $sem['nummer'] ?: '—' ) . ')</span></td></tr>';
+		echo '<tr><th>Termin</th><td>' . ( $sem['termin'] ? esc_html( $sem['termin'] ) : '<span style="color:#999">—</span>' ) . '</td></tr>';
 		echo '<tr><th>Zuständige Geschäftsstelle</th><td>' . ( $gs
 			? esc_html( $gs['geschaeftsstelle'] ) . ' &lt;' . esc_html( $gs['email'] ) . '&gt;'
 			: '<em>keine Zuordnung für PLZ ' . esc_html( $r['plz'] ) . '</em>' ) . '</td></tr>';
@@ -820,7 +854,7 @@ class BI_Registration {
 		$rows   = self::fetch( $search, 'created', 'desc', 100000, 0 );
 		$fields = self::all_fields();
 
-		$header = array( 'ID', 'Eingegangen', 'Seminar', 'Seminarnummer', 'Geschäftsstelle', 'GS-E-Mail' );
+		$header = array( 'ID', 'Eingegangen', 'Seminar', 'Seminarnummer', 'Termin', 'Geschäftsstelle', 'GS-E-Mail' );
 		foreach ( $fields as $f ) {
 			$header[] = $f['label'];
 		}
@@ -837,11 +871,13 @@ class BI_Registration {
 		foreach ( $rows as $r ) {
 			$data = ! empty( $r['data'] ) ? json_decode( $r['data'], true ) : array();
 			$gs   = BI_PLZ::lookup( $r['plz'] );
+			$sem  = self::seminar_display( $r );
 			$line = array(
 				$r['id'],
 				$r['created'],
-				get_the_title( $r['seminar_id'] ) ?: ( 'ID ' . $r['seminar_id'] ),
-				get_post_meta( $r['seminar_id'], '_bi_seminarnummer', true ),
+				$sem['titel'],
+				$sem['nummer'],
+				$sem['termin'],
 				$gs ? $gs['geschaeftsstelle'] : '',
 				$gs ? $gs['email'] : '',
 			);

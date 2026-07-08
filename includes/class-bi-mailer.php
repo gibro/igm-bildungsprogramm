@@ -11,7 +11,8 @@
  *   subject       Betreff (mit Platzhaltern)
  *   body          Text (mit Platzhaltern)
  *   cond_tax      Bedingung: Taxonomie-Slug (optional)
- *   cond_value    Bedingung: Term-Name, der am Seminar hängen muss (optional)
+ *   cond_value    Bedingung: Term-Name (optional)
+ *   cond_op       Bedingung: 'is' = Seminar muss den Wert haben, 'not' = darf ihn nicht haben
  *
  * Platzhalter siehe BI_Mailer::placeholders().
  */
@@ -56,7 +57,7 @@ class BI_Mailer {
 				'from'    => $default_from,
 				'subject' => 'Neue Seminar-Anmeldung aus Ihrem Gebiet ({plz})',
 				'body'    => "Hallo {geschaeftsstelle},\n\nüber das Bildungsprogramm ist eine neue Anmeldung aus Ihrem Gebiet eingegangen.\n\nSeminar: {seminar_titel}\nNummer: {seminar_nummer}\nStart: {seminar_startdatum}\n\nName: {name}\nBetrieb: {betrieb}\nBetriebs-PLZ: {plz}\nE-Mail: {email}\nTelefon: {telefon}\n\nNachricht:\n{nachricht}\n\n— automatisch erzeugt",
-				'cond_tax' => '', 'cond_value' => '',
+				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 			),
 			array(
 				'active'  => 1,
@@ -66,7 +67,7 @@ class BI_Mailer {
 				'from'    => $default_from,
 				'subject' => 'Ihre Anmeldung zu „{seminar_titel}“',
 				'body'    => "Hallo {vorname} {nachname},\n\nvielen Dank für Ihre Anmeldung zum Seminar „{seminar_titel}“.\n\nStart: {seminar_startdatum}\nOrt: {seminar_ort}\n\nIhre zuständige Geschäftsstelle ({geschaeftsstelle}) wird sich bei Ihnen melden.\n\nViele Grüße\nIhr Bildungsteam",
-				'cond_tax' => '', 'cond_value' => '',
+				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 			),
 			array(
 				'active'  => 1,
@@ -76,7 +77,7 @@ class BI_Mailer {
 				'from'    => $default_from,
 				'subject' => 'Neue Anmeldung: {seminar_titel}',
 				'body'    => "Hallo {ansprechpartner},\n\nfür Ihr Seminar ist eine neue Anmeldung eingegangen.\n\nSeminar: {seminar_titel} ({seminar_nummer})\nOrt: {seminar_ort}\nStart: {seminar_startdatum}\n\nTeilnehmer: {name}, {betrieb}, PLZ {plz}\nE-Mail: {email}",
-				'cond_tax' => '', 'cond_value' => '',
+				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 			),
 		) );
 	}
@@ -166,7 +167,8 @@ class BI_Mailer {
 			return true;
 		}
 		$terms = wp_get_object_terms( $submission['seminar_id'], $trigger['cond_tax'], array( 'fields' => 'names' ) );
-		return is_array( $terms ) && in_array( $trigger['cond_value'], $terms, true );
+		$has   = is_array( $terms ) && in_array( $trigger['cond_value'], $terms, true );
+		return ( 'not' === ( $trigger['cond_op'] ?? 'is' ) ) ? ! $has : $has;
 	}
 
 	private static function bildungszentrum_email( $seminar_id ) {
@@ -291,6 +293,18 @@ class BI_Mailer {
 			<?php if ( $notice ) : ?><div class="notice notice-success"><p><?php echo esc_html( $notice ); ?></p></div><?php endif; ?>
 			<p>Diese Mails werden nach jeder Anmeldung verschickt – sofern aktiv und ihre Bedingung erfüllt ist.</p>
 
+			<?php $cons = self::consistency_notices( $triggers, $taxes ); ?>
+			<?php if ( $cons ) : ?>
+				<div class="notice notice-warning" style="padding:10px 14px">
+					<p style="margin:0 0 6px"><strong>Konsistenz-Check der aktiven Benachrichtigungen:</strong></p>
+					<ul style="margin:0;list-style:disc;padding-left:20px">
+						<?php foreach ( $cons as $n ) : ?>
+							<li><?php echo esc_html( $n ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				</div>
+			<?php endif; ?>
+
 			<?php echo self::test_box(); // phpcs:ignore – intern escaped ?>
 
 
@@ -309,13 +323,7 @@ class BI_Mailer {
 
 				<p class="description" style="margin:12px 0">Tipp: Klicke auf eine Benachrichtigung, um sie auf- bzw. zuzuklappen.</p>
 				<?php
-				$type_labels = array(
-					'geschaeftsstelle' => 'Geschäftsstelle',
-					'teilnehmer'       => 'Teilnehmer',
-					'bildungszentrum'  => 'Bildungszentrum',
-					'ansprechpartner'  => 'Ansprechpartner',
-					'custom'           => 'Feste Adresse',
-				);
+				$type_labels = self::type_labels();
 				// Mindestens eine leere Zeile zum Anlegen anhängen
 				$render = $triggers;
 				$render[] = self::empty_trigger();
@@ -329,6 +337,12 @@ class BI_Mailer {
 							<?php else : ?>
 								<?php echo esc_html( $t['name'] ?: ( 'Trigger ' . ( $i + 1 ) ) ); ?>
 								<span style="font-weight:400;color:#646970">— <?php echo esc_html( $type_labels[ $t['type'] ] ?? $t['type'] ); ?></span>
+								<?php $cond_label = self::condition_label( $t, $taxes ); ?>
+								<?php if ( $cond_label ) : ?>
+									<span style="background:#fcf9e8;color:#8a6d00;border:1px solid #f0e6bb;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:400;margin-left:6px">nur wenn <?php echo esc_html( $cond_label ); ?></span>
+								<?php else : ?>
+									<span style="background:#f0f6fc;color:#2271b1;border:1px solid #c5d9ed;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:400;margin-left:6px">bei jeder Anmeldung</span>
+								<?php endif; ?>
 								<?php if ( ! empty( $t['active'] ) ) : ?>
 									<span style="background:#edfaef;color:#1a7f37;border:1px solid #b8e6c2;padding:1px 8px;border-radius:10px;font-size:12px;margin-left:6px">aktiv</span>
 								<?php else : ?>
@@ -391,7 +405,15 @@ class BI_Mailer {
 									</select>
 									den Wert
 									<input type="text" name="trigger[<?php echo $i; ?>][cond_value]" value="<?php echo esc_attr( $t['cond_value'] ); ?>" placeholder="z. B. Datenschutz">
-									hat
+									<select name="trigger[<?php echo $i; ?>][cond_op]">
+										<option value="is" <?php selected( $t['cond_op'] ?? 'is', 'is' ); ?>>hat</option>
+										<option value="not" <?php selected( $t['cond_op'] ?? 'is', 'not' ); ?>>nicht hat</option>
+									</select>
+									<p class="description">Ohne Bedingung wird diese Benachrichtigung bei <strong>jeder</strong> Anmeldung verschickt.
+										Sollen sich zwei Benachrichtigungen an denselben Empfänger gegenseitig ausschließen, gib ihnen
+										gegenteilige Bedingungen auf denselben Wert – z. B. eine mit Bildungszentrum <em>hat</em>
+										„Kritische Akademie" und eine mit <em>nicht hat</em>. So greift bei jeder Anmeldung genau eine
+										der beiden.</p>
 								</td>
 							</tr>
 							<tr>
@@ -416,8 +438,124 @@ class BI_Mailer {
 	private static function empty_trigger() {
 		return array(
 			'active' => 0, 'name' => '', 'type' => 'custom', 'recipient' => '',
-			'from' => '', 'subject' => '', 'body' => '', 'cond_tax' => '', 'cond_value' => '',
+			'from' => '', 'subject' => '', 'body' => '', 'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 		);
+	}
+
+	private static function type_labels() {
+		return array(
+			'geschaeftsstelle' => 'Geschäftsstelle',
+			'teilnehmer'       => 'Teilnehmer',
+			'bildungszentrum'  => 'Bildungszentrum',
+			'ansprechpartner'  => 'Ansprechpartner',
+			'custom'           => 'Feste Adresse',
+		);
+	}
+
+	/** Lesbare Kurzform der Bedingung eines Triggers, z. B. „Bildungszentrum = Kritische Akademie“; leer ohne Bedingung. */
+	private static function condition_label( $t, $taxes ) {
+		if ( empty( $t['cond_tax'] ) || empty( $t['cond_value'] ) ) {
+			return '';
+		}
+		$tax = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
+		$op  = ( 'not' === ( $t['cond_op'] ?? 'is' ) ) ? '≠' : '=';
+		return $tax . ' ' . $op . ' „' . $t['cond_value'] . '“';
+	}
+
+	/**
+	 * Konsistenz-Check: prüft die aktiven Trigger je Empfänger (Typ bzw. bei fester
+	 * Adresse je Empfängeradresse) auf Doppelversand und Lücken. Rein informativ –
+	 * greift nicht in den Versand ein.
+	 *
+	 * @return string[] Hinweise für den Admin.
+	 */
+	private static function consistency_notices( $triggers, $taxes ) {
+		$type_labels = self::type_labels();
+
+		$groups = array();
+		foreach ( $triggers as $t ) {
+			if ( empty( $t['active'] ) ) {
+				continue;
+			}
+			$key = $t['type'] ?? 'custom';
+			if ( 'custom' === $key ) {
+				$key .= ':' . strtolower( trim( $t['recipient'] ?? '' ) );
+			}
+			$groups[ $key ][] = $t;
+		}
+
+		$names = function ( $list ) {
+			$n = array();
+			foreach ( $list as $t ) {
+				$n[] = '„' . ( $t['name'] !== '' ? $t['name'] : 'ohne Bezeichnung' ) . '“';
+			}
+			return implode( ', ', $n );
+		};
+
+		$notices = array();
+		foreach ( $groups as $key => $list ) {
+			$type  = strtok( $key, ':' );
+			$label = $type_labels[ $type ] ?? $type;
+			if ( 'custom' === $type ) {
+				$addr   = substr( $key, strlen( 'custom:' ) );
+				$label .= $addr ? ' ' . $addr : '';
+			}
+
+			$uncond = array();
+			$cond   = array();
+			foreach ( $list as $t ) {
+				if ( empty( $t['cond_tax'] ) || empty( $t['cond_value'] ) ) {
+					$uncond[] = $t;
+				} else {
+					$cond[] = $t;
+				}
+			}
+
+			if ( count( $uncond ) >= 2 ) {
+				$notices[] = sprintf(
+					'Mehrfachversand an %s: %s haben alle keine Bedingung – bei jeder Anmeldung werden sie alle verschickt.',
+					$label, $names( $uncond )
+				);
+			}
+			if ( $uncond && $cond ) {
+				$notices[] = sprintf(
+					'Überschneidung bei %s: %s wird bei jeder Anmeldung verschickt; trifft zusätzlich die Bedingung von %s zu, gehen mehrere Mails an denselben Empfänger. Falls ungewollt: der Benachrichtigung ohne Bedingung die gegenteilige Bedingung („nicht hat“) geben.',
+					$label, $names( $uncond ), $names( $cond )
+				);
+			}
+			if ( ! $uncond && $cond ) {
+				$covered = false;
+				$dupes   = array();
+				$n       = count( $cond );
+				for ( $i = 0; $i < $n; $i++ ) {
+					for ( $j = $i + 1; $j < $n; $j++ ) {
+						$a = $cond[ $i ];
+						$b = $cond[ $j ];
+						if ( $a['cond_tax'] !== $b['cond_tax'] || $a['cond_value'] !== $b['cond_value'] ) {
+							continue;
+						}
+						if ( ( $a['cond_op'] ?? 'is' ) === ( $b['cond_op'] ?? 'is' ) ) {
+							$dupes = array( $a, $b );
+						} else {
+							$covered = true; // komplementäres Paar: hat / nicht hat auf denselben Wert
+						}
+					}
+				}
+				if ( $dupes ) {
+					$notices[] = sprintf(
+						'Doppelte Bedingung bei %s: %s haben dieselbe Bedingung und werden immer gemeinsam verschickt.',
+						$label, $names( $dupes )
+					);
+				}
+				if ( ! $covered ) {
+					$notices[] = sprintf(
+						'Lücke möglich bei %s: Alle Benachrichtigungen an diesen Empfänger (%s) haben Bedingungen. Anmeldungen, bei denen keine davon zutrifft, lösen keine Mail an ihn aus. Falls ungewollt: ein Paar mit „hat“ / „nicht hat“ auf denselben Wert anlegen.',
+						$label, $names( $cond )
+					);
+				}
+			}
+		}
+		return $notices;
 	}
 
 	public static function save() {
@@ -446,6 +584,7 @@ class BI_Mailer {
 				'body'       => sanitize_textarea_field( $row['body'] ?? '' ),
 				'cond_tax'   => sanitize_text_field( $row['cond_tax'] ?? '' ),
 				'cond_value' => sanitize_text_field( $row['cond_value'] ?? '' ),
+				'cond_op'    => ( 'not' === ( $row['cond_op'] ?? 'is' ) ) ? 'not' : 'is',
 			);
 		}
 		update_option( self::OPTION, $out );

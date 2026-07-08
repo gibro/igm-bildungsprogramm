@@ -3,7 +3,7 @@
  * Plugin Name:       Bildungsprogramm
  * Plugin URI:        https://bildung.igmetall.de/
  * Description:        Eigenständiges Seminar-/Veranstaltungssystem: Such- & Filterleiste, CSV-Import für Veranstaltungen und PLZ-Geschäftsstellen, Anmeldeformular mit konfigurierbaren Mail-Triggern. Unabhängig von Formidable.
- * Version:           1.28.2
+ * Version:           1.32.0
  * Author:            IG Metall Bildung
  * Text Domain:       bi-seminarsuche
  * Requires at least: 5.8
@@ -27,7 +27,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Direktaufruf verhindern
 }
 
-define( 'BI_VERSION', '1.28.2' );
+define( 'BI_VERSION', '1.32.0' );
+define( 'BI_DB_VERSION', '2' ); // Schema-Version der eigenen Tabellen (Upgrade via dbDelta)
 define( 'BI_FILE', __FILE__ );
 define( 'BI_PATH', plugin_dir_path( __FILE__ ) );
 define( 'BI_URL', plugin_dir_url( __FILE__ ) );
@@ -49,6 +50,15 @@ require_once BI_PATH . 'includes/class-bi-kacheln.php';
 require_once BI_PATH . 'includes/class-bi-detail.php';
 require_once BI_PATH . 'includes/class-bi-settings.php';
 require_once BI_PATH . 'includes/class-bi-admin.php';
+
+/** DB-Schema bei Plugin-Update aktualisieren (Aktivierungshook läuft bei Updates nicht) */
+add_action( 'plugins_loaded', function () {
+	if ( get_option( 'bi_db_version' ) !== BI_DB_VERSION ) {
+		BI_PLZ::create_table();
+		BI_Registration::create_table();
+		update_option( 'bi_db_version', BI_DB_VERSION );
+	}
+}, 5 );
 
 /** Module initialisieren (Hooks registrieren) */
 add_action( 'plugins_loaded', function () {

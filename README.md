@@ -126,6 +126,20 @@ Die zuständige Geschäftsstelle wird über die **betriebliche PLZ** ermittelt.
 Pro Seminar steuern Einstellungen und Regeln, ob die Direktanmeldung oder der
 Verweis auf die Geschäftsstelle angeboten wird.
 
+### Geschäftsstellen-Anfrage direkt auf der Detailseite (GS-Variante)
+
+Bei Seminaren mit Geschäftsstellen-Anmeldung (z. B. Bildungsurlaub) enthält
+die Sidebar eine **integrierte PLZ-Suche**: Postleitzahl eingeben →
+AJAX-Lookup gegen die `wp_bi_plz`-Tabelle → die zuständige Geschäftsstelle
+wird angezeigt und ein Button **„Anfrage senden"** öffnet das Mailprogramm
+(`mailto:`) mit vorausgefüllter Anfrage: Seminarnummer und Titel im Betreff,
+Zeitraum, Bildungszentrum, Seminar-Link und ein Datenblock zum Ausfüllen
+(Name, Anschrift, …) im Text. Auch die GS-Buttons in der Tabelle „Weitere
+Termine" werden nach erfolgreicher Suche auf mailto-Links mit den Daten des
+jeweiligen Termins umgeschrieben. Die PLZ wird in `localStorage` gemerkt.
+Ist zur Geschäftsstelle keine E-Mail hinterlegt (oder die PLZ unbekannt),
+bleibt der Fallback-Link zur Geschäftsstellensuche auf igmetall.de.
+
 ### `[bi_kachel]` – Marketing-Kacheln
 
 Eine Kachel ist ein klickbarer Teaser (Bild + Überschrift + Text + Button), der
@@ -201,8 +215,16 @@ Trigger hat einen Empfänger-Typ:
 - **Feste/eigene Adresse** – fester Empfänger (Platzhalter erlaubt).
 
 Optionale **Bedingung** pro Trigger: nur senden, wenn das Seminar einen
-bestimmten Taxonomie-Wert hat (z. B. nur bei Handlungsfeld „Datenschutz").
-Ein **Test-Modus** leitet alle Mails an eine Testadresse um.
+bestimmten Taxonomie-Wert **hat** oder **nicht hat** (z. B. nur bei
+Handlungsfeld „Datenschutz", oder nur wenn Bildungszentrum *nicht*
+„Kritische Akademie" ist). Sollen sich zwei Trigger an denselben Empfänger
+gegenseitig ausschließen, bekommen sie gegenteilige Bedingungen auf denselben
+Wert („hat" / „nicht hat") – dann greift pro Anmeldung genau einer. Ein
+**Konsistenz-Check** oben auf der Trigger-Seite warnt vor Doppelversand
+(mehrere Trigger an denselben Empfänger, die gleichzeitig greifen können)
+und möglichen Lücken (kein Trigger greift). Er ist rein informativ und
+greift nicht in den Versand ein. Ein **Test-Modus** leitet alle Mails an
+eine Testadresse um.
 
 **Platzhalter** u. a.: `{vorname}`, `{nachname}`, `{name}`, `{email}`,
 `{telefon}`, `{betrieb}`, `{plz}`, `{nachricht}`, `{geschaeftsstelle}`,

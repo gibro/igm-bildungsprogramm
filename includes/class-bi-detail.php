@@ -183,7 +183,11 @@ class BI_Detail {
 			return '<a class="igm-btn-buchen" aria-label="Jetzt Seminar buchen" href="' . esc_url( self::direct_url( $post_id ) ) . '">'
 				. esc_html( BI_Settings::get( 'direct_label' ) ) . '</a>';
 		}
-		return '<a class="igm-btn-buchen igm-btn-buchen--alt" aria-label="Anmeldung über die Geschäftsstelle" href="'
+		// GS-Variante: Link zur Geschäftsstellensuche; sobald das PLZ-Widget die
+		// zuständige Geschäftsstelle kennt, schreibt gs-anfrage.js den Button auf
+		// einen mailto:-Link mit vorausgefüllter Anfrage um.
+		return '<a class="igm-btn-buchen igm-btn-buchen--alt igm-js-gs-btn" aria-label="Anmeldung über die Geschäftsstelle"'
+			. self::gs_mail_attrs( $post_id ) . ' href="'
 			. esc_url( self::gs_url() ) . '" target="_blank" rel="noopener">' . esc_html( BI_Settings::get( 'gs_label' ) ) . '</a>';
 	}
 
@@ -195,8 +199,61 @@ class BI_Detail {
 		if ( 'direct' === BI_Settings::variant_for( $post_id ) ) {
 			return self::booking_button( $post_id );
 		}
-		return '<div class="igm-buchen-hinweis">' . esc_html( BI_Settings::get( 'gs_hinweis' ) ) . '</div>'
-			. self::booking_button( $post_id );
+		return self::gs_anfrage_widget( $post_id );
+	}
+
+	/**
+	 * PLZ-Suche + Mail-Anfrage für die GS-Variante (Sidebar).
+	 * gs-anfrage.js macht den AJAX-Lookup (bi_plz_lookup) und baut den
+	 * „Anfrage senden"-mailto-Link aus den data-bi-Attributen.
+	 */
+	private static function gs_anfrage_widget( $post_id ) {
+		$html  = '<div class="igm-gs-anfrage"' . self::gs_mail_attrs( $post_id ) . '>';
+		$html .= '<div class="igm-buchen-hinweis">' . esc_html( BI_Settings::get( 'gs_hinweis' ) ) . '</div>';
+		$html .= '<label class="igm-gs-anfrage__label" for="igm-gs-plz">Postleitzahl deines Wohnorts:</label>';
+		$html .= '<div class="igm-gs-anfrage__form">';
+		$html .= '<input type="text" id="igm-gs-plz" class="igm-gs-anfrage__plz" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="z. B. 60329" aria-label="Postleitzahl">';
+		$html .= '<button type="button" class="igm-gs-anfrage__find">Geschäftsstelle finden</button>';
+		$html .= '</div>';
+		$html .= '<div class="igm-gs-anfrage__result" role="status" hidden></div>';
+		$html .= '<a class="igm-gs-anfrage__fallback" href="' . esc_url( self::gs_url() )
+			. '" target="_blank" rel="noopener">Oder: zur Geschäftsstellensuche auf igmetall.de</a>';
+		$html .= '</div>';
+		return $html;
+	}
+
+	/** data-bi-subject/-body mit vorausgefüllter Seminar-Anfrage für mailto-Links */
+	private static function gs_mail_attrs( $post_id ) {
+		$nr    = get_post_meta( $post_id, '_bi_seminarnummer', true );
+		$titel = get_the_title( $post_id );
+		$start = get_post_meta( $post_id, '_bi_startdatum', true );
+		$end   = get_post_meta( $post_id, '_bi_enddatum', true );
+		$ort   = self::term_list( $post_id, BI_TAX_ORT );
+
+		$zeitraum = $start ? date_i18n( 'd.m.Y', strtotime( $start ) ) : '';
+		if ( $end && $end !== $start ) {
+			$zeitraum .= ' – ' . date_i18n( 'd.m.Y', strtotime( $end ) );
+		}
+
+		$subject = 'Seminaranmeldung ' . trim( ( $nr ? $nr . ' – ' : '' ) . $titel );
+
+		$body  = "Guten Tag,\r\n\r\n";
+		$body .= "hiermit möchte ich mich für folgendes Seminar anmelden:\r\n\r\n";
+		$body .= 'Seminar: ' . $titel . "\r\n";
+		if ( $nr ) {
+			$body .= 'Seminarnummer: ' . $nr . "\r\n";
+		}
+		if ( $zeitraum ) {
+			$body .= 'Zeitraum: ' . $zeitraum . "\r\n";
+		}
+		if ( $ort ) {
+			$body .= 'Bildungszentrum: ' . $ort . "\r\n";
+		}
+		$body .= 'Link: ' . get_permalink( $post_id ) . "\r\n\r\n";
+		$body .= "Meine Daten:\r\nName: \r\nAnschrift: \r\nGeburtsdatum: \r\nTelefon: \r\nE-Mail: \r\nBetrieb: \r\n\r\n";
+		$body .= "Viele Grüße\r\n";
+
+		return ' data-bi-subject="' . esc_attr( $subject ) . '" data-bi-body="' . esc_attr( $body ) . '"';
 	}
 
 	private static function gs_url() {
@@ -206,7 +263,7 @@ class BI_Detail {
 
 	/**
 	 * „Weitere Termine zu diesem Seminar" – gleiche Titel, aber SPÄTER stattfindende,
-	 * zukünftige Termine. Kachel-Darstellung mit „Jetzt buchen"-Button je Termin.
+	 * zukünftige Termine. Tabelle (Seminarort | Zeitraum | „Jetzt buchen"-Button je Termin).
 	 */
 	private static function weitere_termine( $post_id ) {
 		global $wpdb;
@@ -249,7 +306,12 @@ class BI_Detail {
 		ob_start();
 		echo '<div class="igm-weitere-termine">';
 		echo '<h2 class="igm-detail__section-title">Weitere Termine zu diesem Seminar</h2>';
-		echo '<div class="igm-termin-grid">';
+		echo '<table class="igm-termin-table">';
+		echo '<thead><tr>';
+		echo '<th scope="col">Seminarort</th>';
+		echo '<th scope="col">Zeitraum</th>';
+		echo '<th scope="col"><span class="screen-reader-text">Buchung</span></th>';
+		echo '</tr></thead><tbody>';
 		while ( $q->have_posts() ) {
 			$q->the_post();
 			$id    = get_the_ID();
@@ -262,15 +324,14 @@ class BI_Detail {
 				$datum .= ' – ' . date_i18n( 'd.m.Y', strtotime( $end ) );
 			}
 
-			echo '<div class="igm-termin-card">';
-			echo '<a class="igm-termin-card__date" href="' . esc_url( get_permalink( $id ) ) . '">' . esc_html( $datum ) . '</a>';
-			if ( '' !== $ort ) {
-				echo '<div class="igm-termin-card__ort">' . esc_html( $ort ) . '</div>';
-			}
-			echo '<div class="igm-termin-card__action">' . self::booking_button( $id ) . '</div>';
-			echo '</div>';
+			echo '<tr>';
+			echo '<td class="igm-termin-table__ort" data-label="Seminarort">' . esc_html( $ort ) . '</td>';
+			echo '<td class="igm-termin-table__zeitraum" data-label="Zeitraum">'
+				. '<a href="' . esc_url( get_permalink( $id ) ) . '">' . esc_html( $datum ) . '</a></td>';
+			echo '<td class="igm-termin-table__action">' . self::booking_button( $id ) . '</td>';
+			echo '</tr>';
 		}
-		echo '</div></div>';
+		echo '</tbody></table></div>';
 		wp_reset_postdata();
 		return ob_get_clean();
 	}

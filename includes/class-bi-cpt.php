@@ -100,6 +100,11 @@ class BI_CPT {
 	public static function enqueue_single() {
 		if ( is_singular( BI_CPT ) ) {
 			wp_enqueue_style( 'bi-frontend' );
+			// PLZ-Suche + Mail-Anfrage für Seminare mit Geschäftsstellen-Anmeldung
+			wp_enqueue_script( 'bi-gs-anfrage', BI_URL . 'assets/js/gs-anfrage.js', array(), BI_VERSION, true );
+			wp_localize_script( 'bi-gs-anfrage', 'biGsAnfrage', array(
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+			) );
 		}
 	}
 
