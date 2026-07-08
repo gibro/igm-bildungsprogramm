@@ -179,7 +179,8 @@ als Überschrift (z. B. „Grundlagen für Betriebsrät*innen"), verlinkt auf di
 Übersicht mit vorausgewähltem Themenfeld. Pro Zeile steht der fertige
 `[bi_kachel …]`-Shortcode zum Kopieren; `[bi_kachel_vorlagen spalten="3"]`
 rendert alle Filter mit zugeordnetem Bild auf einmal als Grid – in der
-Reihenfolge der Filterleiste (optional `ratio`, `button`). Bild-Zuordnungen
+Reihenfolge der Filterleiste (optional `layout` (1 = Bild oben/Überschrift
+darunter, 2 = Overlay, Standard), `ratio`, `button`). Bild-Zuordnungen
 bleiben gespeichert, auch wenn ein Themenfeld zwischenzeitlich keine
 buchbaren Seminare hat.
 

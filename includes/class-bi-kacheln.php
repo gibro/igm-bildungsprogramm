@@ -569,6 +569,7 @@ class BI_Kacheln {
 	public static function vorlagen_grid( $atts ) {
 		$atts = shortcode_atts( array(
 			'spalten' => '3',
+			'layout'  => '2',
 			'ratio'   => '',
 			'button'  => '',
 		), $atts, 'bi_kachel_vorlagen' );
@@ -585,7 +586,7 @@ class BI_Kacheln {
 				continue;
 			}
 			$tiles .= self::tile( array(
-				'layout' => '2',
+				'layout' => $atts['layout'],
 				'bild'   => (string) $att_id,
 				'ratio'  => $atts['ratio'],
 				'titel'  => $choice['label'],
@@ -662,7 +663,8 @@ class BI_Kacheln {
 				Überschrift – die auf die Übersicht mit vorausgewähltem Themenfeld verlinken.<br>
 				Einzelne Kachel: Shortcode aus der Zeile kopieren. Alle Kacheln auf einmal:
 				<code>[bi_kachel_vorlagen spalten="3"]</code> (zeigt automatisch alle Filter mit Bild,
-				in der Reihenfolge der Filterleiste). Die Bild-Zuordnung bleibt gespeichert, auch wenn ein
+				in der Reihenfolge der Filterleiste; optional <code>layout="1"</code> für Bild oben /
+				Überschrift darunter statt Overlay). Die Bild-Zuordnung bleibt gespeichert, auch wenn ein
 				Themenfeld zwischenzeitlich keine buchbaren Seminare hat und deshalb hier nicht auftaucht.</p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
