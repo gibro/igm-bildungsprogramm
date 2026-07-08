@@ -570,17 +570,18 @@ class BI_Kacheln {
 
 	/**
 	 * Eintrag { bild, layout } eines Terms aus der Option.
-	 * Abwärtskompatibel: früher wurde nur die Attachment-ID (int) gespeichert – dann Layout 2.
+	 * Standard-Layout ist 1 (Bild oben); auch für Alt-Einträge, die nur als
+	 * Attachment-ID (int) gespeichert wurden.
 	 */
 	private static function vorlage_entry( $map, $term_id ) {
 		$raw = $map[ $term_id ] ?? null;
 		if ( is_array( $raw ) ) {
 			return array(
 				'bild'   => (int) ( $raw['bild'] ?? 0 ),
-				'layout' => in_array( $raw['layout'] ?? '', array( '1', '2' ), true ) ? $raw['layout'] : '2',
+				'layout' => in_array( $raw['layout'] ?? '', array( '1', '2' ), true ) ? $raw['layout'] : '1',
 			);
 		}
-		return array( 'bild' => (int) $raw, 'layout' => '2' );
+		return array( 'bild' => (int) $raw, 'layout' => '1' );
 	}
 
 	/** Fertiger Shortcode einer Themen-Kachel (button="" = nur Überschrift, kein Text) */
@@ -650,7 +651,7 @@ class BI_Kacheln {
 				continue;
 			}
 			$bild   = (int) ( is_array( $row ) ? ( $row['bild'] ?? 0 ) : $row );
-			$layout = ( is_array( $row ) && in_array( $row['layout'] ?? '', array( '1', '2' ), true ) ) ? $row['layout'] : '2';
+			$layout = ( is_array( $row ) && in_array( $row['layout'] ?? '', array( '1', '2' ), true ) ) ? $row['layout'] : '1';
 			if ( $bild > 0 ) {
 				$map[ $term_id ] = array( 'bild' => $bild, 'layout' => $layout );
 			} else {
@@ -759,8 +760,8 @@ class BI_Kacheln {
 								</td>
 								<td>
 									<select name="vorlage[<?php echo (int) $term->term_id; ?>][layout]">
+										<option value="1" <?php selected( $entry['layout'], '1' ); ?>>1 – Bild oben (Standard)</option>
 										<option value="2" <?php selected( $entry['layout'], '2' ); ?>>2 – Overlay</option>
-										<option value="1" <?php selected( $entry['layout'], '1' ); ?>>1 – Bild oben</option>
 									</select>
 								</td>
 								<td>

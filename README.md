@@ -172,8 +172,9 @@ Im Tab **Bildungsprogramm → Marketing-Kacheln → Kachel-Vorlagen** wird jedem
 Themenfeld-Filter ein Bild aus der **Mediathek** zugeordnet (die lizenzierten
 IG-Metall-Motive dort hochladen – nicht ins Plugin legen, so überleben sie
 Plugin-Updates und WordPress erzeugt automatisch alle Bildgrößen) sowie
-bewusst ein **Layout** gewählt (1 = Bild oben, Überschrift darunter;
-2 = Overlay – beide Varianten sind oben auf der Seite als Vorschau zu sehen).
+bewusst ein **Layout** gewählt (1 = Bild oben, Überschrift darunter –
+Standard; 2 = Overlay – beide Varianten sind oben auf der Seite als
+Vorschau zu sehen).
 Die Liste entspricht exakt der Themenfeld-Filterleiste im Frontend: gleiche
 Einträge (nur mit buchbaren Seminaren), gleiche Überschriften, gleiche
 Reihenfolge. Daraus entstehen fertige Kacheln ohne Teaser-Text, nur mit dem
