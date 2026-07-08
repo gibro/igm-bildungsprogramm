@@ -723,6 +723,8 @@ class BI_Kacheln {
 				<input type="hidden" name="action" value="bi_save_kachel_vorlagen">
 				<?php wp_nonce_field( 'bi_kachel_vorlagen' ); ?>
 
+				<?php submit_button( 'Vorlagen speichern', 'primary', 'submit', true, array( 'id' => 'bi-kv-submit-top' ) ); ?>
+
 				<table class="widefat striped bi-kv-table">
 					<thead>
 						<tr>
