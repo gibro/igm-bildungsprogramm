@@ -38,6 +38,11 @@
  *
  * [bi_kacheln spalten="2|3|4"] ... [/bi_kacheln] bleibt als optionaler Grid-Container
  * erhalten, falls mehrere Kacheln ohne Page-Builder nebeneinander stehen sollen.
+ *
+ * Vorgefertigte Themen-Kacheln: Tab "Kachel-Vorlagen" auf der Kachel-Seite ordnet
+ * jedem Themenfeld-Filter ein Mediathek-Bild und ein Layout (1/2) zu;
+ * [bi_kachel_vorlagen spalten="2|3|4"] rendert alle zugeordneten Kacheln als Grid
+ * (nur Filter-Label als Überschrift, Layout je Kachel aus der Zuordnung).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -46,7 +51,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BI_Kacheln {
 
-	/** Hook-Suffix der Builder-Seite (für gezieltes Asset-Laden) */
+	/** Option: Themenfeld-Term-ID => Attachment-ID (Mediathek) für vorgefertigte Kacheln */
+	const OPTION_VORLAGEN = 'bi_kachel_vorlagen';
+
+	/** Hook-Suffix der Kachel-Seite (für gezieltes Asset-Laden) */
 	private static $hook = '';
 
 	/** Filter-Attribute, die 1:1 als GET-Parameter an die Suchseite gehen */
@@ -65,11 +73,13 @@ class BI_Kacheln {
 	public static function init() {
 		add_shortcode( 'bi_kacheln', array( __CLASS__, 'grid' ) );
 		add_shortcode( 'bi_kachel', array( __CLASS__, 'tile' ) );
+		add_shortcode( 'bi_kachel_vorlagen', array( __CLASS__, 'vorlagen_grid' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'register_assets' ) );
 		// Nach BI_Admin::menu (Prio 10) einhängen, damit der Hauptmenüpunkt existiert
 		add_action( 'admin_menu', array( __CLASS__, 'menu' ), 11 );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'admin_assets' ) );
 		add_action( 'wp_ajax_bi_kachel_preview', array( __CLASS__, 'ajax_preview' ) );
+		add_action( 'admin_post_bi_save_kachel_vorlagen', array( __CLASS__, 'save_vorlagen' ) );
 	}
 
 	public static function register_assets() {
@@ -255,16 +265,24 @@ class BI_Kacheln {
 			'Marketing-Kacheln',
 			'manage_options',
 			'bi-kacheln',
-			array( __CLASS__, 'render_builder' )
+			array( __CLASS__, 'render_page' )
 		);
+	}
+
+	/** Aktiver Tab der Kachel-Seite: 'builder' (Standard) oder 'vorlagen' */
+	private static function current_tab() {
+		return ( isset( $_GET['tab'] ) && 'vorlagen' === $_GET['tab'] ) ? 'vorlagen' : 'builder';
 	}
 
 	public static function admin_assets( $hook ) {
 		if ( $hook !== self::$hook ) {
 			return;
 		}
-		wp_enqueue_media(); // Mediathek-Auswahl für das Kachel-Bild
+		wp_enqueue_media(); // Mediathek-Auswahl (Builder + Vorlagen)
 		wp_enqueue_style( 'bi-kacheln', BI_URL . 'assets/css/kacheln.css', array(), BI_VERSION );
+		if ( 'vorlagen' === self::current_tab() ) {
+			return; // Vorlagen-Tab: eigenes Inline-JS in render_vorlagen()
+		}
 		wp_enqueue_script( 'bi-kachel-builder', BI_URL . 'assets/js/kachel-builder.js', array(), BI_VERSION, true );
 		wp_add_inline_script(
 			'bi-kachel-builder',
@@ -274,6 +292,28 @@ class BI_Kacheln {
 			) ) . ';',
 			'before'
 		);
+	}
+
+	/** Seiten-Dispatcher: Überschrift + Tab-Navigation, dann aktiver Tab */
+	public static function render_page() {
+		$tab  = self::current_tab();
+		$base = admin_url( 'admin.php?page=bi-kacheln' );
+		?>
+		<div class="wrap">
+			<h1>Marketing-Kacheln</h1>
+			<nav class="nav-tab-wrapper" style="margin-bottom:16px">
+				<a href="<?php echo esc_url( $base ); ?>" class="nav-tab <?php echo 'builder' === $tab ? 'nav-tab-active' : ''; ?>">Kachel-Builder</a>
+				<a href="<?php echo esc_url( $base . '&tab=vorlagen' ); ?>" class="nav-tab <?php echo 'vorlagen' === $tab ? 'nav-tab-active' : ''; ?>">Kachel-Vorlagen</a>
+			</nav>
+			<?php
+			if ( 'vorlagen' === $tab ) {
+				self::render_vorlagen();
+			} else {
+				self::render_builder();
+			}
+			?>
+		</div>
+		<?php
 	}
 
 	/** AJAX: Vorschau-HTML + fertigen Shortcode für die aktuellen Builder-Felder liefern */
@@ -325,11 +365,9 @@ class BI_Kacheln {
 			.bi-kb-copied { color: #00a32a; font-weight: 600; margin-left: 8px; }
 		</style>
 
-		<div class="wrap">
-			<h1>Marketing-Kacheln</h1>
-			<p>Gestalte hier eine Kachel, stelle die Filter ein und beobachte rechts die Live-Vorschau.
-				Den fertigen Shortcode kopierst du unten und fügst ihn in eine beliebige Box ein
-				(z.&nbsp;B. ein Shortcode-Widget in Elementor) – die Kachel füllt die Box automatisch aus.</p>
+		<p>Gestalte hier eine Kachel, stelle die Filter ein und beobachte rechts die Live-Vorschau.
+			Den fertigen Shortcode kopierst du unten und fügst ihn in eine beliebige Box ein
+			(z.&nbsp;B. ein Shortcode-Widget in Elementor) – die Kachel füllt die Box automatisch aus.</p>
 
 			<div class="bi-kb-layout">
 
@@ -492,8 +530,308 @@ class BI_Kacheln {
 					</p>
 				</div>
 
+		</div>
+		<?php
+	}
+
+	/** ===================================================================
+	 *  Vorgefertigte Themen-Kacheln (Vorlagen)
+	 *
+	 *  Pro Themenfeld wird ein lizenziertes Bild aus der Mediathek zugeordnet
+	 *  (Option OPTION_VORLAGEN: term_id => attachment_id). Daraus entstehen
+	 *  fertige Kacheln im Overlay-Layout, ohne Teaser-Text, mit dem
+	 *  Filter-Label als Überschrift (z. B. „Grundlagen für Betriebsrät*innen"),
+	 *  verlinkt auf die Übersicht mit vorausgewähltem Themenfeld.
+	 * =================================================================== */
+
+	/**
+	 * Themenfeld-Einträge exakt wie in der Frontend-Filterleiste: dieselbe Auswahl
+	 * (nur Einträge mit buchbaren Seminaren), dieselben Labels (thema_label) und
+	 * dieselbe Reihenfolge („Grundlagen …" gepinnt). Quelle: BI_Filter::facet_choices().
+	 */
+	private static function vorlagen_choices() {
+		if ( ! class_exists( 'BI_Filter' ) ) {
+			return array();
+		}
+		$choices = BI_Filter::facet_choices();
+		$out     = array();
+		foreach ( (array) ( $choices['thema'] ?? array() ) as $opt ) {
+			if ( ! empty( $opt['separator'] ) ) {
+				continue;
+			}
+			$term = get_term_by( 'name', $opt['value'], BI_TAX_THEMA );
+			if ( ! $term instanceof WP_Term ) {
+				continue;
+			}
+			$out[] = array( 'term' => $term, 'label' => $opt['label'], 'count' => (int) $opt['count'] );
+		}
+		return $out;
+	}
+
+	/**
+	 * Eintrag { bild, layout } eines Terms aus der Option.
+	 * Standard-Layout ist 1 (Bild oben); auch für Alt-Einträge, die nur als
+	 * Attachment-ID (int) gespeichert wurden.
+	 */
+	private static function vorlage_entry( $map, $term_id ) {
+		$raw = $map[ $term_id ] ?? null;
+		if ( is_array( $raw ) ) {
+			return array(
+				'bild'   => (int) ( $raw['bild'] ?? 0 ),
+				'layout' => in_array( $raw['layout'] ?? '', array( '1', '2' ), true ) ? $raw['layout'] : '1',
+			);
+		}
+		return array( 'bild' => (int) $raw, 'layout' => '1' );
+	}
+
+	/** Fertiger Shortcode einer Themen-Kachel (button="" = nur Überschrift, kein Text) */
+	private static function vorlage_shortcode( $term, $entry, $label ) {
+		$q = function ( $v ) {
+			return str_replace( '"', "'", $v );
+		};
+		return '[bi_kachel layout="' . esc_attr( $entry['layout'] ) . '" bild="' . (int) $entry['bild'] . '" titel="' . $q( $label )
+			. '" button="" thema="' . $q( $term->name ) . '"]';
+	}
+
+	/** [bi_kachel_vorlagen] – alle Themen-Kacheln mit zugeordnetem Bild als Grid.
+	 *  Das Layout kommt je Kachel aus der Vorlagen-Zuordnung (bewusste Wahl je Themenfeld). */
+	public static function vorlagen_grid( $atts ) {
+		$atts = shortcode_atts( array(
+			'spalten' => '3',
+			'ratio'   => '',
+			'button'  => '',
+		), $atts, 'bi_kachel_vorlagen' );
+
+		$map = get_option( self::OPTION_VORLAGEN, array() );
+		if ( ! is_array( $map ) || ! $map ) {
+			return '';
+		}
+
+		$tiles = '';
+		foreach ( self::vorlagen_choices() as $choice ) {
+			$entry = self::vorlage_entry( $map, $choice['term']->term_id );
+			if ( ! $entry['bild'] ) {
+				continue;
+			}
+			$tiles .= self::tile( array(
+				'layout' => $entry['layout'],
+				'bild'   => (string) $entry['bild'],
+				'ratio'  => $atts['ratio'],
+				'titel'  => $choice['label'],
+				'text'   => '',
+				'button' => $atts['button'],
+				'thema'  => $choice['term']->name,
+			) );
+		}
+		if ( '' === $tiles ) {
+			return '';
+		}
+
+		$spalten = in_array( $atts['spalten'], array( '2', '3', '4' ), true ) ? $atts['spalten'] : '3';
+		wp_enqueue_style( 'bi-kacheln' );
+		return '<div class="bi-kacheln bi-kacheln-' . esc_attr( $spalten ) . '">' . $tiles . '</div>';
+	}
+
+	/** Speichern der Bild-Zuordnungen (admin-post) */
+	public static function save_vorlagen() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+		check_admin_referer( 'bi_kachel_vorlagen' );
+
+		// Bestehende Zuordnungen behalten und nur die im Formular gelisteten Filter
+		// aktualisieren – die Liste zeigt nur Themenfelder mit aktuell buchbaren
+		// Seminaren; Zuordnungen ausgeblendeter Felder dürfen nicht verloren gehen.
+		$in  = isset( $_POST['vorlage'] ) && is_array( $_POST['vorlage'] ) ? wp_unslash( $_POST['vorlage'] ) : array();
+		$map = get_option( self::OPTION_VORLAGEN, array() );
+		$map = is_array( $map ) ? $map : array();
+		foreach ( $in as $term_id => $row ) {
+			$term_id = (int) $term_id;
+			if ( $term_id <= 0 ) {
+				continue;
+			}
+			$bild   = (int) ( is_array( $row ) ? ( $row['bild'] ?? 0 ) : $row );
+			$layout = ( is_array( $row ) && in_array( $row['layout'] ?? '', array( '1', '2' ), true ) ) ? $row['layout'] : '1';
+			if ( $bild > 0 ) {
+				$map[ $term_id ] = array( 'bild' => $bild, 'layout' => $layout );
+			} else {
+				unset( $map[ $term_id ] );
+			}
+		}
+		update_option( self::OPTION_VORLAGEN, $map, false );
+
+		wp_safe_redirect( add_query_arg(
+			array( 'page' => 'bi-kacheln', 'tab' => 'vorlagen', 'bi_msg' => rawurlencode( 'Vorlagen gespeichert.' ) ),
+			admin_url( 'admin.php' )
+		) );
+		exit;
+	}
+
+	/** Vorlagen-Tab: Bild + Layout je Themenfeld-Filter zuordnen, fertige Shortcodes kopieren */
+	public static function render_vorlagen() {
+		$map     = get_option( self::OPTION_VORLAGEN, array() );
+		$choices = self::vorlagen_choices();
+		$msg     = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
+		?>
+		<style>
+			.bi-kv-table td { vertical-align: middle; }
+			.bi-kv-thumb { width: 96px; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; display: block; }
+			.bi-kv-thumb-empty { width: 96px; height: 60px; border: 1px dashed #c3c4c7; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #787c82; font-size: 11px; }
+			.bi-kv-shortcode { font-family: Consolas, Monaco, monospace; width: 100%; }
+			.bi-kv-copied { color: #00a32a; font-weight: 600; }
+			/* Schematische Layout-Vorschau */
+			.bi-kv-previews { display: flex; gap: 28px; flex-wrap: wrap; margin: 4px 0 18px; }
+			.bi-kv-prev-caption { display: block; margin-bottom: 6px; font-size: 12.5px; color: #50575e; }
+			.bi-kv-mock { width: 220px; border: 1px solid #dcdcde; border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+			.bi-kv-mock-img { display: flex; align-items: center; justify-content: center; aspect-ratio: 16 / 10; background: linear-gradient(135deg, #c8cdd3, #9aa1a9); color: #fff; font-size: 12px; letter-spacing: .04em; }
+			.bi-kv-mock-1 .bi-kv-mock-title { display: block; padding: 12px 14px 14px; font-weight: 700; font-size: 14px; color: #1d2327; }
+			.bi-kv-mock-2 { position: relative; aspect-ratio: 16 / 10; background: linear-gradient(135deg, #c8cdd3, #9aa1a9); }
+			.bi-kv-mock-2 .bi-kv-mock-title { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 14px 12px; font-weight: 700; font-size: 14px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+		</style>
+
+		<?php if ( $msg ) : ?>
+			<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $msg ); ?></p></div>
+		<?php endif; ?>
+		<p>Die Liste entspricht <strong>exakt der Themenfeld-Filterleiste im Frontend</strong> – gleiche
+			Einträge (nur mit buchbaren Seminaren), gleiche Überschriften, gleiche Reihenfolge. Ordne jedem
+			Filter ein Bild aus der <strong>Mediathek</strong> zu (lizenzierte IG-Metall-Motive dort hochladen)
+			und wähle bewusst das Layout. Die Kacheln tragen keinen Text – nur das Filter-Label als
+			Überschrift – und verlinken auf die Übersicht mit vorausgewähltem Themenfeld.<br>
+			Einzelne Kachel: Shortcode aus der Zeile kopieren. Alle Kacheln auf einmal:
+			<code>[bi_kachel_vorlagen spalten="3"]</code> (zeigt automatisch alle Filter mit Bild, in der
+			Reihenfolge der Filterleiste, jede im hier gewählten Layout). Die Zuordnung bleibt gespeichert,
+			auch wenn ein Themenfeld zwischenzeitlich keine buchbaren Seminare hat und deshalb hier nicht
+			auftaucht.</p>
+
+		<div class="bi-kv-previews">
+			<div>
+				<span class="bi-kv-prev-caption"><strong>Layout 1</strong> – Bild oben, Überschrift darunter</span>
+				<div class="bi-kv-mock bi-kv-mock-1">
+					<span class="bi-kv-mock-img">Bild</span>
+					<span class="bi-kv-mock-title">Grundlagen für Betriebsrät*innen</span>
+				</div>
+			</div>
+			<div>
+				<span class="bi-kv-prev-caption"><strong>Layout 2</strong> – Überschrift über dem Bild (Overlay)</span>
+				<div class="bi-kv-mock bi-kv-mock-2">
+					<span class="bi-kv-mock-title">Grundlagen für Betriebsrät*innen</span>
+				</div>
 			</div>
 		</div>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="bi_save_kachel_vorlagen">
+				<?php wp_nonce_field( 'bi_kachel_vorlagen' ); ?>
+
+				<?php submit_button( 'Vorlagen speichern', 'primary', 'submit', true, array( 'id' => 'bi-kv-submit-top' ) ); ?>
+
+				<table class="widefat striped bi-kv-table">
+					<thead>
+						<tr>
+							<th style="width:110px">Bild</th>
+							<th>Themenfeld / Kachel-Überschrift</th>
+							<th style="width:230px">Layout</th>
+							<th style="width:200px">Aktion</th>
+							<th>Shortcode</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php if ( ! $choices ) : ?>
+							<tr><td colspan="5"><em>Aktuell bietet die Filterleiste keine Themenfeld-Einträge an
+								(keine buchbaren Seminare mit Themenfeld).</em></td></tr>
+						<?php endif; ?>
+						<?php foreach ( $choices as $choice ) : ?>
+							<?php
+							$term  = $choice['term'];
+							$titel = $choice['label'];
+							$entry = self::vorlage_entry( $map, $term->term_id );
+							$thumb = $entry['bild'] ? wp_get_attachment_image_url( $entry['bild'], 'medium' ) : '';
+							?>
+							<tr>
+								<td>
+									<input type="hidden" class="bi-kv-id" name="vorlage[<?php echo (int) $term->term_id; ?>][bild]" value="<?php echo $entry['bild'] ?: ''; ?>">
+									<img class="bi-kv-thumb" src="<?php echo esc_url( $thumb ); ?>" alt="" <?php echo $thumb ? '' : 'style="display:none"'; ?>>
+									<span class="bi-kv-thumb-empty" <?php echo $thumb ? 'style="display:none"' : ''; ?>>kein Bild</span>
+								</td>
+								<td>
+									<strong><?php echo esc_html( $titel ); ?></strong>
+									<span style="color:#787c82">(<?php echo esc_html( number_format_i18n( $choice['count'] ) ); ?>)</span>
+									<?php if ( $titel !== $term->name ) : ?>
+										<br><span class="description">Term: <?php echo esc_html( $term->name ); ?></span>
+									<?php endif; ?>
+								</td>
+								<td>
+									<select name="vorlage[<?php echo (int) $term->term_id; ?>][layout]">
+										<option value="1" <?php selected( $entry['layout'], '1' ); ?>>1 – Bild oben (Standard)</option>
+										<option value="2" <?php selected( $entry['layout'], '2' ); ?>>2 – Overlay</option>
+									</select>
+								</td>
+								<td>
+									<button type="button" class="button bi-kv-pick">Bild wählen</button>
+									<button type="button" class="button-link-delete bi-kv-remove" <?php echo $entry['bild'] ? '' : 'style="display:none"'; ?>>entfernen</button>
+								</td>
+								<td>
+									<?php if ( $entry['bild'] ) : ?>
+										<input type="text" class="bi-kv-shortcode" readonly
+											value="<?php echo esc_attr( self::vorlage_shortcode( $term, $entry, $titel ) ); ?>"
+											onclick="this.select()">
+										<button type="button" class="button bi-kv-copy" style="margin-top:4px">Kopieren</button>
+										<span class="bi-kv-copied" style="display:none">✓</span>
+									<?php else : ?>
+										<span class="description">Bild wählen und speichern – dann erscheint hier der Shortcode.</span>
+									<?php endif; ?>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+
+				<p class="description">Nach Änderungen an Bild oder Layout speichern – die Shortcodes rechts
+					aktualisieren sich beim Speichern.</p>
+				<?php submit_button( 'Vorlagen speichern' ); ?>
+			</form>
+
+		<script>
+		( function () {
+			document.querySelectorAll( '.bi-kv-pick' ).forEach( function ( btn ) {
+				btn.addEventListener( 'click', function () {
+					var row   = btn.closest( 'tr' );
+					var frame = wp.media( { title: 'Kachel-Bild wählen', multiple: false, library: { type: 'image' } } );
+					frame.on( 'select', function () {
+						var att = frame.state().get( 'selection' ).first().toJSON();
+						row.querySelector( '.bi-kv-id' ).value = att.id;
+						var img = row.querySelector( '.bi-kv-thumb' );
+						img.src = ( att.sizes && att.sizes.medium ) ? att.sizes.medium.url : att.url;
+						img.style.display = '';
+						row.querySelector( '.bi-kv-thumb-empty' ).style.display = 'none';
+						row.querySelector( '.bi-kv-remove' ).style.display = '';
+					} );
+					frame.open();
+				} );
+			} );
+			document.querySelectorAll( '.bi-kv-remove' ).forEach( function ( btn ) {
+				btn.addEventListener( 'click', function () {
+					var row = btn.closest( 'tr' );
+					row.querySelector( '.bi-kv-id' ).value = '';
+					row.querySelector( '.bi-kv-thumb' ).style.display = 'none';
+					row.querySelector( '.bi-kv-thumb-empty' ).style.display = '';
+					btn.style.display = 'none';
+				} );
+			} );
+			document.querySelectorAll( '.bi-kv-copy' ).forEach( function ( btn ) {
+				btn.addEventListener( 'click', function () {
+					var row   = btn.closest( 'td' );
+					var input = row.querySelector( '.bi-kv-shortcode' );
+					input.select();
+					navigator.clipboard.writeText( input.value ).then( function () {
+						var ok = row.querySelector( '.bi-kv-copied' );
+						ok.style.display = '';
+						setTimeout( function () { ok.style.display = 'none'; }, 1500 );
+					} );
+				} );
+			} );
+		} )();
+		</script>
 		<?php
 	}
 }

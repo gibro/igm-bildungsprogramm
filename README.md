@@ -166,6 +166,27 @@ Mehrfachwerte mit `|`): `q` (Titelsuche), `ort`, `thema`, `ziel`, `frei`
 (Gruppen-Labels wie in der Filterleiste), `von` / `bis` (JJJJ-MM-TT),
 `nr` (Seminarnummern, z. B. `nr="LO12345|BO67890"`).
 
+#### Vorgefertigte Themen-Kacheln (`[bi_kachel_vorlagen]`)
+
+Im Tab **Bildungsprogramm → Marketing-Kacheln → Kachel-Vorlagen** wird jedem
+Themenfeld-Filter ein Bild aus der **Mediathek** zugeordnet (die lizenzierten
+IG-Metall-Motive dort hochladen – nicht ins Plugin legen, so überleben sie
+Plugin-Updates und WordPress erzeugt automatisch alle Bildgrößen) sowie
+bewusst ein **Layout** gewählt (1 = Bild oben, Überschrift darunter –
+Standard; 2 = Overlay – beide Varianten sind oben auf der Seite als
+Vorschau zu sehen).
+Die Liste entspricht exakt der Themenfeld-Filterleiste im Frontend: gleiche
+Einträge (nur mit buchbaren Seminaren), gleiche Überschriften, gleiche
+Reihenfolge. Daraus entstehen fertige Kacheln ohne Teaser-Text, nur mit dem
+Filter-Label als Überschrift (z. B. „Grundlagen für Betriebsrät*innen"),
+verlinkt auf die Übersicht mit vorausgewähltem Themenfeld. Pro Zeile steht
+der fertige `[bi_kachel …]`-Shortcode zum Kopieren;
+`[bi_kachel_vorlagen spalten="3"]` rendert alle Filter mit zugeordnetem Bild
+auf einmal als Grid – in der Reihenfolge der Filterleiste, jede Kachel im
+für sie gewählten Layout (optional `ratio`, `button`). Zuordnungen bleiben
+gespeichert, auch wenn ein Themenfeld zwischenzeitlich keine buchbaren
+Seminare hat.
+
 **Darstellungs-Attribute:**
 
 | Attribut | Bedeutung |
