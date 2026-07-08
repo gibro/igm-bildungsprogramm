@@ -166,6 +166,19 @@ Mehrfachwerte mit `|`): `q` (Titelsuche), `ort`, `thema`, `ziel`, `frei`
 (Gruppen-Labels wie in der Filterleiste), `von` / `bis` (JJJJ-MM-TT),
 `nr` (Seminarnummern, z. B. `nr="LO12345|BO67890"`).
 
+#### Vorgefertigte Themen-Kacheln (`[bi_kachel_vorlagen]`)
+
+Unter **Bildungsprogramm → Kachel-Vorlagen** wird jedem Themenfeld ein Bild
+aus der **Mediathek** zugeordnet (die lizenzierten IG-Metall-Motive dort
+hochladen – nicht ins Plugin legen, so überleben sie Plugin-Updates und
+WordPress erzeugt automatisch alle Bildgrößen). Daraus entstehen fertige
+Kacheln im Overlay-Layout: ohne Teaser-Text, nur mit dem Filter-Label als
+Überschrift (z. B. „Grundlagen für Betriebsrät*innen"), verlinkt auf die
+Übersicht mit vorausgewähltem Themenfeld. Pro Zeile steht der fertige
+`[bi_kachel …]`-Shortcode zum Kopieren; `[bi_kachel_vorlagen spalten="3"]`
+rendert alle Themenfelder mit zugeordnetem Bild auf einmal als Grid
+(optional `ratio`, `button`).
+
 **Darstellungs-Attribute:**
 
 | Attribut | Bedeutung |

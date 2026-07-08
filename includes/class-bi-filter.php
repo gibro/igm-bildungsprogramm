@@ -150,8 +150,9 @@ class BI_Filter {
 		return $opts;
 	}
 
-	/** Anzeige-Label für Themenfeld-Begriffe (echter Term bleibt unverändert; Match per Präfix). */
-	private static function thema_label( $name ) {
+	/** Anzeige-Label für Themenfeld-Begriffe (echter Term bleibt unverändert; Match per Präfix).
+	 *  Public: auch die Kachel-Vorlagen (BI_Kacheln) nutzen dieses Label als Kachel-Überschrift. */
+	public static function thema_label( $name ) {
 		if ( 0 === stripos( $name, 'VL kompakt' ) ) {
 			return 'Grundlagen für Vertrauensleute';
 		}
