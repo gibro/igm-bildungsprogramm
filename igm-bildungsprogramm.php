@@ -3,7 +3,7 @@
  * Plugin Name:       Bildungsprogramm
  * Plugin URI:        https://bildung.igmetall.de/
  * Description:        Eigenständiges Seminar-/Veranstaltungssystem: Such- & Filterleiste, CSV-Import für Veranstaltungen und PLZ-Geschäftsstellen, Anmeldeformular mit konfigurierbaren Mail-Triggern. Unabhängig von Formidable.
- * Version:           1.37.0
+ * Version:           1.38.0
  * Author:            IG Metall Bildung
  * Text Domain:       bi-seminarsuche
  * Requires at least: 5.8
@@ -17,6 +17,7 @@
  *    class-bi-import.php        – Seminar-CSV-Import mit Spalten-Mapping
  *    class-bi-registration.php  – Anmeldeformular [bi_anmeldung] + Tabelle wp_bi_anmeldungen
  *    class-bi-mailer.php        – Mail-Trigger-Engine (sofort oder wöchentlich gesammelt) + Einstellungsseite
+ *    class-bi-mail-table.php    – Listentabelle der Mail-Benachrichtigungen (wird bei Bedarf geladen)
  *    class-bi-tracking.php      – Kampagnen-Links (Newsletter) + Auswertung Klick → Anmeldung
  *    class-bi-filter.php        – Such-/Filterleiste [bi_seminarsuche]
  *    class-bi-kacheln.php       – Marketing-Kacheln [bi_kacheln] / [bi_kachel]
@@ -28,7 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Direktaufruf verhindern
 }
 
-define( 'BI_VERSION', '1.37.0' );
+define( 'BI_VERSION', '1.38.0' );
 define( 'BI_DB_VERSION', '3' ); // Schema-Version der eigenen Tabellen (Upgrade via dbDelta)
 define( 'BI_FILE', __FILE__ );
 define( 'BI_PATH', plugin_dir_path( __FILE__ ) );

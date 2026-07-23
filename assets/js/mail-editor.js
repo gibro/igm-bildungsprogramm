@@ -1,5 +1,8 @@
 /**
- * Formatier-Leiste über den Textfeldern der Mail-Benachrichtigungen.
+ * Admin-Seite „Mail-Benachrichtigungen": Formatier-Leiste über den Textfeldern und
+ * das Ein-/Ausblenden der Felder, die nur zu bestimmten Auswahlen gehören.
+ *
+ * Formatier-Leiste:
  *
  * Die Knöpfe fügen ausschließlich Steuerzeichen in das Textfeld ein – es gibt
  * kein verstecktes HTML und keinen zweiten Zustand, den man verlieren könnte.
@@ -106,4 +109,41 @@
     if (area) insert(area, sel.value);
     sel.selectedIndex = 0;
   });
+
+  /**
+   * Bearbeiten-Maske: Zeilen mit data-when-type / data-when-schedule gehören nur zu
+   * einer bestimmten Auswahl. Sie werden lediglich versteckt, nicht entfernt – die
+   * Werte gehen also beim Speichern nicht verloren, wenn man die Auswahl kurz ändert.
+   */
+  function syncRows(form) {
+    var type = form.querySelector('.bi-trigger-type');
+    var schedule = form.querySelector('.bi-trigger-schedule');
+
+    form.querySelectorAll('[data-when-type]').forEach(function (row) {
+      row.hidden = !type || row.dataset.whenType !== type.value;
+    });
+    form.querySelectorAll('[data-when-schedule]').forEach(function (row) {
+      row.hidden = !schedule || row.dataset.whenSchedule !== schedule.value;
+    });
+  }
+
+  function initForm() {
+    var form = document.querySelector('.bi-trigger-form');
+    if (!form) return;
+
+    syncRows(form);
+    form.addEventListener('change', function (ev) {
+      if (!ev.target.classList) return;
+      if (ev.target.classList.contains('bi-trigger-type') ||
+          ev.target.classList.contains('bi-trigger-schedule')) {
+        syncRows(form);
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initForm);
+  } else {
+    initForm();
+  }
 })();

@@ -1,4 +1,103 @@
-/* Formatier-Leiste über den Textfeldern der Mail-Benachrichtigungen */
+/* Admin-Seite „Mail-Benachrichtigungen": Hero-Karten, Listentabelle, Editor-Leiste */
+
+/* ---------- Hero: die drei seitenweiten Einstellungen ---------- */
+
+.bi-hero {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+  margin: 16px 0 20px;
+}
+
+.bi-card {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-left: 4px solid #dcdcde;
+  border-radius: 4px;
+  padding: 14px 18px 16px;
+}
+
+.bi-card--sched  { border-left-color: #5b2d90; }
+.bi-card--test   { border-left-color: #2271b1; }
+.bi-card--format { border-left-color: #e2001a; }
+
+.bi-card h2 {
+  margin: 0 0 10px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+/* Die Aktionsleiste sitzt immer unten, damit die Karten trotz unterschiedlich
+   langer Texte auf einer Linie abschließen. */
+.bi-card__form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.bi-card__row { margin: 0 0 12px; }
+
+.bi-card__label {
+  display: block;
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.bi-card__list {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.bi-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.bi-card .description { margin: 6px 0 0; }
+.bi-card__actions + .description { margin-top: 8px; }
+.bi-card input.regular-text { max-width: 100%; }
+
+/* ---------- Listentabelle ---------- */
+
+.bi-muted { color: #646970; }
+.bi-warn  { color: #b32d2e; }
+
+.bi-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.bi-badge--instant { background: #f6f7f7; color: #3c434a; border-color: #dcdcde; }
+.bi-badge--weekly  { background: #f3eefc; color: #5b2d90; border-color: #d9cbf0; }
+.bi-badge--on      { background: #edfaef; color: #1a7f37; border-color: #b8e6c2; }
+.bi-badge--off     { background: #f0f0f1; color: #646970; border-color: #dcdcde; }
+
+/* Inaktive Zeilen zurücknehmen – der Titel bleibt gut lesbar. */
+.bi-row-inactive td:not(.column-name) { opacity: .65; }
+.bi-row-inactive .row-title { color: #646970; }
+
+/* ---------- Bearbeiten-Maske ---------- */
+
+.bi-editactions { display: flex; align-items: center; gap: 10px; }
+.bi-editactions__del { margin-left: auto; color: #b32d2e; }
+
+/* Zeilen, die nur zu bestimmten Auswahlen passen (siehe mail-editor.js) */
+.bi-trigger-form tr[hidden] { display: none; }
+
+/* ---------- Formatier-Leiste über den Textfeldern ---------- */
 
 .bi-mailedit { max-width: 100%; }
 
