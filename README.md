@@ -23,6 +23,7 @@ Formular-Plugins benötigt.
   - [Marketing-Kacheln](#bi_kachel--marketing-kacheln)
   - [Programmjahre trennen](#programmjahre-trennen)
 - [Mail-Benachrichtigungen](#mail-benachrichtigungen)
+- [Kampagnen-Auswertung](#kampagnen-auswertung)
 - [Datenmodell](#datenmodell)
 - [Anpassung](#anpassung)
 - [Aufbau des Codes](#aufbau-des-codes)
@@ -45,6 +46,9 @@ Formular-Plugins benötigt.
 - **CSV-Import für PLZ → Geschäftsstelle** (eigene Tabelle, schneller Lookup).
 - **Marketing-Kacheln**: Bild-/Text-Teaser, die auf die Suche mit vorbefüllten
   Filtern verlinken – inklusive Backend-Builder mit Live-Vorschau.
+- **Kampagnen-Auswertung**: eigene Links für Newsletter und Mailings, die den
+  Weg vom Klick über die Seminaransicht bis zur abgeschickten Anmeldung
+  nachvollziehbar machen.
 - **Mini-Dashboard** im Backend mit Kennzahlen, Warnhinweisen (z. B. fehlende
   E-Mail-Adressen) und Einrichtungs-Anleitung.
 
@@ -75,9 +79,9 @@ cd wp-content/plugins
 git clone https://github.com/<user>/igm-bildungsprogramm.git
 ```
 
-Beim Aktivieren werden die Tabellen `wp_bi_plz` und `wp_bi_anmeldungen`
-angelegt, der Beitragstyp registriert und drei Standard-Benachrichtigungen
-erstellt. Deaktivieren und Löschen entfernt keine Daten.
+Beim Aktivieren werden die Tabellen `wp_bi_plz`, `wp_bi_anmeldungen`,
+`wp_bi_kampagnen` und `wp_bi_events` angelegt, der Beitragstyp registriert und
+drei Standard-Benachrichtigungen erstellt. Deaktivieren und Löschen entfernt keine Daten.
 
 ## Einrichtung
 
@@ -97,6 +101,8 @@ Alle Schritte finden sich auch im Backend unter **Bildungsprogramm → Übersich
 6. **Anmelde-Seite** anlegen mit `[bi_anmeldung]`.
 7. Unter **Einstellungen → Seiten** die beiden Seiten zuordnen (oder die
    automatische Erkennung nutzen) und die Anmeldevarianten konfigurieren.
+8. Optional: unter **Kampagnen** je Newsletter einen Link anlegen, wenn die
+   Wirkung von Mailings ausgewertet werden soll.
 
 ## Shortcodes
 
@@ -123,6 +129,11 @@ das Seminar automatisch per `?seminar=ID` an die Anmelde-Seite übergeben.
 Vierstufiger Formular-Wizard (Persönliches → Kontakt → Betrieb → Abschluss)
 mit clientseitiger Schritt-Validierung und serverseitiger Verarbeitung.
 Die zuständige Geschäftsstelle wird über die **betriebliche PLZ** ermittelt.
+Das Feld **„Freistellung nach"** listet genau die Freistellungen, die am
+Seminar hinterlegt sind (Taxonomie `bi_freistellung` aus der CSV-Spalte
+„Freistellung"). Gibt es nur eine, ist sie vorausgewählt; ist am Seminar nichts
+gepflegt, greift die kanonische Gesamtliste. Serverseitig wird geprüft, dass
+der gesendete Wert zu den Seminardaten passt.
 Pro Seminar steuern Einstellungen und Regeln, ob die Direktanmeldung oder der
 Verweis auf die Geschäftsstelle angeboten wird.
 
@@ -252,9 +263,123 @@ eine Testadresse um.
 `{geschaeftsstelle_email}`, `{seminar_titel}`, `{seminar_nummer}`,
 `{seminar_startdatum}`, `{seminar_ort}`, `{datum}`.
 
+### Rich Text mit Klartext-Fallback
+
+Die Texte werden als **reiner Text mit Steuerzeichen** gepflegt – über jedem
+Textfeld liegt dafür eine kleine Formatier-Leiste (Fett, Kursiv, Überschrift,
+Aufzählung, Link, Trennlinie) plus ein Auswahlfeld, das Platzhalter an der
+Cursorposition einsetzt:
+
+| Steuerzeichen | Wirkung |
+|---|---|
+| `**fett**` | fetter Text |
+| `_kursiv_` | kursiver Text |
+| `# … `, `## … `, `### … ` | Überschriften |
+| `- Punkt` | Aufzählung |
+| `[Text](https://…)` | Link |
+| `---` | Trennlinie |
+
+Beim Versand entstehen daraus zwei Fassungen: eine gestaltete HTML-Mail und
+eine Klartext-Fassung ohne Steuerzeichen. Sie gehen als `multipart/alternative`
+raus (HTML als Body, Klartext als `AltBody` über den Hook `phpmailer_init`) –
+Mailprogramme ohne HTML-Darstellung zeigen automatisch den Text. Die Checkbox
+*Darstellung → Gestaltete Mails senden (HTML)* (Option `bi_mail_format`)
+schaltet auf reinen Textversand um; die Steuerzeichen werden auch dann
+entfernt.
+
+Gespeichert wird ausschließlich der Quelltext mit Steuerzeichen, nie HTML. Der
+Text wird vor der Umwandlung vollständig escaped, damit eingesetzte
+Platzhalterwerte (Namen, Betriebe, Bemerkungen) kein Markup in die Mail
+schmuggeln können; eigenes HTML ist entsprechend nicht möglich.
+
+### Sofort oder wöchentlich gesammelt
+
+Jede Benachrichtigung hat eine **Versandart**:
+
+- **Sofort** (Standard) – eine Mail je Anmeldung, direkt beim Absenden.
+- **Wöchentliche Zusammenfassung** – die Anmeldung wird nicht sofort
+  versendet, sondern fertig gerendert in einer Warteschlange abgelegt
+  (Option `bi_mail_queue`). Ein WP-Cron-Job (`bi_mail_weekly_digest`) fasst
+  sie zum eingestellten Wochentermin (Option `bi_mail_schedule`, Wochentag +
+  Uhrzeit im Kasten *Wöchentlicher Versand*) je **Benachrichtigung und
+  Empfänger** zu einer Mail zusammen – jede Geschäftsstelle bekommt also nur
+  ihre eigenen Anmeldungen. Betreff und Einleitung der Sammelmail sind pro
+  Benachrichtigung konfigurierbar; dort gelten die Platzhalter `{anzahl}`,
+  `{zeitraum}`, `{benachrichtigung}` und `{datum}` (die Platzhalter einer
+  einzelnen Anmeldung stehen nur im normalen Text zur Verfügung, der je
+  gesammelter Anmeldung wiederholt wird).
+
+Weil Betreff und Text schon beim Eintreffen der Anmeldung gerendert werden,
+bleiben eingereihte Einträge korrekt, auch wenn die Benachrichtigung später
+geändert oder gelöscht wird. Der Button **„Warteschlange jetzt versenden"**
+leert sie sofort, ohne den regulären Termin zu verschieben.
+
+> **Hinweis:** WP-Cron läuft nur, wenn die Seite besucht wird – der Versand
+> kann sich um einige Minuten verschieben. Ist WP-Cron per `DISABLE_WP_CRON`
+> abgeschaltet, warnt die Übersichtsseite, sobald ein Termin fehlt.
+
 > **Hinweis:** Zuverlässige Mail-Zustellung hängt von der
 > WordPress-Installation ab – ein SMTP-Plugin (z. B. WP Mail SMTP) wird
 > empfohlen.
+
+## Kampagnen-Auswertung
+
+Damit sich beurteilen lässt, wie viele **echte Anmeldungen** ein Newsletter
+gebracht hat, bekommt jedes Mailing unter *Bildungsprogramm → Kampagnen* eine
+eigene Kampagne mit eigenem Link:
+
+```text
+https://beispiel.de/?bi_k=newsletter-juli-2026
+```
+
+Dieser Link ersetzt im Newsletter die normale Adresse. Er protokolliert den
+Aufruf und leitet dann auf das hinterlegte Ziel weiter – wahlweise eine
+Seminar-Detailseite (der Permalink wird bei jedem Aufruf frisch aufgelöst,
+der Link bleibt also auch nach Titeländerungen gültig) oder eine freie Adresse,
+z. B. die Seminarsuche mit gesetzten Filtern. Zusätzliche Parameter am
+Kampagnen-Link werden an das Ziel durchgereicht.
+
+Ab dem Klick wird der Weg desselben Besuchs mitgeschrieben:
+
+| Schritt | Wird erfasst, wenn … |
+|---|---|
+| Link aufgerufen | der Kampagnen-Link angeklickt wurde |
+| Seminar angesehen | eine Seminar-Detailseite geöffnet wurde |
+| Anmeldung begonnen | das Anmeldeformular geöffnet wurde („Jetzt buchen") |
+| Anmeldung abgeschickt | die Anmeldung tatsächlich gespeichert wurde |
+
+Die Auswertung zeigt diese vier Stufen als Trichter samt Absprungquote, dazu
+die Seminare der Kampagne, die Liste der entstandenen Anmeldungen und – zum
+Nachvollziehen einzelner Fälle – die letzten 20 Wege in ihrer zeitlichen
+Abfolge. Die Zahl der Anmeldungen stammt dabei aus der Anmeldetabelle
+(Spalte `kampagne`), nicht aus den Ereignissen: Sie bleibt korrekt, auch wenn
+alte Ereignisse aufgeräumt werden, und steht ebenso im CSV-Export.
+
+**Zuordnung und Genauigkeit.** Erfasst wird ein Zufalls-Token in einem
+First-Party-Cookie (`bi_track`, 30 Tage) – keine IP, kein User-Agent, kein
+Gerät. Mehrfaches Neuladen zählt nicht doppelt, ein erneuter Klick auf den
+Newsletter-Link startet einen neuen Weg. Link-Scanner von Mailprogrammen
+werden über die Browser-Kennung aussortiert; exakt ist das nicht, Klickzahlen
+bleiben eine Näherung.
+
+> **Wichtig:** Ein Full-Page-Cache vor WordPress kann die Zwischenschritte
+> verschlucken – ausgelieferte Seiten aus dem Cache führen keinen PHP-Code aus.
+> Die Weiterleitung des Kampagnen-Links (Query-Parameter) und die gespeicherte
+> Anmeldung sind davon nicht betroffen.
+
+Erfasste Ereignisse werden automatisch gelöscht, sobald sie älter als zwölf
+Monate sind (täglicher Cron-Job); der Knopf unter *Kampagnen* stößt dasselbe
+sofort an. Die Anmeldungen und damit die Kampagnen-Zahlen bleiben davon
+unberührt.
+
+> **Rechtliches:** Das Cookie dient der Reichweitenmessung und ist technisch
+> nicht zwingend erforderlich – nach § 25 Abs. 1 TDDDG braucht es dafür in der
+> Regel eine Einwilligung (Consent-Banner). Unter *Einstellungen → Datenschutz*
+> liegt ein fertiger Textbaustein für die Datenschutzerklärung zum Kopieren,
+> der sowohl die Anmeldedaten als auch die Reichweitenmessung beschreibt; er
+> steht ebenso im WordPress-Richtlinien-Leitfaden unter *Werkzeuge →
+> Datenschutz*. Der Baustein ist ein Entwurf und ersetzt keine rechtliche
+> Prüfung.
 
 ## Datenmodell
 
@@ -268,6 +393,11 @@ eine Testadresse um.
 | PLZ-Zuordnung | Tabelle `wp_bi_plz` |
 | Anmeldungen | Tabelle `wp_bi_anmeldungen` |
 | Mail-Benachrichtigungen | Option `bi_mail_triggers` |
+| Kampagnen (Newsletter-Links) | Tabelle `wp_bi_kampagnen` |
+| Kampagnen-Ereignisse | Tabelle `wp_bi_events` |
+| Kampagne einer Anmeldung | Spalte `kampagne` in `wp_bi_anmeldungen` |
+| Warteschlange Wochenzusammenfassung | Option `bi_mail_queue` |
+| Termin des Wochenversands | Option `bi_mail_schedule` |
 | Einstellungen | Option `bi_settings` |
 
 Die Filter-Facetten sind bewusst Taxonomien: WordPress filtert darüber mit
@@ -295,6 +425,7 @@ igm-bildungsprogramm/
 │  ├─ class-bi-detail.php       Seminar-Detailseite
 │  ├─ class-bi-registration.php Anmeldeformular [bi_anmeldung] + Tabelle
 │  ├─ class-bi-mailer.php       Mail-Trigger-Engine + Einstellungsseite
+│  ├─ class-bi-tracking.php     Kampagnen-Links + Auswertung Klick → Anmeldung
 │  ├─ class-bi-import.php       Seminar-CSV-Import mit Spalten-Mapping
 │  ├─ class-bi-plz.php          PLZ→Geschäftsstelle: Tabelle, Lookup, Import
 │  ├─ class-bi-settings.php     Einstellungen (Anmeldevarianten, Regeln, Seiten)

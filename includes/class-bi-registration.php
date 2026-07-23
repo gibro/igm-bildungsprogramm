@@ -100,9 +100,11 @@ class BI_Registration {
 			nachricht TEXT NULL,
 			data LONGTEXT NULL,
 			status VARCHAR(20) NOT NULL DEFAULT 'neu',
+			kampagne VARCHAR(64) NOT NULL DEFAULT '',
 			PRIMARY KEY (id),
 			KEY seminar_id (seminar_id),
-			KEY created (created)
+			KEY created (created),
+			KEY kampagne (kampagne)
 		) $charset;";
 		dbDelta( $sql );
 	}
@@ -134,7 +136,7 @@ class BI_Registration {
 				'desc'  => 'Wie wir dich erreichen und deine IG-Metall-Mitgliedschaft.',
 				'fields' => array(
 					'telefon'         => array( 'label' => 'Telefon', 'type' => 'tel', 'col' => 6, 'placeholder' => '0202 1234567' ),
-					'mobil'           => array( 'label' => 'Mobiltelefon', 'type' => 'tel', 'col' => 6, 'placeholder' => '0151 1234567' ),
+					'mobil'           => array( 'label' => 'Mobiltelefon', 'type' => 'tel', 'col' => 6, 'required' => true, 'placeholder' => '0151 1234567' ),
 					'email'           => array( 'label' => 'E-Mail', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'name@beispiel.de' ),
 					'mitglied'        => array( 'label' => 'Bist du Mitglied der IG Metall?', 'type' => 'radio', 'full' => true, 'default' => 'ja', 'options' => array( 'ja' => 'Ja', 'nein' => 'Nein' ) ),
 					'mitgliedsnummer' => array( 'label' => 'Mitgliedsnummer', 'type' => 'text', 'col' => 6, 'placeholder' => 'z. B. 1234567890' ),
@@ -146,11 +148,12 @@ class BI_Registration {
 				'desc'  => 'Angaben zu Arbeitgeber, Funktion und Freistellung.',
 				'fields' => array(
 					'betrieb'         => array( 'label' => 'Betrieb / Arbeitgeber', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Name des Unternehmens' ),
-					'betrieb_strasse' => array( 'label' => 'Straße & Hausnummer (Betrieb)', 'type' => 'text', 'full' => true, 'placeholder' => 'Werkstraße 1' ),
+					'betrieb_strasse' => array( 'label' => 'Straße & Hausnummer (Betrieb)', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Werkstraße 1' ),
 					'betrieb_plz'     => array( 'label' => 'PLZ (Betrieb)', 'type' => 'plz', 'col' => 4, 'required' => true, 'placeholder' => '12345', 'hint' => 'Bestimmt die zuständige Geschäftsstelle.' ),
-					'betrieb_ort'     => array( 'label' => 'Ort (Betrieb)', 'type' => 'text', 'col' => 8, 'placeholder' => 'Beispielort' ),
+					'betrieb_ort'     => array( 'label' => 'Ort (Betrieb)', 'type' => 'text', 'col' => 8, 'required' => true, 'placeholder' => 'Beispielort' ),
+					'betrieb_email'   => array( 'label' => 'E-Mail (Betrieb)', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'personal@beispiel-gmbh.de', 'hint' => 'Dienstliche Adresse, z. B. von Personalabteilung oder Betriebsrat.' ),
 					'funktion'        => array( 'label' => 'Funktion im Betriebsrat', 'type' => 'select', 'col' => 6, 'options' => array( '', 'BR-Mitglied', 'BR-Vorsitz', 'stellv. BR-Vorsitz', 'Ersatzmitglied', 'JAV', 'Schwerbehindertenvertretung' ) ),
-					'freistellung'    => array( 'label' => 'Freistellung nach', 'type' => 'freistellung', 'col' => 6 ),
+					'freistellung'    => array( 'label' => 'Freistellung nach', 'type' => 'freistellung', 'col' => 6, 'required' => true ),
 				),
 			),
 			array(
@@ -244,6 +247,10 @@ class BI_Registration {
 		$old        = ( $show_error && isset( $_GET['old'] ) && is_array( $_GET['old'] ) )
 			? array_map( 'sanitize_text_field', wp_unslash( $_GET['old'] ) ) : array();
 
+		// Trichter-Schritt „Anmeldung begonnen": Das Formular wird nur über den
+		// Buchungs-Button erreicht, sein Aufruf ist also der Klick auf „Jetzt buchen".
+		BI_Tracking::track( 'formular', $seminar_id );
+
 		$info      = self::seminar_info( $seminar_id );
 		$frei_opts = self::freistellung_options( $seminar_id );
 		$steps     = self::form_steps();
@@ -261,7 +268,7 @@ class BI_Registration {
 				<!-- Sidebar -->
 				<aside class="bi-wiz__sidebar">
 					<div class="bi-wiz__eyebrow">Seminaranmeldung</div>
-					<h1 class="bi-wiz__title"><?php echo esc_html( $info['title'] ); ?></h1>
+					<h2 class="bi-wiz__title"><?php echo esc_html( $info['title'] ); ?></h2>
 					<div class="bi-wiz__divider"></div>
 					<div class="bi-wiz__info">
 						<?php if ( $info['termin'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Termin</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['termin'] ); ?></span></div><?php endif; ?>
@@ -389,8 +396,16 @@ class BI_Registration {
 				break;
 
 			case 'freistellung':
+				$frei_opts = array_values( (array) $frei_opts );
+				// Bietet das Seminar nur eine Freistellung an, ist sie vorausgewählt.
+				$single = ( 1 === count( $frei_opts ) );
+				if ( $single && '' === $val ) {
+					$val = $frei_opts[0];
+				}
 				echo '<select class="bi-wiz__input bi-wiz__select" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '"' . $reqa . '>';
-				echo '<option value="">Bitte wählen</option>';
+				if ( ! $single ) {
+					echo '<option value="">Bitte wählen</option>';
+				}
 				foreach ( $frei_opts as $opt ) {
 					echo '<option value="' . esc_attr( $opt ) . '"' . selected( $val, $opt, false ) . '>' . esc_html( $opt ) . '</option>';
 				}
@@ -506,15 +521,38 @@ class BI_Registration {
 		return ob_get_clean();
 	}
 
-	/** Freistellungs-Optionen im Anmeldeformular (feste, kanonische Liste) */
+	/**
+	 * Freistellungs-Optionen im Anmeldeformular.
+	 *
+	 * Primärquelle sind die Seminardaten: die Terme der Taxonomie bi_freistellung
+	 * am Seminar (kommen aus der Spalte „Freistellung" des CSV-Imports). Nur wenn
+	 * am Seminar nichts gepflegt ist, greift die kanonische Gesamtliste als Fallback.
+	 */
 	private static function freistellung_options( $seminar_id = 0 ) {
-		return array(
+		$canonical = array(
 			'Bildungsurlaub',
-			'keine Freistellung',
-			'§ 179,4 SGB IX',
+			'Bildungsurlaubsgesetz',
 			'§ 37,6 BetrVG',
 			'§ 37,7 BetrVG',
+			'§ 179,4 SGB IX',
+			'keine Freistellung',
 		);
+
+		$terms = $seminar_id ? wp_get_object_terms( $seminar_id, BI_TAX_FREI, array( 'fields' => 'names' ) ) : array();
+		if ( is_wp_error( $terms ) || ! $terms ) {
+			return $canonical;
+		}
+
+		$terms = array_values( array_unique( array_filter( array_map( 'trim', (array) $terms ) ) ) );
+		if ( ! $terms ) {
+			return $canonical;
+		}
+
+		// Kanonische Reihenfolge erzwingen, unbekannte Terme hinten anhängen.
+		$known   = array_values( array_intersect( $canonical, $terms ) );
+		$unknown = array_values( array_diff( $terms, $canonical ) );
+
+		return array_merge( $known, $unknown );
 	}
 
 	/** ---------- POST verarbeiten ---------- */
@@ -556,6 +594,12 @@ class BI_Registration {
 			$data[ $key ] = $raw;
 		}
 
+		// Freistellung muss eine der am Seminar hinterlegten Möglichkeiten sein.
+		if ( '' !== ( $data['freistellung'] ?? '' )
+			&& ! in_array( $data['freistellung'], self::freistellung_options( $seminar_id ), true ) ) {
+			$errors = true;
+		}
+
 		if ( empty( $_POST['datenschutz'] ) || ! $seminar_id || get_post_type( $seminar_id ) !== BI_CPT
 			|| ! BI_CPT::is_bookable( $seminar_id ) ) {
 			$errors = true;
@@ -590,10 +634,15 @@ class BI_Registration {
 			'nachricht'      => $data['bemerkungen'],
 			'data'           => wp_json_encode( $data ),
 			'status'         => 'neu',
-		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
+			// Kampagne, über die dieser Besuch hereinkam (leer, wenn ohne Kampagnen-Link).
+			// Bewusst als Kopie in der Anmeldung: Die Zahl bleibt gültig, auch wenn die
+			// Tracking-Ereignisse später aufgeräumt werden.
+			'kampagne'       => BI_Tracking::current_slug(),
+		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
 
 		$submission_id = (int) $wpdb->insert_id;
 		if ( $submission_id ) {
+			BI_Tracking::track( 'anmeldung', $seminar_id, $submission_id );
 			BI_Mailer::dispatch( self::get( $submission_id ) );
 		}
 
@@ -826,6 +875,9 @@ class BI_Registration {
 			? esc_html( $gs['geschaeftsstelle'] ) . ' &lt;' . esc_html( $gs['email'] ) . '&gt;'
 			: '<em>keine Zuordnung für PLZ ' . esc_html( $r['plz'] ) . '</em>' ) . '</td></tr>';
 		echo '<tr><th>Status</th><td>' . esc_html( $r['status'] ) . '</td></tr>';
+		echo '<tr><th>Kampagne</th><td>' . ( ! empty( $r['kampagne'] )
+			? esc_html( $r['kampagne'] )
+			: '<span style="color:#999">— direkt, ohne Kampagnen-Link</span>' ) . '</td></tr>';
 		echo '</tbody></table>';
 
 		// Felder nach Schritten gruppiert
@@ -859,6 +911,7 @@ class BI_Registration {
 			$header[] = $f['label'];
 		}
 		$header[] = 'Status';
+		$header[] = 'Kampagne';
 
 		nocache_headers();
 		header( 'Content-Type: text/csv; charset=utf-8' );
@@ -885,6 +938,7 @@ class BI_Registration {
 				$line[] = self::display_value( $key, $f, (string) ( $data[ $key ] ?? '' ) );
 			}
 			$line[] = $r['status'];
+			$line[] = $r['kampagne'] ?? '';
 			fputcsv( $out, $line, ';' );
 		}
 		fclose( $out );

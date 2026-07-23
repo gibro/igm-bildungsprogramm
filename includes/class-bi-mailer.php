@@ -3,18 +3,42 @@
  * Mail-Trigger-Engine.
  *
  * Trigger werden in der Option bi_mail_triggers als Array gespeichert. Jeder Trigger:
- *   active        bool
- *   name          Bezeichnung (intern)
- *   type          geschaeftsstelle | teilnehmer | bildungszentrum | custom
- *   recipient     E-Mail (nur type=custom)
- *   from          Absender ("Name <mail>")
- *   subject       Betreff (mit Platzhaltern)
- *   body          Text (mit Platzhaltern)
- *   cond_tax      Bedingung: Taxonomie-Slug (optional)
- *   cond_value    Bedingung: Term-Name (optional)
- *   cond_op       Bedingung: 'is' = Seminar muss den Wert haben, 'not' = darf ihn nicht haben
+ *   active         bool
+ *   name           Bezeichnung (intern)
+ *   type           geschaeftsstelle | teilnehmer | bildungszentrum | ansprechpartner | custom
+ *   recipient      E-Mail (nur type=custom)
+ *   from           Absender ("Name <mail>")
+ *   subject        Betreff (mit Platzhaltern)
+ *   body           Text (mit Platzhaltern)
+ *   cond_tax       Bedingung: Taxonomie-Slug (optional)
+ *   cond_value     Bedingung: Term-Name (optional)
+ *   cond_op        Bedingung: 'is' = Seminar muss den Wert haben, 'not' = darf ihn nicht haben
+ *   schedule       'instant' = sofort eine Mail je Anmeldung (Standard)
+ *                  'weekly'  = Anmeldung wird gesammelt und einmal pro Woche als
+ *                              Zusammenfassung verschickt
+ *   digest_subject Betreff der Wochenzusammenfassung (nur schedule=weekly)
+ *   digest_intro   Einleitungstext der Wochenzusammenfassung (nur schedule=weekly)
  *
- * Platzhalter siehe BI_Mailer::placeholders().
+ * Wöchentlicher Versand:
+ *   Trigger mit schedule=weekly senden bei der Anmeldung nichts, sondern legen einen
+ *   fertig gerenderten Eintrag in der Warteschlange (Option bi_mail_queue) ab. Der
+ *   WP-Cron-Job bi_mail_weekly_digest (Wochentag/Uhrzeit in Option bi_mail_schedule)
+ *   fasst die Warteschlange je Benachrichtigung und Empfänger zu einer Mail zusammen.
+ *   Weil Betreff/Text schon beim Eintreffen der Anmeldung gerendert werden, bleiben
+ *   bereits eingereihte Einträge auch dann korrekt, wenn der Trigger später geändert wird.
+ *
+ * Platzhalter siehe BI_Mailer::placeholders() (Einzelmail) bzw.
+ * BI_Mailer::digest_placeholders() (zusätzlich in der Zusammenfassung).
+ *
+ * Rich Text:
+ *   Betreff und Texte werden als reiner Text mit einfachen Steuerzeichen gepflegt
+ *   (**fett**, _kursiv_, # Überschrift, - Liste, [Text](url), --- als Trennlinie).
+ *   Daraus entstehen beim Versand zwei Fassungen: eine gestaltete HTML-Mail und
+ *   eine Klartext-Fassung ohne Steuerzeichen. Beide gehen als multipart/alternative
+ *   raus (HTML als Body, Klartext als AltBody) – Programme ohne HTML-Darstellung
+ *   zeigen automatisch den Text. Ist die Option bi_mail_format auf 'plain'
+ *   gesetzt, wird ausschließlich die Klartext-Fassung verschickt.
+ *   Gespeichert wird immer nur der Quelltext mit Steuerzeichen, nie HTML.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -23,12 +47,39 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BI_Mailer {
 
-	const OPTION      = 'bi_mail_triggers';
-	const TEST_OPTION = 'bi_mail_test';
+	const OPTION        = 'bi_mail_triggers';
+	const TEST_OPTION   = 'bi_mail_test';
+	const QUEUE_OPTION  = 'bi_mail_queue';
+	const SCHED_OPTION  = 'bi_mail_schedule';
+	const FORMAT_OPTION = 'bi_mail_format';
+	const CRON_HOOK     = 'bi_mail_weekly_digest';
+	const CRON_SCHED    = 'bi_weekly';
+
+	/** Klartext-Fassung der gerade versendeten Mail (siehe apply_alt_body()) */
+	private static $alt_body = '';
 
 	public static function init() {
 		add_action( 'admin_post_bi_save_triggers', array( __CLASS__, 'save' ) );
 		add_action( 'admin_post_bi_save_test', array( __CLASS__, 'save_test' ) );
+		add_action( 'admin_post_bi_save_schedule', array( __CLASS__, 'save_schedule' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'admin_assets' ) );
+
+		// Klartext-Fassung als AltBody -> PHPMailer baut daraus multipart/alternative
+		add_action( 'phpmailer_init', array( __CLASS__, 'apply_alt_body' ) );
+
+		add_filter( 'cron_schedules', array( __CLASS__, 'cron_schedules' ) );
+		add_action( self::CRON_HOOK, array( __CLASS__, 'run_weekly' ) );
+		add_action( 'admin_init', array( __CLASS__, 'ensure_cron' ) );
+	}
+
+	/** Editor-Assets nur auf der Seite „Mail-Benachrichtigungen" */
+	public static function admin_assets() {
+		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+		if ( 'bi-mail-trigger' !== $page ) {
+			return;
+		}
+		wp_enqueue_style( 'bi-mail-editor', BI_URL . 'assets/css/mail-editor.css', array(), BI_VERSION );
+		wp_enqueue_script( 'bi-mail-editor', BI_URL . 'assets/js/mail-editor.js', array(), BI_VERSION, true );
 	}
 
 	/** Test-Modus-Einstellungen */
@@ -56,8 +107,9 @@ class BI_Mailer {
 				'recipient' => '',
 				'from'    => $default_from,
 				'subject' => 'Neue Seminar-Anmeldung aus Ihrem Gebiet ({plz})',
-				'body'    => "Hallo {geschaeftsstelle},\n\nüber das Bildungsprogramm ist eine neue Anmeldung aus Ihrem Gebiet eingegangen.\n\nSeminar: {seminar_titel}\nNummer: {seminar_nummer}\nStart: {seminar_startdatum}\n\nName: {name}\nBetrieb: {betrieb}\nBetriebs-PLZ: {plz}\nE-Mail: {email}\nTelefon: {telefon}\n\nNachricht:\n{nachricht}\n\n— automatisch erzeugt",
+				'body'    => "Hallo {geschaeftsstelle},\n\nüber das Bildungsprogramm ist eine neue Anmeldung aus Ihrem Gebiet eingegangen.\n\n## Seminar\n\n- **{seminar_titel}**\n- Nummer: {seminar_nummer}\n- Start: {seminar_startdatum}\n\n## Anmeldung\n\n- **{name}**\n- Betrieb: {betrieb}, PLZ {plz}\n- E-Mail: {email}\n- Telefon: {telefon}\n\n**Nachricht:**\n{nachricht}\n\n---\n\n_automatisch erzeugt_",
 				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
+				'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
 			),
 			array(
 				'active'  => 1,
@@ -66,8 +118,9 @@ class BI_Mailer {
 				'recipient' => '',
 				'from'    => $default_from,
 				'subject' => 'Ihre Anmeldung zu „{seminar_titel}“',
-				'body'    => "Hallo {vorname} {nachname},\n\nvielen Dank für Ihre Anmeldung zum Seminar „{seminar_titel}“.\n\nStart: {seminar_startdatum}\nOrt: {seminar_ort}\n\nIhre zuständige Geschäftsstelle ({geschaeftsstelle}) wird sich bei Ihnen melden.\n\nViele Grüße\nIhr Bildungsteam",
+				'body'    => "Hallo {vorname} {nachname},\n\nvielen Dank für Ihre Anmeldung zum Seminar **{seminar_titel}**.\n\n- Start: {seminar_startdatum}\n- Ort: {seminar_ort}\n\nIhre zuständige Geschäftsstelle ({geschaeftsstelle}) wird sich bei Ihnen melden.\n\nViele Grüße\nIhr Bildungsteam",
 				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
+				'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
 			),
 			array(
 				'active'  => 1,
@@ -76,8 +129,9 @@ class BI_Mailer {
 				'recipient' => '',
 				'from'    => $default_from,
 				'subject' => 'Neue Anmeldung: {seminar_titel}',
-				'body'    => "Hallo {ansprechpartner},\n\nfür Ihr Seminar ist eine neue Anmeldung eingegangen.\n\nSeminar: {seminar_titel} ({seminar_nummer})\nOrt: {seminar_ort}\nStart: {seminar_startdatum}\n\nTeilnehmer: {name}, {betrieb}, PLZ {plz}\nE-Mail: {email}",
+				'body'    => "Hallo {ansprechpartner},\n\nfür Ihr Seminar ist eine neue Anmeldung eingegangen.\n\n- Seminar: **{seminar_titel}** ({seminar_nummer})\n- Ort: {seminar_ort}\n- Start: {seminar_startdatum}\n\n- Teilnehmer*in: **{name}**, {betrieb}, PLZ {plz}\n- E-Mail: {email}",
 				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
+				'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
 			),
 		) );
 	}
@@ -85,12 +139,13 @@ class BI_Mailer {
 	/** ---------- Versand ---------- */
 
 	/**
-	 * Benachrichtigungen versenden.
+	 * Benachrichtigungen versenden bzw. für die Wochenzusammenfassung einreihen.
 	 *
 	 * @param array  $submission Anmeldedaten.
 	 * @param string $force_to   Wenn gesetzt (Soforttest): ALLE Mails an diese Adresse,
-	 *                           Bedingungen werden ignoriert. Sonst greift ggf. der Test-Modus.
-	 * @return int Anzahl versendeter Mails.
+	 *                           Bedingungen werden ignoriert, auch wöchentliche Trigger
+	 *                           gehen sofort raus. Sonst greift ggf. der Test-Modus.
+	 * @return int Anzahl sofort versendeter Mails (eingereihte zählen nicht mit).
 	 */
 	public static function dispatch( $submission, $force_to = '' ) {
 		if ( ! $submission ) {
@@ -126,17 +181,31 @@ class BI_Mailer {
 			$subject = self::replace( $trigger['subject'] ?? '', $ctx );
 			$body    = self::replace( $trigger['body'] ?? '', $ctx );
 
+			// Wöchentliche Zusammenfassung: nur einreihen. Der Soforttest ($force_to)
+			// umgeht die Warteschlange, damit der Admin sofort ein Ergebnis sieht.
+			if ( '' === $force_to && 'weekly' === self::schedule_of( $trigger ) ) {
+				self::queue_add( array(
+					'group'          => self::trigger_key( $trigger ),
+					'trigger'        => $trigger['name'] ?? '',
+					'to'             => $to,
+					'from'           => $trigger['from'] ?? '',
+					'subject'        => $subject,
+					'body'           => $body,
+					'digest_subject' => $trigger['digest_subject'] ?? '',
+					'digest_intro'   => $trigger['digest_intro'] ?? '',
+					'created'        => current_time( 'mysql' ),
+					'test'           => $route_to ? 1 : 0,
+					'orig'           => $orig,
+				) );
+				continue;
+			}
+
 			if ( $route_to ) {
 				$subject = '[TEST] ' . $subject;
-				$body    = "==> TEST-VERSAND — diese Mail wäre an „" . ( $orig ?: 'kein Empfänger ermittelt' ) . "“ gegangen.\n\n" . $body;
+				$body    = self::test_hint( 'diese Mail wäre an „' . ( $orig ?: 'kein Empfänger ermittelt' ) . '“ gegangen' ) . $body;
 			}
 
-			$headers = array( 'Content-Type: text/plain; charset=UTF-8' );
-			if ( ! empty( $trigger['from'] ) ) {
-				$headers[] = 'From: ' . $trigger['from'];
-			}
-
-			$ok = wp_mail( $to, $subject, $body, $headers );
+			$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '' );
 			if ( $ok ) {
 				$sent++;
 			} else {
@@ -180,6 +249,230 @@ class BI_Mailer {
 			}
 		}
 		return '';
+	}
+
+	/** ---------- Wöchentliche Zusammenfassung ---------- */
+
+	/** 'instant' oder 'weekly' (Altbestand ohne Feld gilt als 'instant') */
+	private static function schedule_of( $trigger ) {
+		return ( 'weekly' === ( $trigger['schedule'] ?? 'instant' ) ) ? 'weekly' : 'instant';
+	}
+
+	/**
+	 * Stabiler Gruppierungs-Schlüssel eines Triggers. Bewusst aus Bezeichnung, Typ und
+	 * fester Adresse gebildet (nicht aus dem Array-Index): Der verschiebt sich, sobald
+	 * eine Benachrichtigung gelöscht wird, und würde Warteschlangen-Einträge falsch
+	 * zusammenwerfen.
+	 */
+	private static function trigger_key( $trigger ) {
+		return md5( strtolower(
+			( $trigger['name'] ?? '' ) . '|' . ( $trigger['type'] ?? '' ) . '|' . ( $trigger['recipient'] ?? '' )
+		) );
+	}
+
+	public static function get_queue() {
+		$q = get_option( self::QUEUE_OPTION, array() );
+		return is_array( $q ) ? $q : array();
+	}
+
+	private static function queue_add( $item ) {
+		$q   = self::get_queue();
+		$q[] = $item;
+		update_option( self::QUEUE_OPTION, $q, false );
+	}
+
+	/** Warteschlange nach Benachrichtigung gruppiert: [Bezeichnung => Anzahl] */
+	public static function queue_summary() {
+		$out = array();
+		foreach ( self::get_queue() as $it ) {
+			$name         = $it['trigger'] !== '' ? $it['trigger'] : 'ohne Bezeichnung';
+			$out[ $name ] = ( $out[ $name ] ?? 0 ) + 1;
+		}
+		return $out;
+	}
+
+	/** Cron-Callback */
+	public static function run_weekly() {
+		$res = self::flush_queue();
+		if ( $res['items'] ) {
+			error_log( sprintf( '[BI-Mailer] Wochenzusammenfassung: %d Anmeldungen in %d Mail(s).', $res['items'], $res['mails'] ) );
+		}
+	}
+
+	/**
+	 * Warteschlange abarbeiten: je Benachrichtigung und Empfänger eine Sammelmail.
+	 *
+	 * @return array ['mails' => versendete Mails, 'items' => enthaltene Anmeldungen]
+	 */
+	public static function flush_queue() {
+		$queue = self::get_queue();
+		// Zuerst leeren, dann senden: Falls ein wp_mail() hängt oder der Job doppelt
+		// startet, geht lieber eine Zusammenfassung verloren als dass sie doppelt kommt.
+		update_option( self::QUEUE_OPTION, array(), false );
+
+		if ( ! $queue ) {
+			return array( 'mails' => 0, 'items' => 0 );
+		}
+
+		$groups = array();
+		foreach ( $queue as $it ) {
+			$key              = ( $it['group'] ?? '' ) . '|' . strtolower( $it['to'] ?? '' );
+			$groups[ $key ][] = $it;
+		}
+
+		$sent = 0;
+		foreach ( $groups as $items ) {
+			$first = $items[0];
+			$to    = $first['to'] ?? '';
+			if ( ! is_email( $to ) ) {
+				error_log( '[BI-Mailer] Wochenzusammenfassung ohne gültigen Empfänger verworfen (Benachrichtigung: ' . ( $first['trigger'] ?? '?' ) . ')' );
+				continue;
+			}
+
+			$ctx     = self::digest_context( $items );
+			$tpl     = trim( (string) ( $first['digest_subject'] ?? '' ) );
+			$subject = self::replace( $tpl !== '' ? $tpl : 'Wochenzusammenfassung: {anzahl} neue Anmeldungen', $ctx );
+			$body    = self::build_digest_body( $items, $ctx );
+
+			if ( ! empty( $first['test'] ) ) {
+				$subject = '[TEST] ' . $subject;
+				$body    = self::test_hint( 'diese Zusammenfassung wäre an „' . ( $first['orig'] ?: 'kein Empfänger ermittelt' ) . '“ gegangen' ) . $body;
+			}
+
+			if ( self::send( $to, $subject, $body, $first['from'] ?? '' ) ) {
+				$sent++;
+			} else {
+				error_log( '[BI-Mailer] Wochenzusammenfassung an ' . $to . ' fehlgeschlagen (Benachrichtigung: ' . ( $first['trigger'] ?? '?' ) . ')' );
+			}
+		}
+
+		return array( 'mails' => $sent, 'items' => count( $queue ) );
+	}
+
+	/** Platzhalter, die zusätzlich nur in der Wochenzusammenfassung gefüllt werden */
+	public static function digest_placeholders() {
+		return array(
+			'{anzahl}'          => 'Anzahl der gesammelten Anmeldungen',
+			'{zeitraum}'        => 'Zeitraum der gesammelten Anmeldungen (TT.MM.JJJJ – TT.MM.JJJJ)',
+			'{benachrichtigung}' => 'Bezeichnung der Benachrichtigung',
+			'{datum}'           => 'Heutiges Datum',
+		);
+	}
+
+	private static function digest_context( $items ) {
+		$stamps = array();
+		foreach ( $items as $it ) {
+			$ts = strtotime( $it['created'] ?? '' );
+			if ( $ts ) {
+				$stamps[] = $ts;
+			}
+		}
+		$von      = $stamps ? date_i18n( 'd.m.Y', min( $stamps ) ) : date_i18n( 'd.m.Y' );
+		$bis      = $stamps ? date_i18n( 'd.m.Y', max( $stamps ) ) : date_i18n( 'd.m.Y' );
+		$zeitraum = ( $von === $bis ) ? $von : $von . ' – ' . $bis;
+
+		return array(
+			'{anzahl}'           => (string) count( $items ),
+			'{zeitraum}'         => $zeitraum,
+			'{benachrichtigung}' => $items[0]['trigger'] ?? '',
+			'{datum}'            => date_i18n( 'd.m.Y' ),
+		);
+	}
+
+	private static function build_digest_body( $items, $ctx ) {
+		$intro = trim( (string) ( $items[0]['digest_intro'] ?? '' ) );
+		if ( '' === $intro ) {
+			$intro = "Hallo,\n\nhier die gesammelten Anmeldungen aus dem Zeitraum {zeitraum} – insgesamt {anzahl}.";
+		}
+
+		$total = count( $items );
+		$out   = self::replace( $intro, $ctx ) . "\n\n";
+
+		foreach ( $items as $i => $it ) {
+			$ts   = strtotime( $it['created'] ?? '' );
+			$out .= "---\n\n";
+			$out .= sprintf(
+				"## Anmeldung %d von %d — eingegangen am %s\n\n",
+				$i + 1,
+				$total,
+				$ts ? date_i18n( 'd.m.Y H:i', $ts ) : '—'
+			);
+			$out .= trim( (string) $it['body'] ) . "\n\n";
+		}
+
+		$out .= "---\n\n_automatisch erzeugte Wochenzusammenfassung_\n";
+		return $out;
+	}
+
+	/** ---------- Cron-Steuerung ---------- */
+
+	public static function cron_schedules( $schedules ) {
+		$schedules[ self::CRON_SCHED ] = array(
+			'interval' => WEEK_IN_SECONDS,
+			'display'  => 'Wöchentlich (Bildungsprogramm)',
+		);
+		return $schedules;
+	}
+
+	/** Versandzeitpunkt: Wochentag (1 = Montag … 7 = Sonntag) + Uhrzeit in Website-Zeitzone */
+	public static function get_schedule() {
+		$s = get_option( self::SCHED_OPTION, array() );
+		$s = wp_parse_args( is_array( $s ) ? $s : array(), array( 'weekday' => 1, 'hour' => 8, 'minute' => 0 ) );
+
+		$s['weekday'] = max( 1, min( 7, (int) $s['weekday'] ) );
+		$s['hour']    = max( 0, min( 23, (int) $s['hour'] ) );
+		$s['minute']  = ( (int) $s['minute'] >= 30 ) ? 30 : 0;
+		return $s;
+	}
+
+	public static function weekday_labels() {
+		return array( 1 => 'Montag', 2 => 'Dienstag', 3 => 'Mittwoch', 4 => 'Donnerstag', 5 => 'Freitag', 6 => 'Samstag', 7 => 'Sonntag' );
+	}
+
+	/** Nächster Versandzeitpunkt als UTC-Timestamp (berechnet in der Website-Zeitzone) */
+	private static function next_run_ts() {
+		$s   = self::get_schedule();
+		$tz  = wp_timezone();
+		$now = new DateTime( 'now', $tz );
+
+		$target = array( 1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday', 6 => 'Saturday', 7 => 'Sunday' );
+		$day    = $target[ $s['weekday'] ];
+
+		$next = new DateTime( 'now', $tz );
+		$next->setTime( $s['hour'], $s['minute'], 0 );
+		if ( $next->format( 'l' ) !== $day || $next <= $now ) {
+			$next->modify( 'next ' . $day );
+			$next->setTime( $s['hour'], $s['minute'], 0 );
+		}
+		return $next->getTimestamp();
+	}
+
+	/**
+	 * Der Aktivierungshook läuft nach plugins_loaded – init() und damit der
+	 * cron_schedules-Filter sind dort noch nicht registriert, und wp_schedule_event()
+	 * würde das unbekannte Intervall ablehnen. Deshalb vor jedem Planen absichern.
+	 */
+	private static function ensure_interval() {
+		if ( ! has_filter( 'cron_schedules', array( __CLASS__, 'cron_schedules' ) ) ) {
+			add_filter( 'cron_schedules', array( __CLASS__, 'cron_schedules' ) );
+		}
+	}
+
+	public static function ensure_cron() {
+		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+			self::ensure_interval();
+			wp_schedule_event( self::next_run_ts(), self::CRON_SCHED, self::CRON_HOOK );
+		}
+	}
+
+	public static function reschedule_cron() {
+		self::ensure_interval();
+		wp_clear_scheduled_hook( self::CRON_HOOK );
+		wp_schedule_event( self::next_run_ts(), self::CRON_SCHED, self::CRON_HOOK );
+	}
+
+	public static function clear_cron() {
+		wp_clear_scheduled_hook( self::CRON_HOOK );
 	}
 
 	/** ---------- Platzhalter ---------- */
@@ -281,6 +574,220 @@ class BI_Mailer {
 		return strtr( (string) $text, $ctx );
 	}
 
+	/** ---------- Rich Text: Steuerzeichen -> HTML bzw. Klartext ---------- */
+
+	/** Werden HTML-Mails verschickt? (Die Klartext-Fassung geht immer mit raus.) */
+	public static function html_enabled() {
+		return 'plain' !== get_option( self::FORMAT_OPTION, 'html' );
+	}
+
+	/** Steuerzeichen für die Editor-Leiste und die Legende auf der Einstellungsseite */
+	public static function markup_legend() {
+		return array(
+			'**fett**'                 => 'fetter Text',
+			'_kursiv_'                 => 'kursiver Text',
+			'# Überschrift'            => 'große Überschrift (## und ### für kleinere)',
+			'- Punkt'                  => 'Aufzählungspunkt',
+			'[Text](https://…)'        => 'Link',
+			'---'                      => 'Trennlinie',
+		);
+	}
+
+	/**
+	 * Mail versenden: HTML-Fassung als Body, Klartext-Fassung als Fallback.
+	 *
+	 * @param string $to      Empfänger.
+	 * @param string $subject Betreff (bereits gerendert).
+	 * @param string $text    Quelltext mit Steuerzeichen (bereits gerendert).
+	 * @param string $from    Absender-Header oder ''.
+	 */
+	private static function send( $to, $subject, $text, $from = '' ) {
+		$headers = array();
+		if ( '' !== trim( (string) $from ) ) {
+			$headers[] = 'From: ' . $from;
+		}
+
+		$plain = self::markup_to_plain( $text );
+
+		if ( self::html_enabled() ) {
+			$headers[]      = 'Content-Type: text/html; charset=UTF-8';
+			$body           = self::html_document( self::markup_to_html( $text ), $subject );
+			self::$alt_body = $plain;
+		} else {
+			$headers[] = 'Content-Type: text/plain; charset=UTF-8';
+			$body      = $plain;
+		}
+
+		$ok = wp_mail( $to, $subject, $body, $headers );
+
+		// Immer zurücksetzen, damit fremde Mails keinen AltBody von uns erben.
+		self::$alt_body = '';
+		return $ok;
+	}
+
+	/** Hängt die Klartext-Fassung an die gerade versendete Mail (Hook phpmailer_init). */
+	public static function apply_alt_body( $phpmailer ) {
+		if ( '' !== self::$alt_body ) {
+			$phpmailer->AltBody = self::$alt_body;
+		}
+	}
+
+	/** Hinweiszeile für Testmails – als Markup, damit sie in beiden Fassungen passt */
+	private static function test_hint( $satz ) {
+		return '**TEST-VERSAND** — ' . $satz . ".\n\n---\n\n";
+	}
+
+	/**
+	 * Steuerzeichen -> HTML.
+	 *
+	 * Der Quelltext wird zuerst vollständig escaped: Die Texte sind reiner Text,
+	 * eingesetzte Platzhalterwerte (Namen, Betriebe, Bemerkungen) dürfen kein
+	 * Markup in die Mail schmuggeln. Erst danach entstehen die erlaubten Tags.
+	 */
+	private static function markup_to_html( $text ) {
+		$text  = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
+		$lines = explode( "\n", esc_html( $text ) );
+
+		$html = '';
+		$para = array();
+		$list = array();
+
+		$flush_para = function () use ( &$html, &$para ) {
+			if ( $para ) {
+				$html .= '<p style="margin:0 0 14px;line-height:1.55">' . implode( '<br>', $para ) . '</p>';
+				$para  = array();
+			}
+		};
+		$flush_list = function () use ( &$html, &$list ) {
+			if ( $list ) {
+				$html .= '<ul style="margin:0 0 14px;padding-left:22px;line-height:1.55">';
+				foreach ( $list as $li ) {
+					$html .= '<li style="margin:0 0 5px">' . $li . '</li>';
+				}
+				$html .= '</ul>';
+				$list  = array();
+			}
+		};
+
+		$sizes = array( 1 => 21, 2 => 17, 3 => 15 );
+
+		foreach ( $lines as $line ) {
+			$t = trim( $line );
+
+			// Leerzeile beendet Absatz bzw. Liste
+			if ( '' === $t ) {
+				$flush_list();
+				$flush_para();
+				continue;
+			}
+
+			// Trennlinie (vor der Listen-Prüfung, sonst schluckt „- " die Striche)
+			if ( preg_match( '/^(?:-{3,}|={3,})$/', $t ) ) {
+				$flush_list();
+				$flush_para();
+				$html .= '<hr style="border:0;border-top:1px solid #e3e3e6;margin:20px 0">';
+				continue;
+			}
+
+			// Überschriften
+			if ( preg_match( '/^(#{1,3})\s+(.+)$/', $t, $m ) ) {
+				$flush_list();
+				$flush_para();
+				$lvl   = strlen( $m[1] );
+				$tag   = 'h' . ( $lvl + 1 );
+				$html .= '<' . $tag . ' style="margin:22px 0 8px;font-size:' . $sizes[ $lvl ] . 'px;line-height:1.3;color:#17171a">'
+					. self::inline_html( $m[2] ) . '</' . $tag . '>';
+				continue;
+			}
+
+			// Aufzählung
+			if ( preg_match( '/^[-*•]\s+(.+)$/', $t, $m ) ) {
+				$flush_para();
+				$list[] = self::inline_html( $m[1] );
+				continue;
+			}
+
+			$flush_list();
+			$para[] = self::inline_html( $t );
+		}
+
+		$flush_list();
+		$flush_para();
+
+		return $html;
+	}
+
+	/** Zeichen-Auszeichnungen innerhalb einer Zeile (Eingabe ist bereits escaped) */
+	private static function inline_html( $s ) {
+		$s = preg_replace_callback(
+			'/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/',
+			function ( $m ) {
+				// esc_html() hat „&" zu „&amp;" gemacht – für esc_url() zurückdrehen.
+				$url = html_entity_decode( $m[2], ENT_QUOTES, 'UTF-8' );
+				return '<a href="' . esc_url( $url ) . '" style="color:#e2001a">' . $m[1] . '</a>';
+			},
+			$s
+		);
+		$s = preg_replace( '/\*\*(?=\S)(.+?)(?<=\S)\*\*/s', '<strong>$1</strong>', $s );
+		// Unterstriche nur an Wortgrenzen, damit E-Mail-Adressen und Dateinamen heil bleiben
+		$s = preg_replace( '/(?<![\w\/])_(?=\S)(.+?)(?<=\S)_(?![\w\/])/s', '<em>$1</em>', $s );
+		return $s;
+	}
+
+	/** Steuerzeichen -> Klartext (Fallback-Fassung, nichts wird escaped) */
+	private static function markup_to_plain( $text ) {
+		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
+		$out  = array();
+
+		foreach ( explode( "\n", $text ) as $line ) {
+			$t = rtrim( $line );
+
+			if ( preg_match( '/^\s*(?:-{3,}|={3,})\s*$/', $t ) ) {
+				$out[] = str_repeat( '-', 56 );
+				continue;
+			}
+
+			$t = preg_replace( '/^(\s*)#{1,3}\s+/', '$1', $t );
+			$t = preg_replace( '/^(\s*)[*•]\s+/', '$1- ', $t );
+			$out[] = self::inline_plain( $t );
+		}
+
+		return implode( "\n", $out );
+	}
+
+	private static function inline_plain( $s ) {
+		$s = preg_replace_callback(
+			'/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/',
+			function ( $m ) {
+				return $m[1] . ' (' . $m[2] . ')';
+			},
+			$s
+		);
+		$s = preg_replace( '/\*\*(?=\S)(.+?)(?<=\S)\*\*/s', '$1', $s );
+		$s = preg_replace( '/(?<![\w\/])_(?=\S)(.+?)(?<=\S)_(?![\w\/])/s', '$1', $s );
+		return $s;
+	}
+
+	/** Gestalteter Rahmen um den HTML-Inhalt (Tabellenlayout + Inline-Styles wegen der Mailclients) */
+	private static function html_document( $body_html, $subject = '' ) {
+		$site = get_bloginfo( 'name' );
+
+		return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
+			. '<meta name="viewport" content="width=device-width,initial-scale=1">'
+			. '<title>' . esc_html( $subject ) . '</title></head>'
+			. '<body style="margin:0;padding:0;background:#f4f4f6;-webkit-text-size-adjust:100%">'
+			. '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f6;padding:24px 12px">'
+			. '<tr><td align="center">'
+			. '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e3e3e6;border-radius:8px">'
+			. '<tr><td style="height:6px;background:#e2001a;border-radius:8px 8px 0 0;font-size:0;line-height:0">&nbsp;</td></tr>'
+			. '<tr><td style="padding:28px 32px;font-family:Helvetica,Arial,sans-serif;font-size:15px;color:#17171a">'
+			. $body_html
+			. '</td></tr></table>'
+			. '<div style="max-width:600px;margin:14px auto 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#8a8a90">'
+			. esc_html( $site ) . '</div>'
+			. '</td></tr></table></body></html>';
+	}
+
 	/** ---------- Admin-Seite ---------- */
 
 	public static function render_page() {
@@ -291,7 +798,9 @@ class BI_Mailer {
 		<div class="wrap">
 			<h1>Mail-Benachrichtigungen</h1>
 			<?php if ( $notice ) : ?><div class="notice notice-success"><p><?php echo esc_html( $notice ); ?></p></div><?php endif; ?>
-			<p>Diese Mails werden nach jeder Anmeldung verschickt – sofern aktiv und ihre Bedingung erfüllt ist.</p>
+			<p>Diese Mails werden nach jeder Anmeldung verschickt – sofern aktiv und ihre Bedingung erfüllt ist.
+				Je Benachrichtigung lässt sich einstellen, ob sie <strong>sofort</strong> einzeln rausgeht oder
+				gesammelt als <strong>wöchentliche Zusammenfassung</strong>.</p>
 
 			<?php $cons = self::consistency_notices( $triggers, $taxes ); ?>
 			<?php if ( $cons ) : ?>
@@ -305,13 +814,35 @@ class BI_Mailer {
 				</div>
 			<?php endif; ?>
 
+			<?php echo self::schedule_box(); // phpcs:ignore – intern escaped ?>
 			<?php echo self::test_box(); // phpcs:ignore – intern escaped ?>
 
+
+			<details style="margin:12px 0;background:#fff;border:1px solid #ccd0d4;padding:10px 14px">
+				<summary style="cursor:pointer;font-weight:600">Textgestaltung: verfügbare Steuerzeichen</summary>
+				<p style="margin:8px 0">Die Texte bleiben reiner Text – diese Zeichen bestimmen, wie die HTML-Fassung
+					aussieht. Die Knöpfe über jedem Textfeld setzen sie ein.</p>
+				<ul style="columns:2">
+					<?php foreach ( self::markup_legend() as $zeichen => $desc ) : ?>
+						<li><code><?php echo esc_html( $zeichen ); ?></code> – <?php echo esc_html( $desc ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+				<p style="margin:8px 0 4px">Eine Leerzeile beginnt einen neuen Absatz, ein einfacher Zeilenumbruch
+					bleibt ein Zeilenumbruch. Alles andere wird als normaler Text ausgegeben – auch spitze Klammern,
+					eigenes HTML ist also nicht möglich (und auch nicht nötig).</p>
+			</details>
 
 			<details style="margin:12px 0;background:#fff;border:1px solid #ccd0d4;padding:10px 14px">
 				<summary style="cursor:pointer;font-weight:600">Verfügbare Platzhalter</summary>
 				<ul style="columns:2">
 					<?php foreach ( self::placeholders() as $ph => $desc ) : ?>
+						<li><code><?php echo esc_html( $ph ); ?></code> – <?php echo esc_html( $desc ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+				<p style="margin:8px 0 4px"><strong>Nur in Betreff/Einleitung der Wochenzusammenfassung:</strong>
+					(die Platzhalter oben beziehen sich auf <em>eine</em> Anmeldung und stehen dort nicht zur Verfügung)</p>
+				<ul style="columns:2">
+					<?php foreach ( self::digest_placeholders() as $ph => $desc ) : ?>
 						<li><code><?php echo esc_html( $ph ); ?></code> – <?php echo esc_html( $desc ); ?></li>
 					<?php endforeach; ?>
 				</ul>
@@ -321,6 +852,18 @@ class BI_Mailer {
 				<input type="hidden" name="action" value="bi_save_triggers">
 				<?php wp_nonce_field( 'bi_save_triggers' ); ?>
 
+				<div style="background:#fff;border:1px solid #ccd0d4;border-left:4px solid #e2001a;padding:14px 18px;margin:16px 0">
+					<h2 style="margin-top:0">Darstellung</h2>
+					<p style="margin:0 0 6px">
+						<label><input type="checkbox" name="mail_format_html" value="1" <?php checked( self::html_enabled() ); ?>>
+							<strong>Gestaltete Mails senden (HTML)</strong></label>
+					</p>
+					<p class="description" style="margin:0">Jede Mail geht dann in zwei Fassungen raus: gestaltet als HTML und
+						zusätzlich als reiner Text. Mailprogramme, die kein HTML anzeigen (oder es abschalten), nehmen
+						automatisch die Textfassung – es geht also nichts verloren. Ohne diese Option wird nur die
+						Textfassung verschickt; die Steuerzeichen werden auch dann entfernt.</p>
+				</div>
+
 				<p class="description" style="margin:12px 0">Tipp: Klicke auf eine Benachrichtigung, um sie auf- bzw. zuzuklappen.</p>
 				<?php
 				$type_labels = self::type_labels();
@@ -328,7 +871,8 @@ class BI_Mailer {
 				$render = $triggers;
 				$render[] = self::empty_trigger();
 				foreach ( $render as $i => $t ) :
-					$is_new = ( $i === count( $render ) - 1 );
+					$is_new   = ( $i === count( $render ) - 1 );
+					$schedule = self::schedule_of( $t );
 					?>
 					<details class="bi-trigger-card" style="background:#fff;border:1px solid #ccd0d4;border-radius:4px;margin:12px 0"<?php echo $is_new ? ' open' : ''; ?>>
 						<summary style="cursor:pointer;padding:14px 18px;font-weight:600;font-size:14px">
@@ -342,6 +886,11 @@ class BI_Mailer {
 									<span style="background:#fcf9e8;color:#8a6d00;border:1px solid #f0e6bb;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:400;margin-left:6px">nur wenn <?php echo esc_html( $cond_label ); ?></span>
 								<?php else : ?>
 									<span style="background:#f0f6fc;color:#2271b1;border:1px solid #c5d9ed;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:400;margin-left:6px">bei jeder Anmeldung</span>
+								<?php endif; ?>
+								<?php if ( 'weekly' === $schedule ) : ?>
+									<span style="background:#f3eefc;color:#5b2d90;border:1px solid #d9cbf0;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:400;margin-left:6px">wöchentlich gesammelt</span>
+								<?php else : ?>
+									<span style="background:#f6f7f7;color:#3c434a;border:1px solid #dcdcde;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:400;margin-left:6px">sofort</span>
 								<?php endif; ?>
 								<?php if ( ! empty( $t['active'] ) ) : ?>
 									<span style="background:#edfaef;color:#1a7f37;border:1px solid #b8e6c2;padding:1px 8px;border-radius:10px;font-size:12px;margin-left:6px">aktiv</span>
@@ -422,7 +971,37 @@ class BI_Mailer {
 							</tr>
 							<tr>
 								<th><label>Text</label></th>
-								<td><textarea class="large-text" rows="8" name="trigger[<?php echo $i; ?>][body]"><?php echo esc_textarea( $t['body'] ); ?></textarea></td>
+								<td><?php echo self::editor_field( 'trigger[' . $i . '][body]', $t['body'], 10, '', self::placeholders() ); // phpcs:ignore – intern escaped ?></td>
+							</tr>
+							<tr>
+								<th><label>Versandart</label></th>
+								<td>
+									<select name="trigger[<?php echo $i; ?>][schedule]" class="bi-trigger-schedule">
+										<option value="instant" <?php selected( $schedule, 'instant' ); ?>>Sofort – eine Mail je Anmeldung</option>
+										<option value="weekly" <?php selected( $schedule, 'weekly' ); ?>>Wöchentliche Zusammenfassung</option>
+									</select>
+									<p class="description">Bei <strong>Wöchentliche Zusammenfassung</strong> wird zur Anmeldung nichts versendet.
+										Der oben stehende Text wird gerendert und gesammelt; zum eingestellten Wochentermin
+										(<?php echo esc_html( self::schedule_label() ); ?>, siehe Kasten oben) geht <em>eine</em> Mail mit allen
+										gesammelten Anmeldungen an denselben Empfänger raus. Für Teilnehmer-Bestätigungen ist das
+										nicht sinnvoll – dort „Sofort" lassen.</p>
+								</td>
+							</tr>
+							<tr>
+								<th><label>Betreff (Zusammenfassung)</label></th>
+								<td>
+									<input type="text" class="large-text" name="trigger[<?php echo $i; ?>][digest_subject]" value="<?php echo esc_attr( $t['digest_subject'] ?? '' ); ?>" placeholder="Wochenzusammenfassung: {anzahl} neue Anmeldungen">
+									<p class="description">Nur bei wöchentlicher Zusammenfassung. Leer lassen für den Standardbetreff.
+										Erlaubt sind <code>{anzahl}</code>, <code>{zeitraum}</code>, <code>{benachrichtigung}</code>, <code>{datum}</code>.</p>
+								</td>
+							</tr>
+							<tr>
+								<th><label>Einleitung (Zusammenfassung)</label></th>
+								<td>
+									<?php echo self::editor_field( 'trigger[' . $i . '][digest_intro]', $t['digest_intro'] ?? '', 4, 'Hallo, hier die gesammelten Anmeldungen aus dem Zeitraum {zeitraum} – insgesamt {anzahl}.', self::digest_placeholders() ); // phpcs:ignore – intern escaped ?>
+									<p class="description">Nur bei wöchentlicher Zusammenfassung: Text vor der Auflistung der einzelnen Anmeldungen.
+										Leer lassen für den Standardtext.</p>
+								</td>
 							</tr>
 						</table>
 						</div>
@@ -435,10 +1014,70 @@ class BI_Mailer {
 		<?php
 	}
 
+	/**
+	 * Textfeld mit Formatier-Leiste.
+	 *
+	 * Die Knöpfe fügen nur Steuerzeichen in das Textfeld ein – gespeichert wird
+	 * weiterhin reiner Text. Das Auswahlfeld rechts setzt Platzhalter an der
+	 * Cursorposition ein.
+	 *
+	 * @param string $name         name-Attribut des Textfelds.
+	 * @param string $value        Aktueller Inhalt.
+	 * @param int    $rows         Höhe.
+	 * @param string $placeholder  placeholder-Attribut.
+	 * @param array  $placeholders Platzhalter für das Auswahlfeld [{tag} => Beschreibung].
+	 */
+	private static function editor_field( $name, $value, $rows, $placeholder = '', $placeholders = array() ) {
+		$buttons = array(
+			array( 'label' => 'F',  'title' => 'Fett',        'style' => 'font-weight:700',    'wrap' => '**' ),
+			array( 'label' => 'K',  'title' => 'Kursiv',      'style' => 'font-style:italic',  'wrap' => '_' ),
+			array( 'label' => 'H',  'title' => 'Überschrift', 'style' => 'font-weight:700',    'block' => '## ' ),
+			array( 'label' => '•',  'title' => 'Aufzählung',  'style' => '',                   'block' => '- ' ),
+			array( 'label' => '🔗', 'title' => 'Link',        'style' => '',                   'link' => '1' ),
+			array( 'label' => '—',  'title' => 'Trennlinie',  'style' => '',                   'insert' => "\n---\n" ),
+		);
+
+		ob_start();
+		echo '<div class="bi-mailedit">';
+		echo '<div class="bi-mailedit__bar">';
+		foreach ( $buttons as $b ) {
+			printf(
+				'<button type="button" class="button bi-mailedit__btn" title="%s" style="%s"%s%s%s%s>%s</button>',
+				esc_attr( $b['title'] ),
+				esc_attr( $b['style'] ),
+				isset( $b['wrap'] ) ? ' data-wrap="' . esc_attr( $b['wrap'] ) . '"' : '',
+				isset( $b['block'] ) ? ' data-block="' . esc_attr( $b['block'] ) . '"' : '',
+				isset( $b['insert'] ) ? ' data-insert="' . esc_attr( $b['insert'] ) . '"' : '',
+				isset( $b['link'] ) ? ' data-link="1"' : '',
+				esc_html( $b['label'] )
+			);
+		}
+		if ( $placeholders ) {
+			echo '<select class="bi-mailedit__ph"><option value="">Platzhalter einfügen …</option>';
+			foreach ( $placeholders as $tag => $desc ) {
+				echo '<option value="' . esc_attr( $tag ) . '">' . esc_html( $tag . ' – ' . $desc ) . '</option>';
+			}
+			echo '</select>';
+		}
+		echo '</div>';
+
+		printf(
+			'<textarea class="large-text bi-mailedit__area" rows="%d" name="%s" placeholder="%s">%s</textarea>',
+			intval( $rows ),
+			esc_attr( $name ),
+			esc_attr( $placeholder ),
+			esc_textarea( $value )
+		);
+		echo '</div>';
+
+		return ob_get_clean();
+	}
+
 	private static function empty_trigger() {
 		return array(
 			'active' => 0, 'name' => '', 'type' => 'custom', 'recipient' => '',
 			'from' => '', 'subject' => '', 'body' => '', 'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
+			'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
 		);
 	}
 
@@ -460,6 +1099,13 @@ class BI_Mailer {
 		$tax = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
 		$op  = ( 'not' === ( $t['cond_op'] ?? 'is' ) ) ? '≠' : '=';
 		return $tax . ' ' . $op . ' „' . $t['cond_value'] . '“';
+	}
+
+	/** z. B. „jeden Montag um 08:00 Uhr“ */
+	private static function schedule_label() {
+		$s    = self::get_schedule();
+		$days = self::weekday_labels();
+		return sprintf( 'jeden %s um %02d:%02d Uhr', $days[ $s['weekday'] ], $s['hour'], $s['minute'] );
 	}
 
 	/**
@@ -493,6 +1139,18 @@ class BI_Mailer {
 		};
 
 		$notices = array();
+
+		// Teilnehmer-Bestätigung als Wochenzusammenfassung ist fast immer ein Versehen:
+		// Der Teilnehmer bekäme eine Sammelmail mit fremden Anmeldungen.
+		foreach ( $triggers as $t ) {
+			if ( ! empty( $t['active'] ) && 'teilnehmer' === ( $t['type'] ?? '' ) && 'weekly' === self::schedule_of( $t ) ) {
+				$notices[] = sprintf(
+					'%s geht an den Teilnehmer, ist aber auf „wöchentliche Zusammenfassung" gestellt: Die Bestätigung käme erst Tage später – und alle Anmeldungen desselben Teilnehmers landen in einer Mail. In der Regel gehört hier „Sofort" hin.',
+					$names( array( $t ) )
+				);
+			}
+		}
+
 		foreach ( $groups as $key => $list ) {
 			$type  = strtok( $key, ':' );
 			$label = $type_labels[ $type ] ?? $type;
@@ -585,15 +1243,144 @@ class BI_Mailer {
 				'cond_tax'   => sanitize_text_field( $row['cond_tax'] ?? '' ),
 				'cond_value' => sanitize_text_field( $row['cond_value'] ?? '' ),
 				'cond_op'    => ( 'not' === ( $row['cond_op'] ?? 'is' ) ) ? 'not' : 'is',
+				'schedule'   => ( 'weekly' === ( $row['schedule'] ?? 'instant' ) ) ? 'weekly' : 'instant',
+				'digest_subject' => sanitize_text_field( $row['digest_subject'] ?? '' ),
+				'digest_intro'   => sanitize_textarea_field( $row['digest_intro'] ?? '' ),
 			);
 		}
 		update_option( self::OPTION, $out );
+		update_option( self::FORMAT_OPTION, ! empty( $_POST['mail_format_html'] ) ? 'html' : 'plain' );
 
 		wp_safe_redirect( add_query_arg(
-			array( 'page' => 'bi-mail-trigger', 'bi_msg' => rawurlencode( count( $out ) . ' Benachrichtigungen gespeichert.' ) ),
+			array(
+				'page'   => 'bi-mail-trigger',
+				'bi_msg' => rawurlencode( sprintf(
+					'%d Benachrichtigungen gespeichert. Versand: %s.',
+					count( $out ),
+					self::html_enabled() ? 'HTML mit Text-Fallback' : 'nur Text'
+				) ),
+			),
 			admin_url( 'admin.php' )
 		) );
 		exit;
+	}
+
+	/** ---------- Wöchentlicher Versand: Einstellungs-Box ---------- */
+
+	private static function schedule_box() {
+		$s       = self::get_schedule();
+		$days    = self::weekday_labels();
+		$summary = self::queue_summary();
+		$total   = array_sum( $summary );
+		$next    = wp_next_scheduled( self::CRON_HOOK );
+
+		$weekly_triggers = 0;
+		foreach ( self::get_triggers() as $t ) {
+			if ( ! empty( $t['active'] ) && 'weekly' === self::schedule_of( $t ) ) {
+				$weekly_triggers++;
+			}
+		}
+
+		ob_start();
+		?>
+		<div style="background:#fff;border:1px solid #ccd0d4;border-left:4px solid #5b2d90;padding:14px 18px;margin:16px 0">
+			<h2 style="margin-top:0">Wöchentlicher Versand</h2>
+			<p style="margin:0 0 10px">Zeitpunkt für alle Benachrichtigungen, die auf <strong>„Wöchentliche Zusammenfassung"</strong>
+				stehen. Gesammelt wird je Benachrichtigung <em>und</em> Empfänger – jede Geschäftsstelle bekommt also nur
+				ihre eigenen Anmeldungen.
+				<?php if ( ! $weekly_triggers ) : ?>
+					<br><em>Derzeit ist keine aktive Benachrichtigung auf wöchentlich gestellt – der Termin bleibt ohne Wirkung.</em>
+				<?php endif; ?>
+			</p>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="bi_save_schedule">
+				<?php wp_nonce_field( 'bi_save_schedule' ); ?>
+
+				<table class="form-table" style="margin-top:0">
+					<tr>
+						<th style="width:140px"><label for="bi_sched_weekday">Versandtermin</label></th>
+						<td>
+							<select id="bi_sched_weekday" name="sched_weekday">
+								<?php foreach ( $days as $num => $lbl ) : ?>
+									<option value="<?php echo (int) $num; ?>" <?php selected( $s['weekday'], $num ); ?>><?php echo esc_html( $lbl ); ?></option>
+								<?php endforeach; ?>
+							</select>
+							<select name="sched_hour">
+								<?php for ( $h = 0; $h < 24; $h++ ) : ?>
+									<option value="<?php echo $h; ?>" <?php selected( $s['hour'], $h ); ?>><?php echo esc_html( sprintf( '%02d', $h ) ); ?></option>
+								<?php endfor; ?>
+							</select>
+							:
+							<select name="sched_minute">
+								<option value="0" <?php selected( $s['minute'], 0 ); ?>>00</option>
+								<option value="30" <?php selected( $s['minute'], 30 ); ?>>30</option>
+							</select>
+							Uhr
+							<p class="description">
+								Nächster Lauf:
+								<strong><?php echo $next ? esc_html( wp_date( 'l, d.m.Y H:i', $next ) . ' Uhr' ) : 'nicht geplant'; ?></strong>.
+								WP-Cron läuft nur, wenn die Seite besucht wird – der tatsächliche Versand kann sich dadurch
+								um einige Minuten verschieben.
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th>Warteschlange</th>
+						<td>
+							<?php if ( $total ) : ?>
+								<strong><?php echo (int) $total; ?> Anmeldung(en)</strong> warten auf die nächste Zusammenfassung:
+								<ul style="margin:6px 0 0;list-style:disc;padding-left:20px">
+									<?php foreach ( $summary as $name => $cnt ) : ?>
+										<li><?php echo esc_html( $name ); ?> – <?php echo (int) $cnt; ?></li>
+									<?php endforeach; ?>
+								</ul>
+							<?php else : ?>
+								<span style="color:#646970">Leer – derzeit wartet keine Anmeldung auf den Sammelversand.</span>
+							<?php endif; ?>
+						</td>
+					</tr>
+				</table>
+
+				<p style="margin:6px 0 4px">
+					<button type="submit" name="bi_do" value="save" class="button button-secondary">Termin speichern</button>
+					<button type="submit" name="bi_do" value="flush" class="button"<?php disabled( ! $total ); ?>>Warteschlange jetzt versenden</button>
+				</p>
+				<p class="description" style="margin:0">„Jetzt versenden" leert die Warteschlange sofort und verschiebt den
+					regulären Termin nicht.</p>
+			</form>
+		</div>
+		<?php
+		return ob_get_clean();
+	}
+
+	public static function save_schedule() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+		check_admin_referer( 'bi_save_schedule' );
+
+		$opt = array(
+			'weekday' => max( 1, min( 7, (int) ( $_POST['sched_weekday'] ?? 1 ) ) ),
+			'hour'    => max( 0, min( 23, (int) ( $_POST['sched_hour'] ?? 8 ) ) ),
+			'minute'  => ( (int) ( $_POST['sched_minute'] ?? 0 ) >= 30 ) ? 30 : 0,
+		);
+		update_option( self::SCHED_OPTION, $opt );
+		self::reschedule_cron();
+
+		$do = sanitize_text_field( wp_unslash( $_POST['bi_do'] ?? 'save' ) );
+
+		if ( 'flush' === $do ) {
+			$res = self::flush_queue();
+			self::redirect_msg( sprintf(
+				'%d Anmeldung(en) in %d Zusammenfassungs-Mail(s) versendet. Nächster regulärer Lauf: %s.',
+				$res['items'],
+				$res['mails'],
+				self::schedule_label()
+			) );
+		}
+
+		self::redirect_msg( 'Versandtermin gespeichert: ' . self::schedule_label() . '.' );
 	}
 
 	/** ---------- Test-Versand ---------- */
@@ -615,7 +1402,8 @@ class BI_Mailer {
 					<label><input type="checkbox" name="test_enabled" value="1" <?php checked( ! empty( $test['enabled'] ) ); ?>>
 						<strong>Test-Modus aktiv</strong></label> –
 					solange aktiv, gehen <em>alle</em> Benachrichtigungen (auch bei echten Anmeldungen) ausschließlich an die
-					Testadresse statt an echte Empfänger; der Betreff bekommt „[TEST]" vorangestellt.
+					Testadresse statt an echte Empfänger; der Betreff bekommt „[TEST]" vorangestellt. Wöchentliche
+					Benachrichtigungen landen weiterhin erst in der Warteschlange – nur eben mit der Testadresse als Empfänger.
 				</p>
 
 				<table class="form-table" style="margin-top:0">
@@ -630,7 +1418,9 @@ class BI_Mailer {
 					<button type="submit" name="bi_do" value="send" class="button button-primary">Speichern &amp; Testmail senden</button>
 				</p>
 				<p class="description" style="margin:0">„Testmail senden" verschickt zu allen <strong>aktiven</strong> Benachrichtigungen je eine
-					Beispiel-Mail (mit Testdaten, Bedingungen werden ignoriert) an die oben gespeicherte Testadresse.</p>
+					Beispiel-Mail (mit Testdaten, Bedingungen werden ignoriert) an die oben gespeicherte Testadresse –
+					auch zu den wöchentlichen, damit du Betreff und Text sofort siehst. Wie die Sammelmail aussieht,
+					zeigt „Warteschlange jetzt versenden" im Kasten darüber.</p>
 			</form>
 		</div>
 		<?php

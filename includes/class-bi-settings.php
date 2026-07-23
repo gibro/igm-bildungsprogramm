@@ -24,6 +24,9 @@ class BI_Settings {
 
 	public static function init() {
 		add_action( 'admin_post_bi_save_settings', array( __CLASS__, 'save' ) );
+		// Vorschlagstext im WordPress-eigenen Datenschutz-Leitfaden
+		// (Werkzeuge → Datenschutz → Richtlinien-Leitfaden).
+		add_action( 'admin_init', array( __CLASS__, 'register_privacy_policy' ) );
 	}
 
 	public static function defaults() {
@@ -169,6 +172,7 @@ class BI_Settings {
 			'allgemein'     => 'Anmeldung & Regeln',
 			'seminarimport' => 'Seminar-Import',
 			'plzimport'     => 'PLZ-Import',
+			'datenschutz'   => 'Datenschutz',
 		);
 		if ( ! isset( $tabs[ $tab ] ) ) {
 			$tab = 'allgemein';
@@ -193,6 +197,11 @@ class BI_Settings {
 			}
 			if ( 'plzimport' === $tab ) {
 				BI_PLZ::render_section();
+				echo '</div>';
+				return;
+			}
+			if ( 'datenschutz' === $tab ) {
+				self::render_privacy_section();
 				echo '</div>';
 				return;
 			}
@@ -318,6 +327,173 @@ class BI_Settings {
 				<?php submit_button( 'Einstellungen speichern' ); ?>
 			</form>
 		</div>
+		<?php
+	}
+
+	/* ===================================================================
+	 *  Datenschutz-Textbaustein
+	 * =================================================================== */
+
+	/**
+	 * Vorschlagstext für die Datenschutzerklärung, als Abschnitte.
+	 * Bewusst mit eckigen Klammern als Lücken dort, wo nur die Betreiberin
+	 * die Antwort kennt (Aufbewahrungsfristen, Name des Consent-Werkzeugs).
+	 *
+	 * @return array [ ['title' => string, 'paragraphs' => string[]], … ]
+	 */
+	public static function privacy_sections() {
+		$cookie = BI_Tracking::COOKIE;
+		$tage   = BI_Tracking::COOKIE_DAYS;
+		$param  = BI_Tracking::PARAM;
+
+		return array(
+			array(
+				'title'      => 'Anmeldung zu Seminaren',
+				'paragraphs' => array(
+					'Über das Anmeldeformular für Seminare verarbeiten wir die von dir eingegebenen Daten: '
+						. 'Anrede, Titel, Vor- und Nachname, private Anschrift, Telefon- und Mobilnummer, E-Mail-Adresse, '
+						. 'Angabe zur Mitgliedschaft in der IG Metall einschließlich Mitgliedsnummer, Betrieb mit Anschrift '
+						. 'und dienstlicher E-Mail-Adresse, '
+						. 'Funktion im Betriebsrat, Art der Freistellung sowie deine freiwilligen Bemerkungen.',
+					'Zweck der Verarbeitung ist die Bearbeitung deiner Anmeldung und die Durchführung des Seminars. '
+						. 'Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Durchführung vorvertraglicher Maßnahmen und des '
+						. 'Vertragsverhältnisses), für freiwillige Angaben Art. 6 Abs. 1 lit. a DSGVO.',
+					'Die Anmeldung wird in der Datenbank dieser Website gespeichert und zusätzlich per E-Mail an die '
+						. 'zuständigen Stellen übermittelt: an die anhand der Postleitzahl deines Betriebs ermittelte '
+						. 'Geschäftsstelle sowie – soweit für das Seminar eingerichtet – an das durchführende '
+						. 'Bildungszentrum und an die hinterlegte Ansprechperson. Eine Bestätigung geht an die von dir angegebene E-Mail-Adresse. Eine Übermittlung '
+						. 'in Drittstaaten findet nicht statt.',
+					'Wir speichern die Anmeldedaten [Aufbewahrungsdauer ergänzen, z. B. „bis zum Ablauf der gesetzlichen '
+						. 'Aufbewahrungsfristen, längstens X Jahre nach Ende des Seminars"] und löschen sie anschließend.',
+				),
+			),
+			array(
+				'title'      => 'Reichweitenmessung bei Newsletter- und Mailing-Links',
+				'paragraphs' => array(
+					'Links, mit denen wir in Newslettern, Mailings oder Anzeigen auf unser Seminarangebot hinweisen, können '
+						. 'eine Kampagnenkennung enthalten (Adressen der Form https://…/?' . $param . '=…). Rufst du einen solchen '
+						. 'Link auf, speichern wir in deinem Browser das Cookie „' . $cookie . '". Es enthält eine zufällig '
+						. 'erzeugte Kennung und die Nummer der Kampagne, wird ausschließlich von dieser Website gesetzt '
+						. '(First-Party-Cookie) und läuft nach ' . $tage . ' Tagen ab.',
+					'Anhand dieser Kennung halten wir fest, welche Schritte auf den Klick folgen: der Aufruf des Links, das '
+						. 'Ansehen einer Seminarseite, das Öffnen des Anmeldeformulars und das Absenden einer Anmeldung – '
+						. 'jeweils mit Zeitpunkt und betroffenem Seminar. Weder deine IP-Adresse noch Angaben zu Browser oder '
+						. 'Gerät werden dabei gespeichert. Die Kennung ist eine Zufallsfolge ohne Bezug zu deiner Person. '
+						. 'Erst wenn du eine Anmeldung absendest, wird bei dieser Anmeldung zusätzlich die Bezeichnung der '
+						. 'Kampagne vermerkt.',
+					'Zweck ist die Reichweitenmessung: Wir möchten auswerten, wie viele Anmeldungen auf ein bestimmtes '
+						. 'Mailing zurückgehen, um unsere Informationsangebote gezielter zu gestalten. Das Speichern des '
+						. 'Cookies und das Auslesen der darin enthaltenen Information erfolgen auf Grundlage deiner '
+						. 'Einwilligung nach § 25 Abs. 1 TDDDG, die anschließende Verarbeitung der Daten auf Grundlage von '
+						. 'Art. 6 Abs. 1 lit. a DSGVO.',
+					'Du kannst deine Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen [Hinweis auf das '
+						. 'Einwilligungs-Werkzeug ergänzen, z. B. „über die Cookie-Einstellungen am Seitenende"] und das '
+						. 'Cookie jederzeit in den Einstellungen deines Browsers löschen. Ohne das Cookie findet keine '
+						. 'Zuordnung statt; die Nutzung unseres Seminarangebots ist davon nicht berührt.',
+					'Die erfassten Ereignisse werden automatisch gelöscht, sobald sie älter als zwölf Monate sind. Die Angabe, über welche Kampagne '
+						. 'eine Anmeldung zustande kam, wird gemeinsam mit der Anmeldung gelöscht.',
+				),
+			),
+		);
+	}
+
+	/** Vorschlagstext als reiner Text (zum Kopieren) */
+	public static function privacy_text() {
+		$out = array();
+		foreach ( self::privacy_sections() as $s ) {
+			$out[] = $s['title'];
+			$out[] = str_repeat( '-', mb_strlen( $s['title'] ) );
+			$out[] = '';
+			foreach ( $s['paragraphs'] as $p ) {
+				$out[] = $p;
+				$out[] = '';
+			}
+		}
+		return trim( implode( "\n", $out ) ) . "\n";
+	}
+
+	/** Vorschlagstext als HTML (für den WordPress-Datenschutz-Leitfaden) */
+	public static function privacy_html() {
+		$html = '';
+		foreach ( self::privacy_sections() as $s ) {
+			$html .= '<h3>' . esc_html( $s['title'] ) . '</h3>';
+			foreach ( $s['paragraphs'] as $p ) {
+				$html .= '<p class="privacy-policy-tutorial">' . esc_html( $p ) . '</p>';
+			}
+		}
+		return $html;
+	}
+
+	public static function register_privacy_policy() {
+		if ( function_exists( 'wp_add_privacy_policy_content' ) ) {
+			wp_add_privacy_policy_content( 'Bildungsprogramm', self::privacy_html() );
+		}
+	}
+
+	private static function render_privacy_section() {
+		$text = self::privacy_text();
+		?>
+		<h2 class="title">Textbaustein für die Datenschutzerklärung</h2>
+		<p>Dieser Vorschlag beschreibt, was das Plugin tatsächlich verarbeitet: die Daten aus dem
+			Anmeldeformular und die Reichweitenmessung der Kampagnen-Links. Die Stellen in
+			<code>[eckigen Klammern]</code> musst du selbst füllen – nur du kennst eure Aufbewahrungsfristen
+			und euer Einwilligungs-Werkzeug.</p>
+
+		<div class="notice notice-warning inline" style="margin:12px 0;padding:10px 14px">
+			<p style="margin:0"><strong>Keine Rechtsberatung.</strong> Der Text ist ein Entwurf zum Weiterreichen an
+				die Stelle, die bei euch für Datenschutz zuständig ist – ungeprüft übernehmen solltest du ihn nicht.
+				Besonders zu klären: Das Cookie der Reichweitenmessung ist technisch nicht zwingend erforderlich.
+				Ohne Einwilligung (Consent-Banner) fehlt ihm nach § 25 Abs. 1 TDDDG die Grundlage – der Text ist
+				entsprechend auf Einwilligung formuliert. Wird kein Banner eingesetzt, ist entweder eines nötig oder
+				die Kampagnen-Auswertung bleibt ungenutzt.</p>
+		</div>
+
+		<p>
+			<button type="button" class="button button-primary" id="bi-copy-privacy">In die Zwischenablage kopieren</button>
+			<span id="bi-copy-done" style="display:none;color:#1a7f37;margin-left:8px">kopiert ✓</span>
+		</p>
+
+		<textarea id="bi-privacy-text" class="large-text code" rows="26" readonly onclick="this.select()"><?php echo esc_textarea( $text ); ?></textarea>
+
+		<script>
+		document.getElementById('bi-copy-privacy').addEventListener('click', function () {
+			var ta = document.getElementById('bi-privacy-text');
+			ta.select();
+			var ok = false;
+			try { ok = document.execCommand('copy'); } catch (e) {}
+			if (!ok && navigator.clipboard) { navigator.clipboard.writeText(ta.value); ok = true; }
+			if (ok) {
+				var hint = document.getElementById('bi-copy-done');
+				hint.style.display = 'inline';
+				setTimeout(function () { hint.style.display = 'none'; }, 2000);
+			}
+		});
+		</script>
+
+		<p class="description" style="margin-top:10px">Derselbe Text steht auch im WordPress-eigenen
+			Richtlinien-Leitfaden unter <em>Werkzeuge → Datenschutz</em> bereit.</p>
+
+		<h2 class="title">Was das Plugin technisch speichert</h2>
+		<table class="widefat striped" style="max-width:940px">
+			<thead><tr><th style="width:280px">Wo</th><th>Was</th></tr></thead>
+			<tbody>
+				<tr><td><code><?php echo esc_html( BI_Registration::table() ); ?></code></td>
+					<td>Alle Angaben aus dem Anmeldeformular, Zeitpunkt, Seminar-Bezug und – falls vorhanden –
+						die Kampagne, über die die Anmeldung zustande kam.</td></tr>
+				<tr><td><code><?php echo esc_html( BI_Tracking::table_events() ); ?></code></td>
+					<td>Ereignisse der Kampagnen-Auswertung: Zufallskennung, Art des Schritts, Seminar, Zeitpunkt.
+						Keine IP-Adresse, kein User-Agent.</td></tr>
+				<tr><td><code><?php echo esc_html( BI_Tracking::table_kampagnen() ); ?></code></td>
+					<td>Die von euch angelegten Kampagnen (Bezeichnung, Kürzel, Ziel) – keine Personendaten.</td></tr>
+				<tr><td>Cookie <code><?php echo esc_html( BI_Tracking::COOKIE ); ?></code></td>
+					<td>Zufallskennung + Kampagnennummer, <?php echo (int) BI_Tracking::COOKIE_DAYS; ?> Tage Laufzeit,
+						First-Party, nur gesetzt nach Klick auf einen Kampagnen-Link.</td></tr>
+				<tr><td><code><?php echo esc_html( BI_PLZ::table() ); ?></code></td>
+					<td>Zuordnung Postleitzahl → Geschäftsstelle samt E-Mail. Stammdaten der Organisation,
+						keine Daten der Anmeldenden.</td></tr>
+			</tbody>
+		</table>
+		<p class="description">Ereignisse älter als zwölf Monate lassen sich unter <em>Kampagnen</em> löschen.</p>
 		<?php
 	}
 

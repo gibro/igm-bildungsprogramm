@@ -1,0 +1,40 @@
+/* Formatier-Leiste über den Textfeldern der Mail-Benachrichtigungen */
+
+.bi-mailedit { max-width: 100%; }
+
+.bi-mailedit__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 8px;
+  background: #f6f7f7;
+  border: 1px solid #8c8f94;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+
+.bi-mailedit__btn.button {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 8px;
+  line-height: 28px;
+  text-align: center;
+}
+
+.bi-mailedit__ph {
+  margin-left: auto;
+  max-width: 260px;
+  height: 30px;
+  font-size: 12px;
+}
+
+/* Textfeld bündig an die Leiste andocken */
+.bi-mailedit__area.large-text {
+  display: block;
+  margin: 0;
+  border-radius: 0 0 4px 4px;
+  font-family: Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}

@@ -7,6 +7,7 @@
  *   ├─ Seminare            (CPT – via show_in_menu)
  *   ├─ Anmeldungen
  *   ├─ Mail-Benachrichtigungen
+ *   ├─ Kampagnen             (Newsletter-Links + Auswertung Klick → Anmeldung)
  *   ├─ Marketing-Kacheln    (Kachel-Builder, hängt sich in class-bi-kacheln.php ein)
  *   └─ Einstellungen        (Tabs: Anmeldung & Regeln · Seminar-Import · PLZ-Import — immer zuletzt)
  */
@@ -41,6 +42,7 @@ class BI_Admin {
 
 		add_submenu_page( 'bi-seminarsuche', 'Anmeldungen', 'Anmeldungen', 'manage_options', 'bi-anmeldungen', array( 'BI_Registration', 'render_page' ) );
 		add_submenu_page( 'bi-seminarsuche', 'Mail-Benachrichtigungen', 'Mail-Benachrichtigungen', 'manage_options', 'bi-mail-trigger', array( 'BI_Mailer', 'render_page' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Kampagnen', 'Kampagnen', 'manage_options', 'bi-kampagnen', array( 'BI_Tracking', 'render_page' ) );
 		add_submenu_page( 'bi-seminarsuche', 'Einstellungen', 'Einstellungen', 'manage_options', 'bi-einstellungen', array( 'BI_Settings', 'render_page' ) );
 	}
 
@@ -123,6 +125,24 @@ class BI_Admin {
 			$hinweise[] = sprintf(
 				'<strong>E-Mail-Test-Modus aktiv:</strong> alle Benachrichtigungen gehen an <code>%s</code> statt an die echten Empfänger. <a href="%s">Mail-Einstellungen öffnen</a>',
 				esc_html( $test['address'] ),
+				esc_url( admin_url( 'admin.php?page=bi-mail-trigger' ) )
+			);
+		}
+
+		// (1b) Wöchentliche Zusammenfassung eingerichtet, aber kein Cron-Termin geplant
+		//      (z. B. weil WP-Cron per DISABLE_WP_CRON abgeschaltet wurde) – die
+		//      Warteschlange würde dann immer weiter wachsen, ohne je rauszugehen.
+		$weekly_active = false;
+		foreach ( BI_Mailer::get_triggers() as $tr ) {
+			if ( ! empty( $tr['active'] ) && 'weekly' === ( $tr['schedule'] ?? 'instant' ) ) {
+				$weekly_active = true;
+				break;
+			}
+		}
+		if ( $weekly_active && ! wp_next_scheduled( BI_Mailer::CRON_HOOK ) ) {
+			$hinweise[] = sprintf(
+				'<strong>Wöchentliche Zusammenfassung ohne geplanten Termin:</strong> Es warten %d Anmeldung(en) in der Warteschlange, aber es ist kein Cron-Lauf eingeplant. <a href="%s">Versandtermin neu speichern</a> – bleibt das Problem, ist WP-Cron auf dem Server abgeschaltet.',
+				count( BI_Mailer::get_queue() ),
 				esc_url( admin_url( 'admin.php?page=bi-mail-trigger' ) )
 			);
 		}

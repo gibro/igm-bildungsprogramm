@@ -30,7 +30,7 @@
   display: flex; flex-direction: column; gap: 30px;
 }
 .bi-wiz__eyebrow { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.85); }
-.bi-wiz__title { font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 25px; line-height: 1.18; margin: 8px 0 0; color: #fff; text-wrap: balance; }
+.bi-wiz__title { font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 20px; line-height: 1.25; margin: 8px 0 0; color: #fff; text-wrap: balance; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
 .bi-wiz__divider { height: 1px; background: rgba(255,255,255,.22); }
 .bi-wiz__info { display: flex; flex-direction: column; gap: 16px; }
 .bi-wiz__info-cols { display: flex; flex-wrap: wrap; gap: 16px 28px; }
@@ -138,8 +138,13 @@ textarea.bi-wiz__input { resize: vertical; line-height: 1.5; }
 .bi-wiz__footer { display: flex; justify-content: space-between; align-items: center; padding-top: 24px; border-top: 1px solid #ececef; }
 .bi-wiz__primary { background: var(--accent); color: #fff; border: none; padding: 14px 30px; border-radius: 8px; font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: .01em; cursor: pointer; transition: filter .15s; }
 .bi-wiz__primary:hover { filter: brightness(.9); }
-.bi-wiz__back { background: #fff; border: 1.5px solid #d4d4d8; color: #3f3f46; padding: 13px 24px; border-radius: 8px; font-family: 'Archivo', sans-serif; font-weight: 600; font-size: 15px; cursor: pointer; transition: border-color .15s; }
-.bi-wiz__back:hover { border-color: #a1a1aa; }
+/* Zurück-Button: Theme-Buttonstyles (weiß auf weiß, versteckt, transformiert)
+   überschreiben ihn sonst unsichtbar -> Darstellung hart erzwingen.
+   Das [hidden]-Pendant muss ebenfalls !important sein, sonst kann das Skript
+   den Button im ersten Schritt nicht mehr ausblenden. */
+.bi-wiz__back { display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: #fff !important; border: 1.5px solid #d4d4d8 !important; color: #3f3f46 !important; padding: 13px 24px !important; border-radius: 8px !important; font-family: 'Archivo', sans-serif !important; font-weight: 600 !important; font-size: 15px !important; line-height: 1.2 !important; text-transform: none !important; text-decoration: none !important; box-shadow: none !important; width: auto !important; cursor: pointer; transition: border-color .15s; }
+.bi-wiz__back:hover, .bi-wiz__back:focus { background: #fff !important; color: #3f3f46 !important; border-color: #a1a1aa !important; }
+.bi-wiz__back[hidden] { display: none !important; }
 
 /* Erfolgs-Screen */
 .bi-wiz__success { flex: 1 1 100%; width: 100%; padding: 72px 40px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; animation: biStepIn .4s ease; }
@@ -161,6 +166,6 @@ textarea.bi-wiz__input { resize: vertical; line-height: 1.5; }
   .bi-wiz__sidebar { padding: 30px 24px; }
   .bi-wiz__panel { padding: 28px 22px; }
   .bi-wiz__field--col4, .bi-wiz__field--col6, .bi-wiz__field--col8 { grid-column: 1 / -1; }
-  .bi-wiz__title { font-size: 22px; }
+  .bi-wiz__title { font-size: 18px; }
   .bi-wiz__step-h2 { font-size: 21px; }
 }
