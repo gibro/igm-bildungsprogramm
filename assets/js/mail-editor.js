@@ -99,16 +99,56 @@
     else if (btn.dataset.link) link(area);
   });
 
+  var FIELDS = '.bi-mailedit__area, .bi-mailedit__field';
+
+  /* Letzte Cursorposition merken: Beim Griff zur Platzhalter-Auswahl verliert das
+     Feld den Fokus. Wurde es nie angeklickt, wird am Ende angefügt statt am Anfang. */
+  document.addEventListener('blur', function (ev) {
+    var f = ev.target;
+    if (!f.classList || !f.matches || !f.matches(FIELDS)) return;
+    f.dataset.selStart = f.selectionStart;
+    f.dataset.selEnd = f.selectionEnd;
+  }, true);
+
+  /**
+   * Platzhalter-Auswahl: setzt den gewählten Platzhalter an der Cursorposition ein.
+   * Zielfeld ist das mehrzeilige Textfeld (.bi-mailedit__area) oder – bei einzeiligen
+   * Feldern wie „Antworten an" – das Eingabefeld (.bi-mailedit__field).
+   */
   document.addEventListener('change', function (ev) {
     var sel = ev.target;
     if (!sel.classList || !sel.classList.contains('bi-mailedit__ph')) return;
     if (!sel.value) return;
 
     var box = sel.closest('.bi-mailedit');
-    var area = box ? box.querySelector('.bi-mailedit__area') : null;
-    if (area) insert(area, sel.value);
+    var area = box ? box.querySelector(FIELDS) : null;
+    if (area) {
+      var s = area.dataset.selStart, e = area.dataset.selEnd;
+      if (s === undefined) { s = area.value.length; e = s; }   // noch nie im Feld gewesen
+      area.setSelectionRange(Number(s), Number(e));
+      insert(area, withSeparator(area, sel.value));
+      area.dataset.selStart = area.selectionStart;
+      area.dataset.selEnd = area.selectionEnd;
+    }
     sel.selectedIndex = 0;
   });
+
+  /**
+   * In Adressfeldern („Antworten an") das Komma mitliefern.
+   *
+   * Ohne das entsteht beim Anklicken mehrerer Platzhalter eine zusammengeklebte
+   * Kette wie {email}{geschaeftsstelle_email} – die ergibt beim Versand keine
+   * gültige Adresse mehr und der Header fällt komplett weg. In mehrzeiligen
+   * Textfeldern wird nichts ergänzt, dort ist der Platzhalter Fließtext.
+   */
+  function withSeparator(field, value) {
+    if (!field.classList.contains('bi-mailedit__field')) return value;
+    var before = field.value.slice(0, field.selectionStart);
+    var after = field.value.slice(field.selectionEnd);
+    if (/[^\s,]$/.test(before)) value = ', ' + value;   // davor steht schon eine Adresse
+    if (/^[^\s,]/.test(after)) value = value + ', ';    // dahinter folgt direkt eine
+    return value;
+  }
 
   /**
    * Bearbeiten-Maske: Zeilen mit data-when-type / data-when-schedule gehören nur zu

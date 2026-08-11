@@ -221,7 +221,7 @@ class BI_Tracking {
 
 	/** Seminar-Detailseite angesehen */
 	public static function maybe_track_seminar() {
-		if ( is_singular( BI_CPT ) ) {
+		if ( is_singular( bi_seminar_post_types() ) ) {
 			self::track( 'seminar', get_queried_object_id() );
 		}
 	}
@@ -580,7 +580,7 @@ class BI_Tracking {
 		) );
 
 		$seminare = get_posts( array(
-			'post_type'   => BI_CPT,
+			'post_type'   => bi_seminar_post_types(),
 			'numberposts' => 200,
 			'post_status' => 'publish',
 			'orderby'     => 'meta_value',

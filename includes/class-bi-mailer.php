@@ -11,6 +11,8 @@
  *   type           geschaeftsstelle | teilnehmer | bildungszentrum | ansprechpartner | custom
  *   recipient      E-Mail (nur type=custom)
  *   from           Absender ("Name <mail>")
+ *   reply_to       Antwortadresse ("Antworten an"), mit Platzhaltern; leer = Antworten
+ *                  gehen an den Absender. Mehrere Adressen mit Komma trennen.
  *   subject        Betreff (mit Platzhaltern)
  *   body           Text (mit Platzhaltern)
  *   cond_tax       Bedingung: Taxonomie-Slug (optional)
@@ -21,6 +23,10 @@
  *                              Zusammenfassung verschickt
  *   digest_subject Betreff der Wochenzusammenfassung (nur schedule=weekly)
  *   digest_intro   Einleitungstext der Wochenzusammenfassung (nur schedule=weekly)
+ *   attach_seminar   bool – Seminardetails als PDF anhängen (nur schedule=instant)
+ *   attach_beschluss bool – Beschlussvorlage nach § 37 Abs. 6 BetrVG als WORD-Datei
+ *                    anhängen (nur schedule=instant). Seminardetails erzeugt BI_PDF,
+ *                    die Beschlussvorlage BI_Beschluss – jeweils beim Versand.
  *
  * Wöchentlicher Versand:
  *   Trigger mit schedule=weekly senden bei der Anmeldung nichts, sondern legen einen
@@ -264,6 +270,7 @@ class BI_Mailer {
 				'type'    => 'geschaeftsstelle',
 				'recipient' => '',
 				'from'    => $default_from,
+				'reply_to' => '{email}',   // Antwort geht direkt an die angemeldete Person
 				'subject' => 'Neue Seminar-Anmeldung aus Ihrem Gebiet ({plz})',
 				'body'    => "Hallo {geschaeftsstelle},\n\nüber das Bildungsprogramm ist eine neue Anmeldung aus Ihrem Gebiet eingegangen.\n\n## Seminar\n\n- **{seminar_titel}**\n- Nummer: {seminar_nummer}\n- Start: {seminar_startdatum}\n\n## Anmeldung\n\n- **{name}**\n- Betrieb: {betrieb}, PLZ {plz}\n- E-Mail: {email}\n- Telefon: {telefon}\n\n**Nachricht:**\n{nachricht}\n\n---\n\n_automatisch erzeugt_",
 				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
@@ -276,10 +283,13 @@ class BI_Mailer {
 				'type'    => 'teilnehmer',
 				'recipient' => '',
 				'from'    => $default_from,
+				'reply_to' => '{geschaeftsstelle_email}',   // Antwort geht an die zuständige Geschäftsstelle
 				'subject' => 'Ihre Anmeldung zu „{seminar_titel}“',
 				'body'    => "Hallo {vorname} {nachname},\n\nvielen Dank für Ihre Anmeldung zum Seminar **{seminar_titel}**.\n\n- Start: {seminar_startdatum}\n- Ort: {seminar_ort}\n\nIhre zuständige Geschäftsstelle ({geschaeftsstelle}) wird sich bei Ihnen melden.\n\nViele Grüße\nIhr Bildungsteam",
 				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 				'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
+				// Teilnehmer bekommen Seminardetails und Beschlussvorlage als PDF mit
+				'attach_seminar' => 1, 'attach_beschluss' => 1,
 			),
 			array(
 				'id'      => 3,
@@ -288,6 +298,7 @@ class BI_Mailer {
 				'type'    => 'ansprechpartner',
 				'recipient' => '',
 				'from'    => $default_from,
+				'reply_to' => '{email}',   // Antwort geht direkt an die angemeldete Person
 				'subject' => 'Neue Anmeldung: {seminar_titel}',
 				'body'    => "Hallo {ansprechpartner},\n\nfür Ihr Seminar ist eine neue Anmeldung eingegangen.\n\n- Seminar: **{seminar_titel}** ({seminar_nummer})\n- Ort: {seminar_ort}\n- Start: {seminar_startdatum}\n\n- Teilnehmer*in: **{name}**, {betrieb}, PLZ {plz}\n- E-Mail: {email}",
 				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
@@ -338,8 +349,9 @@ class BI_Mailer {
 				continue;
 			}
 
-			$subject = self::replace( $trigger['subject'] ?? '', $ctx );
-			$body    = self::replace( $trigger['body'] ?? '', $ctx );
+			$subject  = self::replace( $trigger['subject'] ?? '', $ctx );
+			$body     = self::replace( $trigger['body'] ?? '', $ctx );
+			$reply_to = self::replace( $trigger['reply_to'] ?? '', $ctx );
 
 			// Wöchentliche Zusammenfassung: nur einreihen. Der Soforttest ($force_to)
 			// umgeht die Warteschlange, damit der Admin sofort ein Ergebnis sieht.
@@ -349,6 +361,7 @@ class BI_Mailer {
 					'trigger'        => $trigger['name'] ?? '',
 					'to'             => $to,
 					'from'           => $trigger['from'] ?? '',
+					'reply_to'       => $reply_to,
 					'subject'        => $subject,
 					'body'           => $body,
 					'digest_subject' => $trigger['digest_subject'] ?? '',
@@ -365,7 +378,16 @@ class BI_Mailer {
 				$body    = self::test_hint( 'diese Mail wäre an „' . ( $orig ?: 'kein Empfänger ermittelt' ) . '“ gegangen' ) . $body;
 			}
 
-			$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '' );
+			// PDF-Anhänge nur beim Sofortversand: In der Wochenzusammenfassung
+			// stecken mehrere Seminare in einer Mail, ein Anhang wäre dort nicht zuzuordnen.
+			$attachments = self::build_attachments( $trigger, $submission );
+
+			$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '', $reply_to, $attachments );
+
+			if ( $attachments && class_exists( 'BI_PDF' ) ) {
+				BI_PDF::cleanup( $attachments ); // temporäre Dateien sofort wieder entfernen
+			}
+
 			if ( $ok ) {
 				$sent++;
 			} else {
@@ -373,6 +395,49 @@ class BI_Mailer {
 			}
 		}
 		return $sent;
+	}
+
+	/**
+	 * PDF-Anhänge einer Benachrichtigung erzeugen (temporäre Dateien).
+	 *
+	 * Der Aufrufer muss sie nach dem Versand über BI_PDF::cleanup() wieder löschen.
+	 *
+	 * @return string[] Dateipfade (leer, wenn nichts angehängt werden soll oder die
+	 *                  Erzeugung fehlschlägt – die Mail geht dann ohne Anhang raus).
+	 */
+	private static function build_attachments( $trigger, $submission ) {
+		if ( empty( $trigger['attach_seminar'] ) && empty( $trigger['attach_beschluss'] ) ) {
+			return array();
+		}
+		if ( ! class_exists( 'BI_PDF' ) || ! BI_PDF::available() ) {
+			error_log( '[BI-Mailer] PDF-Anhänge angefordert, aber die PDF-Erzeugung steht nicht bereit.' );
+			return array();
+		}
+
+		$seminar_id = (int) ( $submission['seminar_id'] ?? 0 );
+		if ( ! $seminar_id ) {
+			return array();
+		}
+
+		$files = array();
+		if ( ! empty( $trigger['attach_seminar'] ) ) {
+			$file = BI_PDF::seminar_file( $seminar_id );
+			if ( $file ) {
+				$files[] = $file;
+			} else {
+				error_log( '[BI-Mailer] Seminar-PDF konnte nicht erzeugt werden (Seminar ' . $seminar_id . ').' );
+			}
+		}
+		if ( ! empty( $trigger['attach_beschluss'] ) ) {
+			// Word-Datei, nicht PDF: Der Betriebsrat muss das Schreiben noch ergänzen.
+			$file = class_exists( 'BI_Beschluss' ) ? BI_Beschluss::datei( $seminar_id, $submission ) : '';
+			if ( $file ) {
+				$files[] = $file;
+			} else {
+				error_log( '[BI-Mailer] Beschlussvorlage konnte nicht erzeugt werden (Seminar ' . $seminar_id . ').' );
+			}
+		}
+		return $files;
 	}
 
 	private static function resolve_recipient( $trigger, $submission, $ctx ) {
@@ -392,12 +457,35 @@ class BI_Mailer {
 	}
 
 	private static function condition_met( $trigger, $submission ) {
+		// Seminarform: leer = beide. Ohne diese Prüfung würde jede Präsenz-Vorlage
+		// auch bei Online-Anmeldungen feuern (und umgekehrt).
+		if ( ! self::form_matches( $trigger, $submission ) ) {
+			return false;
+		}
 		if ( empty( $trigger['cond_tax'] ) || empty( $trigger['cond_value'] ) ) {
 			return true;
 		}
 		$terms = wp_get_object_terms( $submission['seminar_id'], $trigger['cond_tax'], array( 'fields' => 'names' ) );
 		$has   = is_array( $terms ) && in_array( $trigger['cond_value'], $terms, true );
 		return ( 'not' === ( $trigger['cond_op'] ?? 'is' ) ) ? ! $has : $has;
+	}
+
+	/**
+	 * Gilt diese Benachrichtigung für die Seminarform der Anmeldung?
+	 * Feld cond_form: leer = beide Formen, sonst der Beitragstyp.
+	 * Bestandstrigger ohne Feld verhalten sich wie bisher (beide Formen).
+	 */
+	private static function form_matches( $trigger, $submission ) {
+		$want = $trigger['cond_form'] ?? '';
+		if ( '' === $want || ! in_array( $want, bi_seminar_post_types(), true ) ) {
+			return true;
+		}
+		$have = get_post_type( (int) $submission['seminar_id'] );
+		// Ist der Seminar-Post bereits gelöscht, entscheidet die Spalte der Anmeldung.
+		if ( ! $have ) {
+			$have = $submission['post_type'] ?? BI_CPT;
+		}
+		return $want === $have;
 	}
 
 	private static function bildungszentrum_email( $seminar_id ) {
@@ -503,7 +591,17 @@ class BI_Mailer {
 				$body    = self::test_hint( 'diese Zusammenfassung wäre an „' . ( $first['orig'] ?: 'kein Empfänger ermittelt' ) . '“ gegangen' ) . $body;
 			}
 
-			if ( self::send( $to, $subject, $body, $first['from'] ?? '' ) ) {
+			// Antwortadressen aller gesammelten Anmeldungen zusammenfassen: Bei {email}
+			// erreicht eine Antwort auf die Zusammenfassung alle enthaltenen Personen.
+			$reply_to = array();
+			foreach ( $items as $it ) {
+				$r = trim( (string) ( $it['reply_to'] ?? '' ) );
+				if ( '' !== $r && ! in_array( $r, $reply_to, true ) ) {
+					$reply_to[] = $r;
+				}
+			}
+
+			if ( self::send( $to, $subject, $body, $first['from'] ?? '', implode( ', ', $reply_to ) ) ) {
 				$sent++;
 			} else {
 				error_log( '[BI-Mailer] Wochenzusammenfassung an ' . $to . ' fehlgeschlagen (Benachrichtigung: ' . ( $first['trigger'] ?? '?' ) . ')' );
@@ -676,15 +774,38 @@ class BI_Mailer {
 			'{seminar_anreisedatum}' => 'Anreisedatum',
 			'{seminar_anreiseuhrzeit}' => 'Anreiseuhrzeit',
 			'{seminar_themen}'       => 'Themen im Seminar',
-			'{seminar_ort}'          => 'Bildungszentrum / Ort',
+			'{seminar_ort}'          => 'Bildungszentrum / Ort (Online: Veranstalter*in)',
+			'{seminar_form}'         => 'Seminarform (Präsenz / Online)',
+			'{seminar_untertitel}'   => 'Untertitel (nur Online-Seminare)',
+			'{seminar_referenten}'   => 'Referent*innen (nur Online-Seminare)',
+			'{seminar_plattform}'    => 'Webinar-Tool (nur Online-Seminare)',
+			'{seminar_online_link}'  => 'Öffentlicher Online-Link (nur Online-Seminare)',
+			'{seminar_anmeldelink}'  => 'Externer Anmeldelink (nur Teams-Webinare)',
 			'{ansprechpartner}'      => 'Ansprechpartner des Seminars',
 			'{ansprechpartner_email}' => 'E-Mail des Ansprechpartners',
 			'{datum}'                => 'Heutiges Datum',
 		);
 	}
 
+	/**
+	 * Nur die Platzhalter, die eine E-Mail-Adresse liefern – für Felder, in denen
+	 * alles andere keinen Sinn ergibt („Antworten an", feste Empfängeradresse).
+	 */
+	public static function email_placeholders() {
+		$all  = self::placeholders();
+		$keys = array( '{email}', '{betrieb_email}', '{geschaeftsstelle_email}', '{ansprechpartner_email}' );
+		$out  = array();
+		foreach ( $keys as $key ) {
+			if ( isset( $all[ $key ] ) ) {
+				$out[ $key ] = $all[ $key ];
+			}
+		}
+		return $out;
+	}
+
 	private static function build_context( $submission ) {
-		$sid     = (int) $submission['seminar_id'];
+		$sid       = (int) $submission['seminar_id'];
+		$is_online = bi_is_online( $sid );
 		$gs      = BI_PLZ::lookup( $submission['plz'] );
 		$ort     = wp_get_object_terms( $sid, BI_TAX_ORT, array( 'fields' => 'names' ) );
 		$start   = get_post_meta( $sid, '_bi_startdatum', true );
@@ -728,6 +849,14 @@ class BI_Mailer {
 			'{seminar_anreiseuhrzeit}' => get_post_meta( $sid, '_bi_anreiseuhrzeit', true ),
 			'{seminar_themen}'         => get_post_meta( $sid, '_bi_themen', true ),
 			'{seminar_ort}'            => ( is_array( $ort ) && $ort ) ? $ort[0] : '',
+			// Online-Seminare: zusätzliche Angaben. Bei Präsenz-Seminaren bleiben die
+			// Platzhalter leer, damit dieselbe Vorlage für beide Formen taugt.
+			'{seminar_form}'           => $is_online ? 'Online-Seminar' : 'Präsenz-Seminar',
+			'{seminar_untertitel}'     => $is_online ? (string) get_post_meta( $sid, '_bi_untertitel', true ) : '',
+			'{seminar_referenten}'     => $is_online ? (string) get_post_meta( $sid, '_bi_referenten', true ) : '',
+			'{seminar_plattform}'      => $is_online ? BI_Online::tool_label( $sid ) : '',
+			'{seminar_online_link}'    => $is_online ? BI_Online::online_link( $sid ) : '',
+			'{seminar_anmeldelink}'    => $is_online ? BI_Online::anmeldelink( $sid ) : '',
 			'{ansprechpartner}'        => get_post_meta( $sid, '_bi_ansprechpartner', true ),
 			'{ansprechpartner_email}'  => get_post_meta( $sid, '_bi_ansprechpartner_email', true ),
 			'{datum}'                  => date_i18n( 'd.m.Y' ),
@@ -746,17 +875,82 @@ class BI_Mailer {
 	}
 
 	/**
+	 * Adressfelder beim Speichern bereinigen (Absender, Antworten an).
+	 *
+	 * Bewusst NICHT sanitize_text_field(): das ruft wp_strip_all_tags() auf und hält
+	 * "<mail@domain.de>" für ein HTML-Tag – aus "Name <mail@domain.de>" würde beim
+	 * Speichern nur noch "Name", und der Header wäre unbrauchbar. Hier werden nur
+	 * Steuerzeichen und Zeilenumbrüche entfernt (Schutz vor Header-Injection); die
+	 * inhaltliche Prüfung macht clean_address_header() beim Versand.
+	 */
+	private static function sanitize_address_field( $value ) {
+		$value = wp_check_invalid_utf8( (string) $value );
+		$value = preg_replace( '/[\x00-\x1F\x7F]+/', ' ', $value );
+		return trim( $value );
+	}
+
+	/**
+	 * Adress-Header bereinigen: akzeptiert "mail@x.de" und "Name <mail@x.de>",
+	 * mehrere Adressen mit Komma getrennt. Ungültige Teile fallen weg; bleibt
+	 * nichts übrig, kommt '' zurück (dann wird der Header gar nicht gesetzt).
+	 *
+	 * Zeilenumbrüche werden entfernt – sonst könnten Platzhalterwerte weitere
+	 * Header in die Mail schmuggeln (Header-Injection).
+	 */
+	private static function clean_address_header( $value ) {
+		$value = trim( preg_replace( '/[\r\n]+/', ' ', (string) $value ) );
+		if ( '' === $value ) {
+			return '';
+		}
+
+		$out = array();
+		foreach ( explode( ',', $value ) as $part ) {
+			$part = trim( $part );
+			if ( '' === $part ) {
+				continue;
+			}
+			if ( preg_match( '/^(.*?)<([^<>]+)>$/', $part, $m ) ) {
+				$name = trim( $m[1], " \t\"'" );
+				$addr = trim( $m[2] );
+				if ( is_email( $addr ) ) {
+					$out[] = ( '' !== $name ) ? $name . ' <' . $addr . '>' : $addr;
+				}
+			} elseif ( is_email( $part ) ) {
+				$out[] = $part;
+			}
+		}
+		return implode( ', ', array_unique( $out ) );
+	}
+
+	/**
 	 * Mail versenden: HTML-Fassung als Body, Klartext-Fassung als Fallback.
 	 *
-	 * @param string $to      Empfänger.
-	 * @param string $subject Betreff (bereits gerendert).
-	 * @param string $text    Quelltext mit Steuerzeichen (bereits gerendert).
-	 * @param string $from    Absender-Header oder ''.
+	 * @param string $to       Empfänger.
+	 * @param string $subject  Betreff (bereits gerendert).
+	 * @param string $text     Quelltext mit Steuerzeichen (bereits gerendert).
+	 * @param string   $from        Absender-Header oder ''.
+	 * @param string   $reply_to    Antwortadresse(n), bereits gerendert, oder ''.
+	 * @param string[] $attachments Dateipfade für Anhänge (werden hier nicht gelöscht).
 	 */
-	private static function send( $to, $subject, $text, $from = '' ) {
+	private static function send( $to, $subject, $text, $from = '', $reply_to = '', $attachments = array() ) {
 		$headers = array();
-		if ( '' !== trim( (string) $from ) ) {
-			$headers[] = 'From: ' . $from;
+
+		$from_clean = self::clean_address_header( $from );
+		if ( '' !== $from_clean ) {
+			$headers[] = 'From: ' . $from_clean;
+		} elseif ( '' !== trim( (string) $from ) ) {
+			// Ohne gültige Adresse würde wp_mail() den Header ohnehin verwerfen und den
+			// WordPress-Standardabsender nehmen – hier wenigstens sichtbar protokollieren.
+			error_log( '[BI-Mailer] Absender verworfen (keine gültige E-Mail): ' . $from );
+		}
+
+		// Antworten an: nur setzen, wenn nach dem Einsetzen der Platzhalter eine
+		// gültige Adresse übrig bleibt – sonst würde die Mail komplett scheitern.
+		$reply_clean = self::clean_address_header( $reply_to );
+		if ( '' !== $reply_clean ) {
+			$headers[] = 'Reply-To: ' . $reply_clean;
+		} elseif ( '' !== trim( (string) $reply_to ) ) {
+			error_log( '[BI-Mailer] Antwortadresse verworfen (keine gültige E-Mail): ' . $reply_to );
 		}
 
 		$plain = self::markup_to_plain( $text );
@@ -770,7 +964,15 @@ class BI_Mailer {
 			$body      = $plain;
 		}
 
-		$ok = wp_mail( $to, $subject, $body, $headers );
+		// Nur vorhandene Dateien übergeben – ein fehlender Pfad lässt wp_mail() scheitern.
+		$files = array();
+		foreach ( (array) $attachments as $path ) {
+			if ( $path && file_exists( $path ) ) {
+				$files[] = $path;
+			}
+		}
+
+		$ok = wp_mail( $to, $subject, $body, $headers, $files );
 
 		// Immer zurücksetzen, damit fremde Mails keinen AltBody von uns erben.
 		self::$alt_body = '';
@@ -1108,6 +1310,35 @@ class BI_Mailer {
 						<td><input type="text" id="bi_from" class="regular-text" name="from" value="<?php echo esc_attr( $t['from'] ); ?>" placeholder="Name &lt;mail@domain.de&gt;"></td>
 					</tr>
 					<tr>
+						<th><label for="bi_reply_to">Antworten an (Reply-To)</label></th>
+						<td>
+							<?php echo self::placeholder_field( 'reply_to', $t['reply_to'] ?? '', 'bi_reply_to', 'z. B. {email} oder service@example.de', self::email_placeholders() ); // phpcs:ignore – intern escaped ?>
+							<p class="description">Adresse, die beim Klick auf „Antworten" eingesetzt wird – unabhängig vom Absender.
+								<strong>Leer lassen</strong>, damit Antworten an den Absender gehen.
+								Erlaubt sind feste Adressen, die Platzhalter aus der Liste und die Form <code>Name &lt;mail@domain.de&gt;</code>;
+								mehrere Adressen mit Komma trennen. Typisch: <code>{email}</code>, damit die Geschäftsstelle direkt
+								der angemeldeten Person antworten kann.
+								Ergibt der Platzhalter keine gültige Adresse, wird der Header weggelassen – die Mail geht trotzdem raus.
+								In der <strong>Wochenzusammenfassung</strong> werden die Antwortadressen aller gesammelten Anmeldungen
+								zusammengefasst.</p>
+						</td>
+					</tr>
+					<tr>
+						<th><label for="bi_cond_form">Seminarform</label></th>
+						<td>
+							<select id="bi_cond_form" name="cond_form">
+								<option value="" <?php selected( $t['cond_form'] ?? '', '' ); ?>>Präsenz- und Online-Seminare</option>
+								<option value="<?php echo esc_attr( BI_CPT ); ?>" <?php selected( $t['cond_form'] ?? '', BI_CPT ); ?>>nur Präsenz-Seminare</option>
+								<option value="<?php echo esc_attr( BI_ONLINE ); ?>" <?php selected( $t['cond_form'] ?? '', BI_ONLINE ); ?>>nur Online-Seminare</option>
+							</select>
+							<p class="description">Online-Seminare brauchen oft einen anderen Wortlaut als Präsenz-Seminare
+								(kein Anreisetag, dafür Zugangslink). Mit dieser Einschränkung lassen sich zwei
+								Benachrichtigungen desselben Typs sauber trennen. <strong>Bestehende Benachrichtigungen
+								gelten weiterhin für beide Formen</strong> – wer für Online einen eigenen Text will,
+								legt eine zweite an und schränkt beide ein.</p>
+						</td>
+					</tr>
+					<tr>
 						<th><label for="bi_cond_tax">Bedingung</label></th>
 						<td>
 							nur senden, wenn Seminar in
@@ -1137,6 +1368,26 @@ class BI_Mailer {
 					<tr>
 						<th><label>Text</label></th>
 						<td><?php echo self::editor_field( 'body', $t['body'], 14, '', self::placeholders() ); // phpcs:ignore – intern escaped ?></td>
+					</tr>
+					<tr data-when-schedule="instant">
+						<th>Anhänge</th>
+						<td>
+							<label style="display:block;margin-bottom:6px">
+								<input type="checkbox" name="attach_seminar" value="1" <?php checked( ! empty( $t['attach_seminar'] ) ); ?>>
+								<strong>Seminardetails (PDF)</strong> – alle Angaben zum gebuchten Seminar auf einem Blatt, mit Logo oben rechts
+							</label>
+							<label style="display:block">
+								<input type="checkbox" name="attach_beschluss" value="1" <?php checked( ! empty( $t['attach_beschluss'] ) ); ?>>
+								<strong>Beschlussvorlage (Word)</strong> – „Mitteilung über Seminarteilnahme nach § 37 Abs. 6 BetrVG" an den
+								Arbeitgeber, mit Betrieb und Anschrift, Name, Seminar und Terminen vorausgefüllt.
+								Bewusst als <code>.docx</code>, damit der Betriebsrat Sitzungsdatum sowie Ort und Datum noch ergänzen kann.
+							</label>
+							<p class="description">Die Anhänge werden beim Versand aus den Seminar- und Anmeldedaten erzeugt und danach wieder gelöscht.
+								Logo und Veranstalteranschrift kommen aus
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=bi-einstellungen&tab=pdf' ) ); ?>">Einstellungen → PDF-Anhänge</a>;
+								dort gibt es auch eine Vorschau.
+								Bei der <strong>Wochenzusammenfassung</strong> gibt es keine Anhänge – dort stecken mehrere Seminare in einer Mail.</p>
+						</td>
 					</tr>
 					<tr>
 						<th><label for="bi_schedule">Versandart</label></th>
@@ -1243,13 +1494,52 @@ class BI_Mailer {
 		return ob_get_clean();
 	}
 
+	/**
+	 * Einzeiliges Textfeld mit Platzhalter-Auswahl darüber (ohne Formatier-Knöpfe).
+	 * Für Felder, in denen Auszeichnungen sinnlos sind – Adressen, Betreffzeilen.
+	 *
+	 * @param string $name         name-Attribut.
+	 * @param string $value        Aktueller Inhalt.
+	 * @param string $id           id-Attribut (für das <label>).
+	 * @param string $placeholder  placeholder-Attribut.
+	 * @param array  $placeholders Platzhalter für das Auswahlfeld [{tag} => Beschreibung].
+	 */
+	private static function placeholder_field( $name, $value, $id, $placeholder = '', $placeholders = array() ) {
+		ob_start();
+		echo '<div class="bi-mailedit bi-mailedit--inline">';
+		echo '<div class="bi-mailedit__bar">';
+		echo '<span class="bi-mailedit__hint">Platzhalter oder feste Adresse</span>';
+		if ( $placeholders ) {
+			echo '<select class="bi-mailedit__ph"><option value="">Platzhalter einfügen …</option>';
+			foreach ( $placeholders as $tag => $desc ) {
+				echo '<option value="' . esc_attr( $tag ) . '">' . esc_html( $tag . ' – ' . $desc ) . '</option>';
+			}
+			echo '</select>';
+		}
+		echo '</div>';
+
+		printf(
+			'<input type="text" id="%s" class="large-text bi-mailedit__field" name="%s" value="%s" placeholder="%s">',
+			esc_attr( $id ),
+			esc_attr( $name ),
+			esc_attr( $value ),
+			esc_attr( $placeholder )
+		);
+		echo '</div>';
+
+		return ob_get_clean();
+	}
+
 	private static function empty_trigger() {
 		return array(
 			'id' => 0,
 			'active' => 0, 'name' => '', 'type' => 'custom', 'recipient' => '',
 			'from' => get_bloginfo( 'name' ) . ' <' . get_option( 'admin_email' ) . '>',
+			'reply_to' => '',
 			'subject' => '', 'body' => '', 'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
+			'cond_form' => '', // leer = beide Seminarformen
 			'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
+			'attach_seminar' => 0, 'attach_beschluss' => 0,
 		);
 	}
 
@@ -1265,12 +1555,20 @@ class BI_Mailer {
 
 	/** Lesbare Kurzform der Bedingung eines Triggers, z. B. „Bildungszentrum = Kritische Akademie“; leer ohne Bedingung. */
 	public static function condition_label( $t, $taxes ) {
-		if ( empty( $t['cond_tax'] ) || empty( $t['cond_value'] ) ) {
-			return '';
+		$parts = array();
+
+		$form = $t['cond_form'] ?? '';
+		if ( in_array( $form, bi_seminar_post_types(), true ) ) {
+			$parts[] = ( BI_ONLINE === $form ) ? 'nur Online-Seminare' : 'nur Präsenz-Seminare';
 		}
-		$tax = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
-		$op  = ( 'not' === ( $t['cond_op'] ?? 'is' ) ) ? '≠' : '=';
-		return $tax . ' ' . $op . ' „' . $t['cond_value'] . '“';
+
+		if ( ! empty( $t['cond_tax'] ) && ! empty( $t['cond_value'] ) ) {
+			$tax     = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
+			$op      = ( 'not' === ( $t['cond_op'] ?? 'is' ) ) ? '≠' : '=';
+			$parts[] = $tax . ' ' . $op . ' „' . $t['cond_value'] . '“';
+		}
+
+		return implode( ' · ', $parts );
 	}
 
 	/** z. B. „jeden Montag um 08:00 Uhr“ */
@@ -1299,7 +1597,9 @@ class BI_Mailer {
 			if ( 'custom' === $key ) {
 				$key .= ':' . strtolower( trim( $t['recipient'] ?? '' ) );
 			}
-			$groups[ $key ][] = $t;
+			// Nach Seminarform getrennt gruppieren: zwei Benachrichtigungen, von denen
+			// eine nur für Präsenz und eine nur für Online gilt, überschneiden sich nicht.
+			$groups[ ( $t['cond_form'] ?? '' ) . '||' . $key ][] = $t;
 		}
 
 		$names = function ( $list ) {
@@ -1323,12 +1623,16 @@ class BI_Mailer {
 			}
 		}
 
-		foreach ( $groups as $key => $list ) {
+		foreach ( $groups as $gkey => $list ) {
+			list( $form, $key ) = array_pad( explode( '||', $gkey, 2 ), 2, '' );
 			$type  = strtok( $key, ':' );
 			$label = $type_labels[ $type ] ?? $type;
 			if ( 'custom' === $type ) {
 				$addr   = substr( $key, strlen( 'custom:' ) );
 				$label .= $addr ? ' ' . $addr : '';
+			}
+			if ( '' !== $form ) {
+				$label .= ' (' . ( BI_ONLINE === $form ? 'nur Online' : 'nur Präsenz' ) . ')';
 			}
 
 			$uncond = array();
@@ -1404,15 +1708,19 @@ class BI_Mailer {
 			'name'           => sanitize_text_field( $row['name'] ?? '' ),
 			'type'           => in_array( $row['type'] ?? '', array( 'geschaeftsstelle', 'teilnehmer', 'bildungszentrum', 'ansprechpartner', 'custom' ), true ) ? $row['type'] : 'custom',
 			'recipient'      => sanitize_text_field( $row['recipient'] ?? '' ),
-			'from'           => sanitize_text_field( $row['from'] ?? '' ),
+			'from'           => self::sanitize_address_field( $row['from'] ?? '' ),
+			'reply_to'       => self::sanitize_address_field( $row['reply_to'] ?? '' ),
 			'subject'        => sanitize_text_field( $row['subject'] ?? '' ),
 			'body'           => sanitize_textarea_field( $row['body'] ?? '' ),
 			'cond_tax'       => sanitize_text_field( $row['cond_tax'] ?? '' ),
 			'cond_value'     => sanitize_text_field( $row['cond_value'] ?? '' ),
 			'cond_op'        => ( 'not' === ( $row['cond_op'] ?? 'is' ) ) ? 'not' : 'is',
+			'cond_form'      => in_array( $row['cond_form'] ?? '', bi_seminar_post_types(), true ) ? $row['cond_form'] : '',
 			'schedule'       => ( 'weekly' === ( $row['schedule'] ?? 'instant' ) ) ? 'weekly' : 'instant',
 			'digest_subject' => sanitize_text_field( $row['digest_subject'] ?? '' ),
 			'digest_intro'   => sanitize_textarea_field( $row['digest_intro'] ?? '' ),
+			'attach_seminar'  => ! empty( $row['attach_seminar'] ) ? 1 : 0,
+			'attach_beschluss' => ! empty( $row['attach_beschluss'] ) ? 1 : 0,
 		);
 
 		$id  = self::put_trigger( $data );
@@ -1737,7 +2045,7 @@ class BI_Mailer {
 
 	/** Beispiel-Anmeldung mit Testdaten; nimmt das neueste Seminar für Seminar-Platzhalter */
 	private static function sample_submission( $to ) {
-		$latest = get_posts( array( 'post_type' => BI_CPT, 'numberposts' => 1, 'fields' => 'ids', 'post_status' => 'publish' ) );
+		$latest = get_posts( array( 'post_type' => bi_seminar_post_types(), 'numberposts' => 1, 'fields' => 'ids', 'post_status' => 'publish' ) );
 		$sid    = $latest ? (int) $latest[0] : 0;
 
 		$data = array(
@@ -1760,6 +2068,7 @@ class BI_Mailer {
 
 		return array(
 			'seminar_id' => $sid,
+			'post_type'  => $sid ? get_post_type( $sid ) : BI_CPT,
 			'vorname'    => 'Max',
 			'nachname'   => 'Mustermann',
 			'email'      => $to,

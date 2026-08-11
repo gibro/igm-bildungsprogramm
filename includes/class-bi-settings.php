@@ -8,6 +8,9 @@
  *   direct_label       string Button-Text Direktanmeldung
  *   gs_label           string Button-Text Geschäftsstellen-Anmeldung
  *   gs_hinweis         string Hinweistext bei Geschäftsstellen-Anmeldung
+ *   pdf_logo_id        int    Anhang-ID des Logos für die PDF-Anhänge (0 = keins)
+ *   pdf_veranstalter   string Name und Anschrift des Veranstalters (mehrzeilig) –
+ *                             steht in den Seminardetails und in der Beschlussvorlage
  *
  * Pro Seminar entscheidet das Flag _bi_anmeldung_moeglich, WELCHE Variante greift
  * (true = Direktanmeldung, false = nur über Geschäftsstelle). Hier werden die
@@ -24,9 +27,19 @@ class BI_Settings {
 
 	public static function init() {
 		add_action( 'admin_post_bi_save_settings', array( __CLASS__, 'save' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'admin_assets' ) );
 		// Vorschlagstext im WordPress-eigenen Datenschutz-Leitfaden
 		// (Werkzeuge → Datenschutz → Richtlinien-Leitfaden).
 		add_action( 'admin_init', array( __CLASS__, 'register_privacy_policy' ) );
+	}
+
+	/** Mediathek-Auswahl (wp.media) nur im Tab „PDF-Anhänge" laden */
+	public static function admin_assets() {
+		$page = isset( $_REQUEST['page'] ) ? sanitize_key( wp_unslash( $_REQUEST['page'] ) ) : '';
+		$tab  = isset( $_REQUEST['tab'] ) ? sanitize_key( wp_unslash( $_REQUEST['tab'] ) ) : '';
+		if ( 'bi-einstellungen' === $page && 'pdf' === $tab ) {
+			wp_enqueue_media();
+		}
 	}
 
 	public static function defaults() {
@@ -37,6 +50,8 @@ class BI_Settings {
 			'direct_label'      => 'Jetzt buchen',
 			'gs_label'          => 'Zur Geschäftsstellensuche',
 			'gs_hinweis'        => 'Anmeldung nur über deine Geschäftsstelle möglich.',
+			'pdf_logo_id'       => 0,
+			'pdf_veranstalter'  => '',
 			'rules'             => array(),
 		);
 	}
@@ -47,7 +62,7 @@ class BI_Settings {
 			'freistellung'  => 'Freistellung',
 			'handlungsfeld' => 'Handlungsfeld',
 			'zielgruppe'    => 'Zielgruppe',
-			'ort'           => 'Bildungszentrum',
+			'ort'           => 'Bildungszentrum / Veranstalter*in',
 			'flag'          => '„Anmeldung möglich"-Flag',
 		);
 	}
@@ -170,7 +185,9 @@ class BI_Settings {
 		$tab    = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'allgemein';
 		$tabs   = array(
 			'allgemein'     => 'Anmeldung & Regeln',
+			'pdf'           => 'PDF-Anhänge',
 			'seminarimport' => 'Seminar-Import',
+			'onlineimport'  => 'Online-Seminar-Import',
 			'plzimport'     => 'PLZ-Import',
 			'datenschutz'   => 'Datenschutz',
 		);
@@ -190,8 +207,18 @@ class BI_Settings {
 			</h2>
 
 			<?php
+			if ( 'pdf' === $tab ) {
+				self::render_pdf_section( $s );
+				echo '</div>';
+				return;
+			}
 			if ( 'seminarimport' === $tab ) {
-				BI_Import::render_section();
+				BI_Import::render_section( BI_CPT );
+				echo '</div>';
+				return;
+			}
+			if ( 'onlineimport' === $tab ) {
+				BI_Import::render_section( BI_ONLINE );
 				echo '</div>';
 				return;
 			}
@@ -327,6 +354,116 @@ class BI_Settings {
 				<?php submit_button( 'Einstellungen speichern' ); ?>
 			</form>
 		</div>
+		<?php
+	}
+
+	/* ===================================================================
+	 *  Tab „PDF-Anhänge"
+	 * =================================================================== */
+
+	/**
+	 * Logo und Veranstalterangabe für die beiden PDF-Anhänge der Anmeldemails,
+	 * plus Vorschau-Links. Welche Benachrichtigung welches PDF anhängt, wird
+	 * je Benachrichtigung unter „Mail-Benachrichtigungen" eingestellt.
+	 */
+	private static function render_pdf_section( $s ) {
+		$logo_id  = (int) ( $s['pdf_logo_id'] ?? 0 );
+		$logo_url = $logo_id ? wp_get_attachment_image_url( $logo_id, 'medium' ) : '';
+		$sample   = class_exists( 'BI_PDF' ) ? BI_PDF::sample_seminar_id() : 0;
+		?>
+		<p>Die Anmeldemails können zwei Dateien mitschicken: die <strong>Seminardetails</strong> als PDF und die
+			<strong>Beschlussvorlage</strong> („Mitteilung über Seminarteilnahme nach § 37 Abs. 6 BetrVG") als
+			<strong>Word-Datei</strong> – die muss der Betriebsrat noch ergänzen können.
+			Ob eine Benachrichtigung sie anhängt, stellst du in der jeweiligen
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=bi-mail-trigger' ) ); ?>">Mail-Benachrichtigung</a> ein.
+			Hier stehen die Angaben, die in beiden Dokumenten gleich sind.</p>
+
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="bi_save_settings">
+			<input type="hidden" name="bi_tab" value="pdf">
+			<?php wp_nonce_field( 'bi_save_settings' ); ?>
+
+			<table class="form-table">
+				<tr>
+					<th><label for="bi_pdf_logo">Logo (oben rechts)</label></th>
+					<td>
+						<input type="hidden" id="bi_pdf_logo" name="pdf_logo_id" value="<?php echo esc_attr( $logo_id ); ?>">
+						<div id="bi-pdf-logo-preview" style="margin-bottom:8px">
+							<img src="<?php echo esc_url( $logo_url ); ?>" alt=""
+								style="max-width:220px;height:auto;border:1px solid #dcdcde;padding:6px;background:#fff;<?php echo $logo_url ? '' : 'display:none'; ?>">
+						</div>
+						<button type="button" class="button" id="bi-pdf-logo-pick">Logo auswählen</button>
+						<button type="button" class="button-link" id="bi-pdf-logo-clear" style="margin-left:10px;color:#b32d2e;<?php echo $logo_id ? '' : 'display:none'; ?>">entfernen</button>
+						<p class="description">Erscheint <strong>oben rechts auf den Seminardetails</strong>.
+							Möglich sind <strong>JPG, PNG und GIF</strong> – SVG kann nicht in ein PDF eingebettet werden.
+							Empfehlung: PNG mit mindestens 600&nbsp;px Breite, das Logo wird auf 32&nbsp;mm Breite skaliert.<br>
+							Die <strong>Beschlussvorlage bekommt bewusst kein Logo</strong>: Sie ist ein Schreiben des Betriebsrats
+							an den Arbeitgeber, ein Verbandslogo hätte darauf nichts zu suchen.</p>
+					</td>
+				</tr>
+				<tr>
+					<th><label for="bi_pdf_veranstalter">Veranstalter</label></th>
+					<td>
+						<textarea id="bi_pdf_veranstalter" name="pdf_veranstalter" rows="4" class="large-text" placeholder="Industriegewerkschaft Metall&#10;Straße Hausnummer&#10;PLZ Ort"><?php echo esc_textarea( $s['pdf_veranstalter'] ?? '' ); ?></textarea>
+						<p class="description">Name und Anschrift des Veranstalters, eine Angabe je Zeile.
+							Füllt in der Beschlussvorlage die Stelle „<em>Das Seminar wird von … veranstaltet</em>" –
+							das ist eine der Angaben, auf die es beim Nachweis nach § 37 Abs. 6 BetrVG ankommt.
+							Bleibt das Feld leer, steht dort <code>Industriegewerkschaft Metall</code> ohne Anschrift.</p>
+					</td>
+				</tr>
+			</table>
+
+			<?php submit_button( 'Einstellungen speichern' ); ?>
+		</form>
+
+		<h2 class="title">Vorschau</h2>
+		<?php if ( $sample ) : ?>
+			<p>Beide Dokumente mit dem nächsten anstehenden Seminar
+				(<strong><?php echo esc_html( get_the_title( $sample ) ); ?></strong>) ansehen.
+				Die Beschlussvorlage nutzt dabei die Beispieldaten aus der Vorlage
+				(Erika Mustermann, H.H. Normal GmbH).</p>
+			<p>
+				<a class="button" target="_blank" rel="noopener"
+					href="<?php echo esc_url( BI_PDF::preview_url( 'seminar', $sample ) ); ?>">Seminardetails ansehen</a>
+				<a class="button"
+					href="<?php echo esc_url( BI_PDF::preview_url( 'beschluss', $sample ) ); ?>">Beschlussvorlage herunterladen (Word)</a>
+			</p>
+			<p class="description">Änderungen an Logo und Veranstalter erst speichern, dann die Vorschau öffnen.</p>
+		<?php else : ?>
+			<p class="description">Für die Vorschau wird mindestens ein Seminar mit Startdatum ab heute benötigt.</p>
+		<?php endif; ?>
+
+		<script>
+		(function () {
+			var pick = document.getElementById('bi-pdf-logo-pick');
+			var clear = document.getElementById('bi-pdf-logo-clear');
+			var field = document.getElementById('bi_pdf_logo');
+			var img = document.querySelector('#bi-pdf-logo-preview img');
+			if (!pick || !window.wp || !wp.media) return;
+			var frame;
+
+			pick.addEventListener('click', function () {
+				if (!frame) {
+					frame = wp.media({ title: 'Logo für die PDF-Anhänge', library: { type: 'image' }, multiple: false });
+					frame.on('select', function () {
+						var att = frame.state().get('selection').first().toJSON();
+						field.value = att.id;
+						img.src = (att.sizes && att.sizes.medium) ? att.sizes.medium.url : att.url;
+						img.style.display = '';
+						clear.style.display = '';
+					});
+				}
+				frame.open();
+			});
+
+			clear.addEventListener('click', function () {
+				field.value = 0;
+				img.src = '';
+				img.style.display = 'none';
+				clear.style.display = 'none';
+			});
+		})();
+		</script>
 		<?php
 	}
 
@@ -503,49 +640,59 @@ class BI_Settings {
 		}
 		check_admin_referer( 'bi_save_settings' );
 
-		$out = array(
-			'anmeldung_page_id'  => intval( $_POST['anmeldung_page_id'] ?? 0 ),
-			'uebersicht_page_id' => intval( $_POST['uebersicht_page_id'] ?? 0 ),
-			'gs_url'            => esc_url_raw( wp_unslash( $_POST['gs_url'] ?? '' ) ),
-			'direct_label'      => sanitize_text_field( wp_unslash( $_POST['direct_label'] ?? '' ) ),
-			'gs_label'          => sanitize_text_field( wp_unslash( $_POST['gs_label'] ?? '' ) ),
-			'gs_hinweis'        => sanitize_text_field( wp_unslash( $_POST['gs_hinweis'] ?? '' ) ),
-		);
-		// Leere Texte auf Default zurücksetzen
-		$def = self::defaults();
-		foreach ( array( 'gs_url', 'direct_label', 'gs_label', 'gs_hinweis' ) as $k ) {
-			if ( '' === $out[ $k ] ) {
-				$out[ $k ] = $def[ $k ];
-			}
-		}
+		// Jeder Tab schickt nur seine eigenen Felder – deshalb auf den gespeicherten
+		// Werten aufsetzen, sonst würde das Speichern im einen Tab den anderen leeren.
+		$out = self::all();
+		$tab = isset( $_POST['bi_tab'] ) ? sanitize_key( wp_unslash( $_POST['bi_tab'] ) ) : 'allgemein';
 
-		// Regeln einsammeln (Reihenfolge bleibt erhalten = Prüfreihenfolge)
-		$rules        = array();
-		$valid_fields = array_keys( self::rule_fields() );
-		$in_rules     = ( isset( $_POST['rule'] ) && is_array( $_POST['rule'] ) ) ? wp_unslash( $_POST['rule'] ) : array();
-		foreach ( $in_rules as $r ) {
-			if ( ! empty( $r['delete'] ) ) {
-				continue;
+		if ( 'pdf' === $tab ) {
+			$out['pdf_logo_id']      = intval( $_POST['pdf_logo_id'] ?? 0 );
+			$out['pdf_veranstalter'] = sanitize_textarea_field( wp_unslash( $_POST['pdf_veranstalter'] ?? '' ) );
+		} else {
+			$out['anmeldung_page_id']  = intval( $_POST['anmeldung_page_id'] ?? 0 );
+			$out['uebersicht_page_id'] = intval( $_POST['uebersicht_page_id'] ?? 0 );
+			$out['gs_url']             = esc_url_raw( wp_unslash( $_POST['gs_url'] ?? '' ) );
+			$out['direct_label']       = sanitize_text_field( wp_unslash( $_POST['direct_label'] ?? '' ) );
+			$out['gs_label']           = sanitize_text_field( wp_unslash( $_POST['gs_label'] ?? '' ) );
+			$out['gs_hinweis']         = sanitize_text_field( wp_unslash( $_POST['gs_hinweis'] ?? '' ) );
+
+			// Leere Texte auf Default zurücksetzen
+			$def = self::defaults();
+			foreach ( array( 'gs_url', 'direct_label', 'gs_label', 'gs_hinweis' ) as $k ) {
+				if ( '' === $out[ $k ] ) {
+					$out[ $k ] = $def[ $k ];
+				}
 			}
-			$field = $r['field'] ?? '';
-			$value = trim( (string) ( $r['value'] ?? '' ) );
-			if ( ! in_array( $field, $valid_fields, true ) || '' === $value ) {
-				continue; // unvollständige/Leerzeile verwerfen
+
+			// Regeln einsammeln (Reihenfolge bleibt erhalten = Prüfreihenfolge)
+			$rules        = array();
+			$valid_fields = array_keys( self::rule_fields() );
+			$in_rules     = ( isset( $_POST['rule'] ) && is_array( $_POST['rule'] ) ) ? wp_unslash( $_POST['rule'] ) : array();
+			foreach ( $in_rules as $r ) {
+				if ( ! empty( $r['delete'] ) ) {
+					continue;
+				}
+				$field = $r['field'] ?? '';
+				$value = trim( (string) ( $r['value'] ?? '' ) );
+				if ( ! in_array( $field, $valid_fields, true ) || '' === $value ) {
+					continue; // unvollständige/Leerzeile verwerfen
+				}
+				$rules[] = array(
+					'field'   => $field,
+					'value'   => sanitize_text_field( $value ),
+					'variant' => ( 'gs' === ( $r['variant'] ?? '' ) ) ? 'gs' : 'direct',
+				);
 			}
-			$rules[] = array(
-				'field'   => $field,
-				'value'   => sanitize_text_field( $value ),
-				'variant' => ( 'gs' === ( $r['variant'] ?? '' ) ) ? 'gs' : 'direct',
-			);
+			$out['rules'] = $rules;
 		}
-		$out['rules'] = $rules;
 
 		update_option( self::OPTION, $out );
 
-		wp_safe_redirect( add_query_arg(
-			array( 'page' => 'bi-einstellungen', 'bi_msg' => rawurlencode( 'Einstellungen gespeichert.' ) ),
-			admin_url( 'admin.php' )
-		) );
+		$args = array( 'page' => 'bi-einstellungen', 'bi_msg' => rawurlencode( 'Einstellungen gespeichert.' ) );
+		if ( 'allgemein' !== $tab ) {
+			$args['tab'] = $tab; // im selben Tab bleiben
+		}
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
 	}
 }

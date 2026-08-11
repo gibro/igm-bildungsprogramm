@@ -6,9 +6,13 @@
  *             Kopfzeile wird gelesen, Mapping-Formular angezeigt.
  *  Schritt 2: Nutzer ordnet jede Zielspalte einer CSV-Spalte zu -> Import.
  *
+ *  Der Import läuft für BEIDE Beitragstypen: Präsenz-Seminare (BI_CPT) und
+ *  Online-Seminare (BI_ONLINE). Der Beitragstyp wird durch das Formular gereicht
+ *  und bestimmt Zielfelder (BI_CPT::meta_fields) und Taxonomie-Beschriftungen.
+ *
  *  Zielfelder:
  *    title, content (Post), _bi_* (Meta), bi_ort/bi_handlungsfeld/
- *    bi_zielgruppe/bi_freistellung (Taxonomie; mehrfach mit | oder , getrennt).
+ *    bi_zielgruppe/bi_freistellung/bi_programm (Taxonomie; mehrfach mit | oder , getrennt).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -23,15 +27,33 @@ class BI_Import {
 		add_action( 'admin_post_bi_delete_all_seminars', array( __CLASS__, 'handle_delete_all' ) );
 	}
 
+	/** ---------- Beitragstyp-Helfer ---------- */
+
+	/** Nur bekannte Beitragstypen zulassen; Fallback = Präsenz. */
+	private static function sanitize_pt( $post_type ) {
+		$post_type = is_string( $post_type ) ? sanitize_key( $post_type ) : '';
+		return in_array( $post_type, bi_seminar_post_types(), true ) ? $post_type : BI_CPT;
+	}
+
+	/** Einstellungen-Tab, zu dem nach einer Aktion zurückgesprungen wird. */
+	private static function tab_for( $post_type ) {
+		return ( BI_ONLINE === $post_type ) ? 'onlineimport' : 'seminarimport';
+	}
+
+	/** Plural-Bezeichnung für Überschriften und Meldungen. */
+	private static function label_for( $post_type ) {
+		return ( BI_ONLINE === $post_type ) ? 'Online-Seminare' : 'Seminare';
+	}
+
 	/** Alle Status, die als „Seminar in der Datenbank" gelten (für Zählen + Löschen). */
 	private static function all_seminar_statuses() {
 		return array( 'publish', 'draft', 'pending', 'future', 'private', 'trash' );
 	}
 
-	/** Anzahl aller Seminare (alle Status) – für Anzeige im Lösch-Block. */
-	private static function seminar_total() {
+	/** Anzahl aller Seminare eines Beitragstyps (alle Status) – für Anzeige im Lösch-Block. */
+	private static function seminar_total( $post_type ) {
 		return count( get_posts( array(
-			'post_type'        => BI_CPT,
+			'post_type'        => $post_type,
 			'post_status'      => self::all_seminar_statuses(),
 			'fields'           => 'ids',
 			'numberposts'      => -1,
@@ -44,15 +66,19 @@ class BI_Import {
 	 * Die Meta-Felder werden aus BI_CPT::meta_fields() abgeleitet, damit neue
 	 * Felder automatisch im Import erscheinen.
 	 */
-	public static function targets() {
+	public static function targets( $post_type = BI_CPT ) {
+		$post_type = self::sanitize_pt( $post_type );
+
 		$t = array(
 			'title'   => 'Seminartitel (Pflicht)',
 			'content' => 'Seminarbeschreibung',
 		);
-		foreach ( BI_CPT::meta_fields() as $key => $cfg ) {
+		foreach ( BI_CPT::meta_fields( $post_type ) as $key => $cfg ) {
 			$t[ $key ] = $cfg['label'];
 		}
-		$t[ 'tax:' . BI_TAX_ORT ]      = 'Bildungszentrum / Seminarort';
+
+		$taxes = BI_CPT::taxonomies( $post_type );
+		$t[ 'tax:' . BI_TAX_ORT ]      = $taxes[ BI_TAX_ORT ]['single'];
 		$t[ 'tax:' . BI_TAX_THEMA ]    = 'Handlungsfeld';
 		$t[ 'tax:' . BI_TAX_ZIEL ]     = 'Zielgruppe (mehrfach)';
 		$t[ 'tax:' . BI_TAX_FREI ]     = 'Freistellung (mehrfach)';
@@ -71,23 +97,36 @@ class BI_Import {
 
 	/** ---------- Admin-Bereich (eingebettet in Einstellungen) ---------- */
 
-	public static function render_section() {
-		$step = isset( $_GET['step'] ) ? sanitize_text_field( wp_unslash( $_GET['step'] ) ) : 'upload';
-		echo '<div><h2 class="title">Seminare importieren</h2>';
+	public static function render_section( $post_type = BI_CPT ) {
+		$post_type = self::sanitize_pt( $post_type );
+		$step      = isset( $_GET['step'] ) ? sanitize_text_field( wp_unslash( $_GET['step'] ) ) : 'upload';
+
+		echo '<div><h2 class="title">' . esc_html( self::label_for( $post_type ) ) . ' importieren</h2>';
 		if ( 'map' === $step ) {
-			self::render_mapping();
+			self::render_mapping( $post_type );
 		} else {
-			self::render_upload();
+			self::render_upload( $post_type );
 		}
 		echo '</div>';
 	}
 
-	private static function render_upload() {
+	private static function render_upload( $post_type ) {
+		$label = self::label_for( $post_type );
 		?>
-		<p>Lade eine CSV-Datei hoch. Im nächsten Schritt ordnest du die Spalten den Seminar-Feldern zu.
+		<p>Lade eine CSV-Datei hoch. Im nächsten Schritt ordnest du die Spalten den Feldern zu.
 		   Mehrfach-Felder (Zielgruppe, Freistellung) dürfen in einer Zelle mehrere Werte enthalten – getrennt mit <code>|</code> oder <code>,</code>.</p>
+		<?php if ( BI_ONLINE === $post_type ) : ?>
+			<p class="description">Erwartete Spalten: Titel, Untertitel, Seminarbeschreibung, Themen im Seminar,
+				Zielgruppe, Veranstalter*in, Referent*innen, Startdatum, Enddatum,
+				Uhrzeit Seminarbeginn/-ende, Seminarnummer, Freistellung, Kosten, Online-Link,
+				Ansprechpartner*in, Anmeldung (E-Mail).
+				Für die Anmelde-Weiche zusätzlich <strong>Webinar-Tool</strong>
+				(<code>teams_webinar</code>, <code>teams_meeting</code> oder <code>anderes</code>)
+				und <strong>Anmeldelink (Teams-Webinar)</strong>.</p>
+		<?php endif; ?>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 			<input type="hidden" name="action" value="bi_import_upload">
+			<input type="hidden" name="post_type" value="<?php echo esc_attr( $post_type ); ?>">
 			<?php wp_nonce_field( 'bi_import_upload' ); ?>
 			<table class="form-table">
 				<tr><th><label for="bi_csv">CSV-Datei</label></th>
@@ -98,31 +137,33 @@ class BI_Import {
 			<?php submit_button( 'Weiter zur Zuordnung' ); ?>
 		</form>
 
-		<?php $total = self::seminar_total(); ?>
+		<?php $total = self::seminar_total( $post_type ); ?>
 		<hr style="margin:28px 0">
 		<div style="border:1px solid #d63638;border-left-width:4px;background:#fcf0f1;padding:14px 18px;max-width:760px">
-			<h3 style="margin-top:0;color:#d63638">Alle Seminare löschen</h3>
-			<p>Entfernt <strong><?php echo esc_html( number_format_i18n( $total ) ); ?></strong> Seminar(e) aller Status
+			<h3 style="margin-top:0;color:#d63638">Alle <?php echo esc_html( $label ); ?> löschen</h3>
+			<p>Entfernt <strong><?php echo esc_html( number_format_i18n( $total ) ); ?></strong> Eintrag/Einträge aller Status
 			   <strong>unwiderruflich</strong> aus der Datenbank (inkl. Termine/Metadaten). Taxonomie-Begriffe
-			   (Bildungszentren, Themenfelder …) und Anmeldungen bleiben erhalten. <strong>Vorher ein Backup anlegen.</strong></p>
+			   (Bildungszentren, Themenfelder …) und Anmeldungen bleiben erhalten. Der jeweils andere
+			   Beitragstyp ist nicht betroffen. <strong>Vorher ein Backup anlegen.</strong></p>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
-			      onsubmit="return confirm('Wirklich ALLE <?php echo (int) $total; ?> Seminare endgültig löschen?\nDas kann nicht rückgängig gemacht werden.');">
+			      onsubmit="return confirm('Wirklich ALLE <?php echo (int) $total; ?> Einträge endgültig löschen?\nDas kann nicht rückgängig gemacht werden.');">
 				<input type="hidden" name="action" value="bi_delete_all_seminars">
+				<input type="hidden" name="post_type" value="<?php echo esc_attr( $post_type ); ?>">
 				<?php wp_nonce_field( 'bi_delete_all_seminars' ); ?>
 				<p style="margin:0 0 10px"><label>Zum Bestätigen <code>LÖSCHEN</code> eintippen:<br>
 					<input type="text" name="confirm" autocomplete="off" placeholder="LÖSCHEN" style="margin-top:4px;width:200px"></label></p>
-				<?php submit_button( 'Alle Seminare löschen', 'delete', 'submit', false ); ?>
+				<?php submit_button( 'Alle ' . $label . ' löschen', 'delete', 'submit', false ); ?>
 			</form>
 		</div>
 		<?php
 	}
 
-	private static function render_mapping() {
+	private static function render_mapping( $post_type ) {
 		$token  = isset( $_GET['file'] ) ? sanitize_file_name( wp_unslash( $_GET['file'] ) ) : '';
 		$path   = self::dir() . '/' . $token;
 		if ( ! $token || ! file_exists( $path ) ) {
 			echo '<div class="notice notice-error"><p>Hochgeladene Datei nicht gefunden. Bitte erneut hochladen.</p></div>';
-			self::render_upload();
+			self::render_upload( $post_type );
 			return;
 		}
 		$has_header = ! empty( $_GET['header'] );
@@ -134,17 +175,20 @@ class BI_Import {
 			$col_options[ $i ] = $has_header && $h !== '' ? $h : 'Spalte ' . ( $i + 1 );
 		}
 		// Auto-Vorschlag: Zielfeld-Label grob mit Header matchen
-		$guess = self::guess_mapping( self::targets(), $col_options, $has_header );
+		$targets = self::targets( $post_type );
+		$guess   = self::guess_mapping( $targets, $col_options, $has_header );
 		?>
 		<p><strong>Erkanntes Trennzeichen:</strong> <code><?php echo esc_html( $delim ); ?></code> ·
-		   <strong>Spalten:</strong> <?php echo count( $headers ); ?></p>
+		   <strong>Spalten:</strong> <?php echo count( $headers ); ?> ·
+		   <strong>Ziel:</strong> <?php echo esc_html( self::label_for( $post_type ) ); ?></p>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="bi_import_run">
+			<input type="hidden" name="post_type" value="<?php echo esc_attr( $post_type ); ?>">
 			<input type="hidden" name="file" value="<?php echo esc_attr( $token ); ?>">
 			<input type="hidden" name="header" value="<?php echo $has_header ? 1 : 0; ?>">
 			<?php wp_nonce_field( 'bi_import_run' ); ?>
 			<table class="form-table">
-				<?php foreach ( self::targets() as $key => $label ) : ?>
+				<?php foreach ( $targets as $key => $label ) : ?>
 					<tr>
 						<th><?php echo esc_html( $label ); ?></th>
 						<td>
@@ -171,7 +215,7 @@ class BI_Import {
 					</td>
 				</tr>
 				<tr>
-					<th>Status der neuen Seminare</th>
+					<th>Status der neuen Einträge</th>
 					<td>
 						<select name="post_status">
 							<option value="publish">Veröffentlicht</option>
@@ -182,7 +226,7 @@ class BI_Import {
 				<tr>
 					<th>Duplikate</th>
 					<td><label><input type="checkbox" name="dedupe" value="1" checked>
-						vorhandene Seminare mit gleicher Seminarnummer aktualisieren statt doppelt anlegen</label></td>
+						vorhandene Einträge mit gleicher Seminarnummer aktualisieren statt doppelt anlegen</label></td>
 				</tr>
 			</table>
 			<?php submit_button( 'Import starten' ); ?>
@@ -212,16 +256,19 @@ class BI_Import {
 		}
 		check_admin_referer( 'bi_import_upload' );
 
+		$post_type = self::sanitize_pt( wp_unslash( $_POST['post_type'] ?? '' ) );
+		$tab       = self::tab_for( $post_type );
+
 		if ( empty( $_FILES['bi_csv']['tmp_name'] ) || ! is_uploaded_file( $_FILES['bi_csv']['tmp_name'] ) ) {
-			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => 'seminarimport' ), 'Keine Datei empfangen.' );
+			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => $tab ), 'Keine Datei empfangen.' );
 		}
 		$token = 'csv-' . wp_generate_password( 8, false ) . '.csv';
 		$dest  = self::dir() . '/' . $token;
 		if ( ! move_uploaded_file( $_FILES['bi_csv']['tmp_name'], $dest ) ) {
-			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => 'seminarimport' ), 'Datei konnte nicht gespeichert werden.' );
+			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => $tab ), 'Datei konnte nicht gespeichert werden.' );
 		}
 		self::redirect( array(
-			'page'   => 'bi-einstellungen', 'tab' => 'seminarimport',
+			'page'   => 'bi-einstellungen', 'tab' => $tab,
 			'step'   => 'map',
 			'file'   => $token,
 			'header' => empty( $_POST['has_header'] ) ? 0 : 1,
@@ -236,10 +283,13 @@ class BI_Import {
 		}
 		check_admin_referer( 'bi_import_run' );
 
+		$post_type = self::sanitize_pt( wp_unslash( $_POST['post_type'] ?? '' ) );
+		$tab       = self::tab_for( $post_type );
+
 		$token = sanitize_file_name( wp_unslash( $_POST['file'] ?? '' ) );
 		$path  = self::dir() . '/' . $token;
 		if ( ! $token || ! file_exists( $path ) ) {
-			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => 'seminarimport' ), 'Datei nicht gefunden.' );
+			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => $tab ), 'Datei nicht gefunden.' );
 		}
 
 		$map         = isset( $_POST['map'] ) && is_array( $_POST['map'] ) ? wp_unslash( $_POST['map'] ) : array();
@@ -249,7 +299,7 @@ class BI_Import {
 		$dedupe      = ! empty( $_POST['dedupe'] );
 
 		if ( empty( $map['title'] ) && '0' !== ( $map['title'] ?? '' ) ) {
-			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => 'seminarimport', 'step' => 'map', 'file' => $token, 'header' => $has_header ? 1 : 0 ),
+			self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => $tab, 'step' => 'map', 'file' => $token, 'header' => $has_header ? 1 : 0 ),
 				'Bitte die Spalte für den Seminartitel zuordnen.' );
 		}
 
@@ -257,6 +307,9 @@ class BI_Import {
 		$handle = fopen( $path, 'r' );
 		$created = 0; $updated = 0; $skipped = 0;
 		$line = 0;
+
+		$meta_fields = BI_CPT::meta_fields( $post_type );
+		$taxes       = BI_CPT::taxonomies( $post_type );
 
 		while ( ( $row = fgetcsv( $handle, 0, $delim ) ) !== false ) {
 			$line++;
@@ -272,12 +325,13 @@ class BI_Import {
 				continue;
 			}
 
-			// Vorhandenes Seminar per Seminarnummer finden?
+			// Vorhandenen Eintrag per Seminarnummer finden? Immer nur innerhalb
+			// desselben Beitragstyps – Präsenz und Online dürfen dieselbe Nummer führen.
 			$existing = 0;
 			$nummer   = self::cell( $row, $map['_bi_seminarnummer'] ?? '' );
 			if ( $dedupe && '' !== trim( $nummer ) ) {
 				$found = get_posts( array(
-					'post_type'   => BI_CPT,
+					'post_type'   => $post_type,
 					'post_status' => 'any',
 					'numberposts' => 1,
 					'fields'      => 'ids',
@@ -288,7 +342,7 @@ class BI_Import {
 			}
 
 			$postarr = array(
-				'post_type'    => BI_CPT,
+				'post_type'    => $post_type,
 				'post_title'   => wp_strip_all_tags( $title ),
 				'post_content' => wp_kses_post( self::cell( $row, $map['content'] ?? '' ) ),
 				'post_status'  => $post_status,
@@ -307,7 +361,7 @@ class BI_Import {
 			}
 
 			// Meta-Felder
-			foreach ( BI_CPT::meta_fields() as $key => $cfg ) {
+			foreach ( $meta_fields as $key => $cfg ) {
 				if ( ! isset( $map[ $key ] ) || '' === $map[ $key ] ) {
 					continue;
 				}
@@ -328,6 +382,12 @@ class BI_Import {
 					case 'email':
 						update_post_meta( $post_id, $key, sanitize_email( $val ) );
 						break;
+					case 'url':
+						update_post_meta( $post_id, $key, esc_url_raw( trim( $val ) ) );
+						break;
+					case 'select':
+						update_post_meta( $post_id, $key, self::parse_choice( $val, $cfg ) );
+						break;
 					case 'bool':
 						update_post_meta( $post_id, $key, self::parse_bool( $val, ! empty( $cfg['default'] ) ) ? '1' : '0' );
 						break;
@@ -337,7 +397,6 @@ class BI_Import {
 			}
 
 			// Taxonomien
-			$taxes = BI_CPT::taxonomies();
 			foreach ( array( BI_TAX_ORT, BI_TAX_THEMA, BI_TAX_ZIEL, BI_TAX_FREI, BI_TAX_PROGRAMM ) as $tax ) {
 				$mkey = 'tax:' . $tax;
 				if ( ! isset( $map[ $mkey ] ) || '' === $map[ $mkey ] ) {
@@ -354,8 +413,8 @@ class BI_Import {
 		fclose( $handle );
 		@unlink( $path );
 
-		self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => 'seminarimport' ),
-			sprintf( '%d Seminare neu angelegt, %d aktualisiert, %d übersprungen.', $created, $updated, $skipped ) );
+		self::redirect( array( 'page' => 'bi-einstellungen', 'tab' => $tab ),
+			sprintf( '%d Einträge neu angelegt, %d aktualisiert, %d übersprungen.', $created, $updated, $skipped ) );
 	}
 
 	/** ---------- Helfer ---------- */
@@ -426,6 +485,37 @@ class BI_Import {
 	}
 
 	/**
+	 * Auswahlfeld (Typ „select") aus einer CSV-Zelle bestimmen. Erlaubt sind der
+	 * Schlüssel selbst (z. B. „teams_webinar") und die Beschriftung; verglichen wird
+	 * normalisiert (Kleinschreibung, ohne Sonderzeichen), damit auch „Teams Webinar"
+	 * oder „Teams – Webinar" trifft. Leere/unbekannte Zelle -> Default des Feldes.
+	 */
+	private static function parse_choice( $val, $cfg ) {
+		$norm = function ( $s ) {
+			$s = function_exists( 'mb_strtolower' ) ? mb_strtolower( (string) $s ) : strtolower( (string) $s );
+			return preg_replace( '/[^a-z0-9]/', '', $s );
+		};
+		$needle  = $norm( $val );
+		$default = isset( $cfg['default'] ) ? (string) $cfg['default'] : '';
+
+		if ( '' === $needle ) {
+			return $default;
+		}
+		foreach ( (array) $cfg['options'] as $key => $label ) {
+			if ( $needle === $norm( $key ) || $needle === $norm( $label ) ) {
+				return (string) $key;
+			}
+		}
+		// Teiltreffer als zweite Chance (z. B. „Webinar" -> teams_webinar)
+		foreach ( (array) $cfg['options'] as $key => $label ) {
+			if ( '' !== $needle && false !== strpos( $norm( $label ), $needle ) ) {
+				return (string) $key;
+			}
+		}
+		return $default;
+	}
+
+	/**
 	 * Mehrfachwerte einer Taxonomie-Zelle aufteilen.
 	 *
 	 * WICHTIG (Komma-Falle): In den Quelldaten trennt „, " (Komma + Leerzeichen) mehrere
@@ -477,12 +567,23 @@ class BI_Import {
 		$aliases = array(
 			'title'             => array( 'titel', 'seminartitel', 'name', 'bezeichnung' ),
 			'content'           => array( 'beschreibung', 'seminarbeschreibung', 'inhalt', 'text' ),
+			'_bi_untertitel'    => array( 'untertitel', 'subtitel', 'subtitle' ),
 			'_bi_startdatum'    => array( 'startdatum', 'start', 'von', 'datum', 'beginn' ),
 			'_bi_enddatum'      => array( 'enddatum', 'ende', 'bis' ),
+			'_bi_startuhrzeit'  => array( 'uhrzeitseminarbeginn', 'startuhrzeit', 'beginnuhrzeit', 'uhrzeitbeginn', 'startzeit' ),
+			'_bi_enduhrzeit'    => array( 'uhrzeitseminarende', 'enduhrzeit', 'uhrzeitende', 'endzeit' ),
 			'_bi_seminarnummer' => array( 'seminarnummer', 'nummer', 'nr', 'kursnummer', 'id' ),
-			'_bi_plaetze'       => array( 'plaetze', 'plätze', 'freieplaetze', 'kapazitaet' ),
+			'_bi_plaetze'       => array( 'plaetze', 'plätze', 'freieplaetze', 'anzahlplaetze', 'kapazitaet' ),
 			'_bi_kosten'        => array( 'kosten', 'preis', 'gebuehr' ),
-			'tax:' . BI_TAX_ORT   => array( 'bildungszentrum', 'ort', 'seminarort', 'standort' ),
+			'_bi_referenten'    => array( 'referentinnen', 'referenten', 'referent', 'referentin', 'dozentinnen', 'dozenten' ),
+			'_bi_themen'        => array( 'themenimseminar', 'themen', 'seminarthemen' ),
+			'_bi_online_tool'   => array( 'webinartool', 'tool', 'plattform', 'meetingtool', 'format' ),
+			'_bi_anmeldelink'   => array( 'anmeldelink', 'anmeldungslink', 'registrierungslink', 'anmeldeseite' ),
+			'_bi_online_link'   => array( 'onlinelink', 'link', 'teilnahmelink', 'zugangslink' ),
+			'_bi_ansprechpartner'       => array( 'ansprechpartner', 'ansprechpartnerin', 'ansprechpartnerinnen' ),
+			// Im Online-Formular heißt dieselbe Adresse „Anmeldung"
+			'_bi_ansprechpartner_email' => array( 'emailansprechpartner', 'mailansprechpartner', 'ansprechpartneremail', 'anmeldungemail', 'anmeldungmail', 'emailanmeldung', 'anmeldung' ),
+			'tax:' . BI_TAX_ORT   => array( 'bildungszentrum', 'ort', 'seminarort', 'standort', 'veranstalterin', 'veranstalter' ),
 			'tax:' . BI_TAX_THEMA => array( 'handlungsfeld', 'themenfeld', 'thema', 'kategorie' ),
 			'tax:' . BI_TAX_ZIEL  => array( 'zielgruppe', 'zielgruppen' ),
 			'tax:' . BI_TAX_FREI  => array( 'freistellung', 'freistellungen' ),
@@ -508,24 +609,27 @@ class BI_Import {
 		exit;
 	}
 
-	/** Löscht ALLE Seminare (alle Status) unwiderruflich. Geschützt per Nonce, Recht und Tipp-Bestätigung. */
+	/** Löscht ALLE Einträge eines Beitragstyps (alle Status) unwiderruflich. Geschützt per Nonce, Recht und Tipp-Bestätigung. */
 	public static function handle_delete_all() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_delete_all_seminars' );
 
+		$post_type = self::sanitize_pt( wp_unslash( $_POST['post_type'] ?? '' ) );
+		$tab       = self::tab_for( $post_type );
+
 		$confirm = isset( $_POST['confirm'] ) ? trim( wp_unslash( $_POST['confirm'] ) ) : '';
 		if ( 'LÖSCHEN' !== $confirm ) {
 			self::redirect(
-				array( 'page' => 'bi-einstellungen', 'tab' => 'seminarimport' ),
+				array( 'page' => 'bi-einstellungen', 'tab' => $tab ),
 				'Löschen abgebrochen – das Bestätigungswort „LÖSCHEN" wurde nicht eingegeben.'
 			);
 		}
 
 		@set_time_limit( 0 );
 		$ids = get_posts( array(
-			'post_type'        => BI_CPT,
+			'post_type'        => $post_type,
 			'post_status'      => self::all_seminar_statuses(),
 			'fields'           => 'ids',
 			'numberposts'      => -1,
@@ -539,8 +643,8 @@ class BI_Import {
 		}
 
 		self::redirect(
-			array( 'page' => 'bi-einstellungen', 'tab' => 'seminarimport' ),
-			sprintf( '%s Seminar(e) endgültig gelöscht.', number_format_i18n( $deleted ) )
+			array( 'page' => 'bi-einstellungen', 'tab' => $tab ),
+			sprintf( '%s Eintrag/Einträge endgültig gelöscht (%s).', number_format_i18n( $deleted ), self::label_for( $post_type ) )
 		);
 	}
 }

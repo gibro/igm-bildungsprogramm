@@ -88,6 +88,7 @@ class BI_Registration {
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			created DATETIME NOT NULL,
 			seminar_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			post_type VARCHAR(20) NOT NULL DEFAULT 'bi_seminar',
 			seminar_titel VARCHAR(255) NOT NULL DEFAULT '',
 			seminar_nummer VARCHAR(60) NOT NULL DEFAULT '',
 			seminar_termin VARCHAR(60) NOT NULL DEFAULT '',
@@ -103,6 +104,7 @@ class BI_Registration {
 			kampagne VARCHAR(64) NOT NULL DEFAULT '',
 			PRIMARY KEY (id),
 			KEY seminar_id (seminar_id),
+			KEY post_type (post_type),
 			KEY created (created),
 			KEY kampagne (kampagne)
 		) $charset;";
@@ -202,13 +204,25 @@ class BI_Registration {
 				$termin = date_i18n( 'd.m.Y', strtotime( $start ) );
 			}
 		}
+
+		// Bei Online-Seminaren steht in der Ortszeile „Online" (plus Veranstalter*in).
+		$ortname = ( is_array( $ort ) && $ort ) ? $ort[0] : '';
+		if ( bi_is_online( $id ) ) {
+			$ortname = $ortname ? 'Online · ' . $ortname : 'Online';
+		}
+
 		return array(
 			'title'           => get_the_title( $id ),
 			'nummer'          => get_post_meta( $id, '_bi_seminarnummer', true ),
 			'termin'          => $termin,
-			'ort'             => ( is_array( $ort ) && $ort ) ? $ort[0] : '',
+			'ort'             => $ortname,
 			'ansprechpartner' => get_post_meta( $id, '_bi_ansprechpartner', true ),
 		);
+	}
+
+	/** Anzeigename der Seminarform zu einem Beitragstyp */
+	public static function form_label( $post_type ) {
+		return ( BI_ONLINE === $post_type ) ? 'Online' : 'Präsenz';
 	}
 
 	/** ---------- Shortcode ---------- */
@@ -230,7 +244,7 @@ class BI_Registration {
 			return self::render_success( $seminar_id );
 		}
 
-		$has_fixed = $seminar_id && get_post_type( $seminar_id ) === BI_CPT;
+		$has_fixed = $seminar_id && bi_is_seminar_post( $seminar_id );
 
 		// Kein (gültiges) Seminar -> Auswahl anbieten
 		if ( ! $has_fixed ) {
@@ -239,8 +253,23 @@ class BI_Registration {
 
 		// Nicht direkt buchbar -> Hinweis statt Formular
 		if ( ! BI_CPT::is_bookable( $seminar_id ) ) {
-			$grund = BI_CPT::meta_bool( $seminar_id, '_bi_ausgebucht' ) ? ' Das Seminar ist ausgebucht.' : ' Die Anmeldung läuft hier über die Geschäftsstelle.';
-			return '<div class="bi-wiz-note">Für dieses Seminar ist keine Direktanmeldung möglich.' . esc_html( $grund ) . '</div>';
+			$variante = bi_is_online( $seminar_id ) ? BI_Online::variante( $seminar_id ) : '';
+			$link     = '';
+
+			if ( BI_CPT::meta_bool( $seminar_id, '_bi_ausgebucht' ) ) {
+				$grund = ' Das Seminar ist ausgebucht.';
+			} elseif ( 'extern' === $variante ) {
+				$grund = ' Die Anmeldung läuft über die Anmeldeseite des Webinars.';
+				$link  = '<a href="' . esc_url( BI_Online::anmeldelink( $seminar_id ) ) . '" target="_blank" rel="noopener">Zur Anmeldung</a>';
+			} elseif ( 'offen' === $variante ) {
+				$grund = ' Die Veranstaltung ist öffentlich zugänglich – eine Anmeldung ist nicht nötig.';
+				$link  = '<a href="' . esc_url( BI_Online::online_link( $seminar_id ) ) . '" target="_blank" rel="noopener">Direkt teilnehmen</a>';
+			} else {
+				$grund = ' Die Anmeldung läuft hier über die Geschäftsstelle.';
+			}
+
+			return '<div class="bi-wiz-note">Für dieses Seminar ist keine Direktanmeldung möglich.'
+				. esc_html( $grund ) . ( $link ? ' ' . $link : '' ) . '</div>';
 		}
 
 		$show_error = ( isset( $_GET['bi_anmeldung'] ) && 'err' === $_GET['bi_anmeldung'] );
@@ -487,7 +516,7 @@ class BI_Registration {
 	private static function render_seminar_picker() {
 		$today = current_time( 'Y-m-d' );
 		$posts = get_posts( array(
-			'post_type'   => BI_CPT,
+			'post_type'   => bi_seminar_post_types(),
 			'numberposts' => -1,
 			'orderby'     => 'meta_value',
 			'meta_key'    => '_bi_startdatum',
@@ -510,8 +539,9 @@ class BI_Registration {
 			echo '<form method="get" class="bi-wiz-picker">';
 			echo '<select name="seminar" onchange="if(this.value)this.form.submit()"><option value="">– Seminar wählen –</option>';
 			foreach ( $posts as $p ) {
-				$d = get_post_meta( $p->ID, '_bi_startdatum', true );
-				echo '<option value="' . esc_attr( $p->ID ) . '">' . esc_html( get_the_title( $p ) . ( $d ? ' (' . date_i18n( 'd.m.Y', strtotime( $d ) ) . ')' : '' ) ) . '</option>';
+				$d    = get_post_meta( $p->ID, '_bi_startdatum', true );
+				$form = bi_is_online( $p->ID ) ? ' – Online' : '';
+				echo '<option value="' . esc_attr( $p->ID ) . '">' . esc_html( get_the_title( $p ) . ( $d ? ' (' . date_i18n( 'd.m.Y', strtotime( $d ) ) . ')' : '' ) . $form ) . '</option>';
 			}
 			echo '</select> <button type="submit">Weiter</button></form>';
 		} else {
@@ -600,7 +630,7 @@ class BI_Registration {
 			$errors = true;
 		}
 
-		if ( empty( $_POST['datenschutz'] ) || ! $seminar_id || get_post_type( $seminar_id ) !== BI_CPT
+		if ( empty( $_POST['datenschutz'] ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
 			|| ! BI_CPT::is_bookable( $seminar_id ) ) {
 			$errors = true;
 		}
@@ -622,6 +652,8 @@ class BI_Registration {
 		$wpdb->insert( self::table(), array(
 			'created'        => current_time( 'mysql' ),
 			'seminar_id'     => $seminar_id,
+			// Seminarform mitschreiben: bleibt lesbar, auch wenn der Post später verschwindet.
+			'post_type'      => get_post_type( $seminar_id ),
 			'seminar_titel'  => $info['title'],
 			'seminar_nummer' => $info['nummer'],
 			'seminar_termin' => $info['termin'],
@@ -638,7 +670,7 @@ class BI_Registration {
 			// Bewusst als Kopie in der Anmeldung: Die Zahl bleibt gültig, auch wenn die
 			// Tracking-Ereignisse später aufgeräumt werden.
 			'kampagne'       => BI_Tracking::current_slug(),
-		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
+		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
 
 		$submission_id = (int) $wpdb->insert_id;
 		if ( $submission_id ) {
@@ -676,16 +708,28 @@ class BI_Registration {
 		}
 	}
 
-	/** WHERE-Klausel für die Suche */
-	private static function build_where( $search ) {
+	/** WHERE-Klausel für die Suche (optional auf eine Seminarform eingegrenzt) */
+	private static function build_where( $search, $form = '' ) {
 		global $wpdb;
+
+		$form_cond   = '';
+		$form_params = array();
+		if ( '' !== $form && in_array( $form, bi_seminar_post_types(), true ) ) {
+			// Alt-Datensätze ohne gefüllte Spalte gelten als Präsenz.
+			$form_cond = ( BI_CPT === $form )
+				? " AND ( post_type = %s OR post_type = '' )"
+				: ' AND post_type = %s';
+			$form_params[] = $form;
+		}
+
 		if ( '' === trim( $search ) ) {
-			return array( '1=1', array() );
+			return array( '1=1' . $form_cond, $form_params );
 		}
 		$like = '%' . $wpdb->esc_like( $search ) . '%';
 		$sids = $wpdb->get_col( $wpdb->prepare(
-			"SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_title LIKE %s",
+			"SELECT ID FROM {$wpdb->posts} WHERE post_type IN ( %s, %s ) AND post_title LIKE %s",
 			BI_CPT,
+			BI_ONLINE,
 			$like
 		) );
 		$cond   = '(vorname LIKE %s OR nachname LIKE %s OR email LIKE %s OR telefon LIKE %s OR betrieb LIKE %s OR plz LIKE %s OR nachricht LIKE %s OR data LIKE %s OR seminar_titel LIKE %s OR seminar_nummer LIKE %s';
@@ -693,28 +737,29 @@ class BI_Registration {
 		if ( $sids ) {
 			$cond .= ' OR seminar_id IN (' . implode( ',', array_map( 'intval', $sids ) ) . ')';
 		}
-		$cond .= ')';
-		return array( $cond, $params );
+		$cond .= ')' . $form_cond;
+		return array( $cond, array_merge( $params, $form_params ) );
 	}
 
 	private static function sanitize_orderby( $ob ) {
 		$allowed = array(
 			'created' => 'created', 'name' => 'nachname', 'nachname' => 'nachname',
 			'email' => 'email', 'betrieb' => 'betrieb', 'plz' => 'plz', 'seminar' => 'seminar_id',
+			'form' => 'post_type',
 		);
 		return $allowed[ $ob ] ?? 'created';
 	}
 
-	private static function count_rows( $search ) {
+	private static function count_rows( $search, $form = '' ) {
 		global $wpdb;
-		list( $where, $params ) = self::build_where( $search );
+		list( $where, $params ) = self::build_where( $search, $form );
 		$sql = 'SELECT COUNT(*) FROM ' . self::table() . " WHERE $where";
 		return (int) ( $params ? $wpdb->get_var( $wpdb->prepare( $sql, $params ) ) : $wpdb->get_var( $sql ) );
 	}
 
-	private static function fetch( $search, $orderby, $order, $limit, $offset ) {
+	private static function fetch( $search, $orderby, $order, $limit, $offset, $form = '' ) {
 		global $wpdb;
-		list( $where, $params ) = self::build_where( $search );
+		list( $where, $params ) = self::build_where( $search, $form );
 		$col   = self::sanitize_orderby( $orderby );
 		$order = ( 'asc' === strtolower( $order ) ) ? 'ASC' : 'DESC';
 		$sql   = 'SELECT * FROM ' . self::table() . " WHERE $where ORDER BY $col $order, id DESC LIMIT %d OFFSET %d";
@@ -759,24 +804,26 @@ class BI_Registration {
 		$search  = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
 		$orderby = isset( $_GET['orderby'] ) ? sanitize_key( $_GET['orderby'] ) : 'created';
 		$order   = ( isset( $_GET['order'] ) && 'asc' === strtolower( $_GET['order'] ) ) ? 'asc' : 'desc';
+		$form    = isset( $_GET['form'] ) ? sanitize_key( $_GET['form'] ) : '';
+		$form    = in_array( $form, bi_seminar_post_types(), true ) ? $form : '';
 		$paged   = max( 1, intval( $_GET['paged'] ?? 1 ) );
 		$per     = 50;
-		$total   = self::count_rows( $search );
+		$total   = self::count_rows( $search, $form );
 		$pages   = max( 1, (int) ceil( $total / $per ) );
 		$paged   = min( $paged, $pages );
-		$rows    = self::fetch( $search, $orderby, $order, $per, ( $paged - 1 ) * $per );
+		$rows    = self::fetch( $search, $orderby, $order, $per, ( $paged - 1 ) * $per, $form );
 
 		$export = wp_nonce_url(
-			add_query_arg( array( 'action' => 'bi_export_anmeldungen', 's' => $search ), admin_url( 'admin-post.php' ) ),
+			add_query_arg( array( 'action' => 'bi_export_anmeldungen', 's' => $search, 'form' => $form ), admin_url( 'admin-post.php' ) ),
 			'bi_export_anmeldungen'
 		);
 
-		$col = function ( $key, $label ) use ( $search, $orderby, $order ) {
+		$col = function ( $key, $label ) use ( $search, $orderby, $order, $form ) {
 			$active    = ( self::sanitize_orderby( $orderby ) === self::sanitize_orderby( $key ) );
 			$new_order = ( $active && 'asc' === $order ) ? 'desc' : 'asc';
 			$arrow     = $active ? ( 'asc' === $order ? ' ▲' : ' ▼' ) : '';
 			$url       = add_query_arg(
-				array( 'page' => 'bi-anmeldungen', 's' => $search, 'orderby' => $key, 'order' => $new_order ),
+				array( 'page' => 'bi-anmeldungen', 's' => $search, 'form' => $form, 'orderby' => $key, 'order' => $new_order ),
 				admin_url( 'admin.php' )
 			);
 			return '<a href="' . esc_url( $url ) . '">' . esc_html( $label ) . $arrow . '</a>';
@@ -786,20 +833,30 @@ class BI_Registration {
 		echo ' <a href="' . esc_url( $export ) . '" class="page-title-action">Als CSV exportieren</a>';
 		echo '<hr class="wp-header-end">';
 
-		// Suchformular
+		// Suchformular + Filter nach Seminarform
 		echo '<form method="get" style="margin:12px 0">';
 		echo '<input type="hidden" name="page" value="bi-anmeldungen">';
 		echo '<p class="search-box"><input type="search" name="s" value="' . esc_attr( $search ) . '" placeholder="Name, E-Mail, Betrieb, PLZ, Seminar …" style="width:320px">';
+		echo ' <select name="form">';
+		echo '<option value="">alle Seminarformen</option>';
+		foreach ( bi_seminar_post_types() as $pt ) {
+			echo '<option value="' . esc_attr( $pt ) . '"' . selected( $form, $pt, false ) . '>'
+				. esc_html( self::form_label( $pt ) ) . '</option>';
+		}
+		echo '</select>';
 		echo ' <button class="button">Suchen</button>';
-		if ( '' !== $search ) {
+		if ( '' !== $search || '' !== $form ) {
 			echo ' <a class="button-link" href="' . esc_url( admin_url( 'admin.php?page=bi-anmeldungen' ) ) . '">zurücksetzen</a>';
 		}
 		echo '</p></form>';
 
-		echo '<p>' . esc_html( number_format_i18n( $total ) ) . ' Anmeldung(en)' . ( '' !== $search ? ' für „' . esc_html( $search ) . '"' : '' ) . '.</p>';
+		echo '<p>' . esc_html( number_format_i18n( $total ) ) . ' Anmeldung(en)'
+			. ( '' !== $search ? ' für „' . esc_html( $search ) . '"' : '' )
+			. ( '' !== $form ? ' (' . esc_html( self::form_label( $form ) ) . ')' : '' ) . '.</p>';
 
 		echo '<table class="widefat striped"><thead><tr>'
 			. '<th>' . $col( 'created', 'Datum' ) . '</th>'
+			. '<th>' . $col( 'form', 'Form' ) . '</th>'
 			. '<th>' . $col( 'seminar', 'Seminar' ) . '</th>'
 			. '<th>' . $col( 'name', 'Name' ) . '</th>'
 			. '<th>' . $col( 'email', 'E-Mail' ) . '</th>'
@@ -816,6 +873,7 @@ class BI_Registration {
 				$sub  = array_filter( array( $sem['nummer'] ? 'Nr. ' . $sem['nummer'] : '', $sem['termin'] ) );
 				echo '<tr>'
 					. '<td>' . esc_html( date_i18n( 'd.m.Y H:i', strtotime( $r['created'] ) ) ) . '</td>'
+					. '<td>' . esc_html( self::form_label( $r['post_type'] ?? BI_CPT ) ) . '</td>'
 					. '<td>' . esc_html( $sem['titel'] )
 						. ( $sub ? '<br><span style="color:#666;font-size:12px">' . esc_html( implode( ' · ', $sub ) ) . '</span>' : '' ) . '</td>'
 					. '<td><a href="' . esc_url( $link ) . '"><strong>' . esc_html( trim( $r['vorname'] . ' ' . $r['nachname'] ) ?: '(ohne Namen)' ) . '</strong></a></td>'
@@ -827,14 +885,14 @@ class BI_Registration {
 					. '</tr>';
 			}
 		} else {
-			echo '<tr><td colspan="8">Keine Anmeldungen gefunden.</td></tr>';
+			echo '<tr><td colspan="9">Keine Anmeldungen gefunden.</td></tr>';
 		}
 		echo '</tbody></table>';
 
 		// Pagination
 		if ( $pages > 1 ) {
 			$base = admin_url( 'admin.php' ) . '?' . http_build_query( array(
-				'page' => 'bi-anmeldungen', 's' => $search, 'orderby' => $orderby, 'order' => $order,
+				'page' => 'bi-anmeldungen', 's' => $search, 'form' => $form, 'orderby' => $orderby, 'order' => $order,
 			) ) . '&paged=%#%';
 			echo '<div class="tablenav"><div class="tablenav-pages">' . paginate_links( array(
 				'base'      => $base,
@@ -866,6 +924,7 @@ class BI_Registration {
 		// Kopf-Box
 		echo '<table class="widefat" style="max-width:780px;margin-bottom:20px"><tbody>';
 		echo '<tr><th style="width:220px">Eingegangen am</th><td>' . esc_html( date_i18n( 'd.m.Y H:i', strtotime( $r['created'] ) ) ) . '</td></tr>';
+		echo '<tr><th>Seminarform</th><td>' . esc_html( self::form_label( $r['post_type'] ?? BI_CPT ) ) . '</td></tr>';
 		$sem      = self::seminar_display( $r );
 		$sem_link = get_edit_post_link( $r['seminar_id'] );
 		echo '<tr><th>Seminar</th><td>' . ( $sem_link ? '<a href="' . esc_url( $sem_link ) . '">' . esc_html( $sem['titel'] ) . '</a>' : esc_html( $sem['titel'] ) )
@@ -903,10 +962,12 @@ class BI_Registration {
 		check_admin_referer( 'bi_export_anmeldungen' );
 
 		$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
-		$rows   = self::fetch( $search, 'created', 'desc', 100000, 0 );
+		$form   = isset( $_GET['form'] ) ? sanitize_key( $_GET['form'] ) : '';
+		$form   = in_array( $form, bi_seminar_post_types(), true ) ? $form : '';
+		$rows   = self::fetch( $search, 'created', 'desc', 100000, 0, $form );
 		$fields = self::all_fields();
 
-		$header = array( 'ID', 'Eingegangen', 'Seminar', 'Seminarnummer', 'Termin', 'Geschäftsstelle', 'GS-E-Mail' );
+		$header = array( 'ID', 'Eingegangen', 'Seminarform', 'Seminar', 'Seminarnummer', 'Termin', 'Geschäftsstelle', 'GS-E-Mail' );
 		foreach ( $fields as $f ) {
 			$header[] = $f['label'];
 		}
@@ -928,6 +989,7 @@ class BI_Registration {
 			$line = array(
 				$r['id'],
 				$r['created'],
+				self::form_label( $r['post_type'] ?? BI_CPT ),
 				$sem['titel'],
 				$sem['nummer'],
 				$sem['termin'],

@@ -34,15 +34,21 @@ Formular-Plugins benötigt.
 - **Seminare als eigener Beitragstyp** (`bi_seminar`) – gepflegt mit der
   WordPress-eigenen Editier-Oberfläche, inklusive Start-/Enddatum, Seminarnummer,
   Plätzen, Kosten und Buchungsstatus.
+- **Online-Seminare als zweiter Beitragstyp** (`bi_online`) – eigene Liste und
+  eigenes Feldset (Untertitel, Referent\*innen, Veranstalter\*in, Webinar-Tool,
+  Anmelde- und Teilnahme-Link), aber dieselben Taxonomien und dieselbe
+  Darstellung im Frontend.
 - **Such- & Filterleiste** per Shortcode: Freitextsuche, Filter-Chips mit
   Mehrfachauswahl (echtes ODER), Datumsbereich mit Kalender, Live-Trefferzähler.
+  Der Chip **Seminarform** trennt Präsenz- und Online-Seminare.
 - **Online-Anmeldung** als vierstufiger Formular-Wizard; Anmeldungen werden in
   der Datenbank gespeichert und sind im Backend einsehbar.
 - **Mail-Benachrichtigungen**: beliebig viele Mails pro Anmeldung – an
   Teilnehmer*innen, die zuständige Geschäftsstelle (per PLZ-Zuordnung), das
   Bildungszentrum oder feste Adressen; mit Bedingungen und Platzhaltern.
 - **CSV-Import für Seminare** mit frei zuordenbaren Spalten
-  (Mapping-Schritt mit Auto-Erkennung).
+  (Mapping-Schritt mit Auto-Erkennung) – je ein eigener Tab für Präsenz- und
+  Online-Seminare.
 - **CSV-Import für PLZ → Geschäftsstelle** (eigene Tabelle, schneller Lookup).
 - **Marketing-Kacheln**: Bild-/Text-Teaser, die auf die Suche mit vorbefüllten
   Filtern verlinken – inklusive Backend-Builder mit Live-Vorschau.
@@ -108,21 +114,52 @@ Alle Schritte finden sich auch im Backend unter **Bildungsprogramm → Übersich
 
 | Shortcode | Zweck | Attribute |
 |---|---|---|
-| `[bi_seminarsuche]` | Such-/Filterleiste + Ergebnisliste | `anmeldung_url`, `per_page` (Standard 20), `programm` |
+| `[bi_seminarsuche]` | Such-/Filterleiste + Ergebnisliste | `anmeldung_url`, `per_page` (Standard 20), `programm`, `form` (`praesenz`/`online`) |
+| `[bi_suchmaske]` | Nur die Suchmaske, ohne Ergebnisliste – Button springt auf die Übersicht | `ziel_url`, `button`, `titel`, `kicker`, `hinweis`, `programm`, `form` |
 | `[bi_anmeldung]` | Anmeldeformular | `seminar="ID"` für ein festes Seminar |
 | `[bi_kachel]` | Marketing-Kachel (Teaser mit Filter-Link) | [siehe unten](#bi_kachel--marketing-kacheln) |
 | `[bi_kacheln]` | Optionaler Grid-Container für mehrere Kacheln | `spalten` (2/3/4, Standard 3) |
 
 ### `[bi_seminarsuche]` – Such- und Filterleiste
 
-Zeigt die Filterleiste (Freitext, Bildungszentrum, Themenfeld, Zielgruppe,
-Freistellung, Zeitraum) mit der Ergebnisliste. Gefiltert wird über
+Zeigt die Filterleiste (Freitext, Seminarform, Bildungszentrum, Themenfeld,
+Zielgruppe, Freistellung, Zeitraum) mit der Ergebnisliste. Gefiltert wird über
 GET-Parameter (`?thema=…&ort=…`, Mehrfachwerte pipe-getrennt) – Filterseiten
 sind damit verlinkbar und bookmarkfähig. Angezeigt werden nur kommende,
 sichtbare Seminare, sortiert nach Startdatum.
 
+Die Liste enthält **Präsenz- und Online-Seminare gemeinsam**; der Chip
+*Seminarform* (`?form=praesenz` bzw. `?form=online`) schränkt darauf ein. Der
+Chip erscheint nur, wenn beide Formen im aktuellen Ergebnis vorkommen. Soll eine
+Seite dauerhaft nur eine Form zeigen, setzt man das Attribut
+`form="online"` – dann entfällt der Chip.
+
+Online-Seminare erkennt man in der Liste am Badge **Online**; statt des
+Bildungszentrums steht dort die Veranstalter\*in, statt der Tagesdauer die
+Uhrzeit-Spanne. Importiert werden sie über *Einstellungen → Online-Seminar-Import*.
+
 Aus der Ergebnisliste führt jedes Seminar auf seine Detailseite; von dort wird
 das Seminar automatisch per `?seminar=ID` an die Anmelde-Seite übergeben.
+
+### Online-Seminare und die Anmelde-Weiche
+
+Auf der Detailseite eines Online-Seminars entscheidet das Feld **Webinar-Tool**,
+wohin der Buchungs-Button führt:
+
+| Webinar-Tool | Anmeldelink | Buchungs-Button |
+|---|---|---|
+| Teams – Webinar | gesetzt | „Zur Anmeldung" → externe Anmeldeseite des Webinars |
+| Teams – Webinar | leer | Fallback auf das interne Formular (Hinweis im Dashboard) |
+| Teams – Besprechung / anderes Tool | – | internes Anmeldeformular `[bi_anmeldung]` |
+
+Zusätzlich gilt weiterhin: ausgebuchte Seminare zeigen keinen Button, und die
+Regel-Engine unter *Einstellungen* kann einzelne Seminare auf die
+Geschäftsstellen-Variante schicken. Ist ein **Online-Link (öffentlich)**
+hinterlegt, erscheint darunter der Button „Direkt teilnehmen".
+
+Sonderfall **offene Veranstaltung**: Steht „Anmeldung möglich" auf *nein* und ist
+ein öffentlicher Online-Link hinterlegt, entfällt die Geschäftsstellen-Suche –
+dann zählt nur der Teilnahme-Link („eine Anmeldung ist nicht nötig").
 
 ### `[bi_anmeldung]` – Anmeldeformular
 
@@ -246,6 +283,11 @@ Trigger hat einen Empfänger-Typ:
 - **Ansprechpartner*in** – an die im Seminar hinterlegte Kontaktadresse.
 - **Feste/eigene Adresse** – fester Empfänger (Platzhalter erlaubt).
 
+**Seminarform** pro Trigger: *Präsenz- und Online-Seminare* (Standard, so
+verhalten sich auch alle bestehenden Benachrichtigungen), *nur Präsenz* oder
+*nur Online*. Damit lassen sich zwei Fassungen desselben Textes sauber trennen –
+Online-Seminare brauchen keinen Anreisetag, dafür den Zugangslink.
+
 Optionale **Bedingung** pro Trigger: nur senden, wenn das Seminar einen
 bestimmten Taxonomie-Wert **hat** oder **nicht hat** (z. B. nur bei
 Handlungsfeld „Datenschutz", oder nur wenn Bildungszentrum *nicht*
@@ -262,6 +304,50 @@ eine Testadresse um.
 `{telefon}`, `{betrieb}`, `{plz}`, `{nachricht}`, `{geschaeftsstelle}`,
 `{geschaeftsstelle_email}`, `{seminar_titel}`, `{seminar_nummer}`,
 `{seminar_startdatum}`, `{seminar_ort}`, `{datum}`.
+Für Online-Seminare zusätzlich: `{seminar_form}`, `{seminar_untertitel}`,
+`{seminar_referenten}`, `{seminar_plattform}`, `{seminar_online_link}`,
+`{seminar_anmeldelink}` – bei Präsenz-Seminaren bleiben sie leer, dieselbe
+Vorlage taugt also für beide Formen.
+
+Der Empfänger-Typ **Ansprechpartner\*in** gilt für beide Seminarformen; bei
+Online-Seminaren heißt dasselbe Feld nur *Anmeldung (E-Mail)*.
+
+### Absender und Antwortadresse
+
+Je Benachrichtigung lassen sich **Absender (From)** und **Antworten an
+(Reply-To)** getrennt setzen. Die Antwortadresse akzeptiert Platzhalter –
+typisch `{email}`, damit die Geschäftsstelle direkt der angemeldeten Person
+antworten kann, oder `{geschaeftsstelle_email}` in der Teilnehmerbestätigung.
+Erlaubt sind auch feste Adressen, die Form `Name <mail@domain.de>` und mehrere
+Adressen mit Komma. Ergibt der Platzhalter keine gültige Adresse, bleibt der
+Header weg und die Mail geht trotzdem raus. In der Wochenzusammenfassung
+werden die Antwortadressen aller gesammelten Anmeldungen zusammengefasst.
+
+### Anhänge
+
+Jede Benachrichtigung mit Sofortversand kann zwei Dateien mitschicken, die beim
+Versand aus den Seminar- und Anmeldedaten erzeugt und danach wieder gelöscht
+werden:
+
+- **Seminardetails (PDF)** – alle Angaben zum gebuchten Seminar auf einem Blatt,
+  mit dem hinterlegten Logo oben rechts.
+- **Beschlussvorlage (Word, .docx)** – „Mitteilung über Seminarteilnahme nach
+  § 37 Abs. 6 BetrVG" an den Arbeitgeber. Bewusst **kein PDF**: Der Betriebsrat
+  muss Sitzungsdatum sowie Ort und Datum noch ergänzen und das Schreiben auf
+  seinen eigenen Briefbogen bringen.
+
+  Der Wortlaut folgt exakt der vorgegebenen Muster-Vorlage. Eingesetzt werden nur
+  Angaben, die aus der Anmeldung sicher bekannt sind: **betriebliche** Anschrift
+  (`betrieb`, `betrieb_strasse`, `betrieb_plz`, `betrieb_ort` – nicht die
+  Privatadresse), Name der angemeldeten Person, Seminartitel, Veranstalter,
+  Beginn/Ende. Sitzungsdatum sowie Ort/Datum bleiben als Punktelinie stehen.
+  Das Schreiben bekommt **bewusst kein Logo** – es kommt vom Betriebsrat, nicht
+  vom Veranstalter.
+
+Logo und Veranstalterangabe stehen zentral unter *Einstellungen → PDF-Anhänge*,
+dort gibt es auch eine Vorschau beider Dokumente. Ohne Eintrag steht als
+Veranstalter `Industriegewerkschaft Metall`. Bei der **Wochenzusammenfassung**
+gibt es keine Anhänge, weil dort mehrere Seminare in einer Mail stecken.
 
 ### Rich Text mit Klartext-Fallback
 
@@ -386,8 +472,10 @@ unberührt.
 | Element | Speicherort |
 |---|---|
 | Seminartitel / Beschreibung | Post (`post_title`, `post_content`) |
-| Startdatum, Enddatum, Seminarnummer, Plätze, Kosten … | Post-Meta `_bi_*` |
-| Bildungszentrum, Handlungsfeld | Taxonomien `bi_ort`, `bi_handlungsfeld` |
+| Präsenz-Seminare / Online-Seminare | Beitragstypen `bi_seminar` / `bi_online` |
+| Startdatum, Enddatum, Seminarnummer, Plätze, Kosten … | Post-Meta `_bi_*` (für beide Beitragstypen dieselben Schlüssel) |
+| Untertitel, Referent\*innen, Webinar-Tool, Anmelde-/Online-Link | Post-Meta `_bi_*` (nur `bi_online`) |
+| Bildungszentrum bzw. Veranstalter\*in, Handlungsfeld | Taxonomien `bi_ort`, `bi_handlungsfeld` (an beiden Beitragstypen) |
 | Zielgruppe, Freistellung (mehrfach) | Taxonomien `bi_zielgruppe`, `bi_freistellung` |
 | Programmjahr (Jahrgang) | Taxonomie `bi_programm` |
 | PLZ-Zuordnung | Tabelle `wp_bi_plz` |
@@ -420,6 +508,7 @@ igm-bildungsprogramm/
 ├─ igm-bildungsprogramm.php     Bootstrap: Konstanten, Module laden, Aktivierung
 ├─ includes/
 │  ├─ class-bi-cpt.php          CPT bi_seminar + Taxonomien + Editier-Metabox
+│  ├─ class-bi-online.php       CPT bi_online (Online-Seminare) + Anmelde-Weiche
 │  ├─ class-bi-filter.php       Such-/Filterleiste [bi_seminarsuche]
 │  ├─ class-bi-kacheln.php      Marketing-Kacheln [bi_kachel] + Backend-Builder
 │  ├─ class-bi-detail.php       Seminar-Detailseite
@@ -428,9 +517,14 @@ igm-bildungsprogramm/
 │  ├─ class-bi-tracking.php     Kampagnen-Links + Auswertung Klick → Anmeldung
 │  ├─ class-bi-import.php       Seminar-CSV-Import mit Spalten-Mapping
 │  ├─ class-bi-plz.php          PLZ→Geschäftsstelle: Tabelle, Lookup, Import
-│  ├─ class-bi-settings.php     Einstellungen (Anmeldevarianten, Regeln, Seiten)
+│  ├─ class-bi-settings.php     Einstellungen (Anmeldevarianten, Regeln, Seiten, PDF)
+│  ├─ class-bi-pdf.php          Seminardetails als PDF-Anhang
+│  ├─ class-bi-pdf-doc.php      Grundgerüst der PDFs (lädt erst mit FPDF nach)
+│  ├─ class-bi-beschluss.php    Beschlussvorlage § 37 Abs. 6 BetrVG als Word-Datei
+│  ├─ class-bi-docx.php         minimaler .docx-Schreiber (ZipArchive, keine Bibliothek)
 │  └─ class-bi-admin.php        Admin-Menü + Mini-Dashboard
 ├─ templates/                    Detailseiten-Template
+├─ vendor/fpdf/                  FPDF 1.86 (PDF-Erzeugung, freie Lizenz)
 └─ assets/                       CSS, JS, flatpickr (gebündelt)
 ```
 
@@ -438,3 +532,6 @@ igm-bildungsprogramm/
 
 [GPL-2.0-or-later](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html) –
 wie WordPress selbst.
+
+Mitgeliefert: **FPDF 1.86** von Olivier Plathey (`vendor/fpdf/`) für die
+PDF-Anhänge – freie Lizenz ohne Einschränkungen, siehe `vendor/fpdf/license.txt`.

@@ -137,3 +137,21 @@
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* ---------- Einzeilige Variante (z. B. „Antworten an") ---------- */
+
+/* Nur Platzhalter-Auswahl, keine Formatier-Knöpfe – das Feld bleibt einzeilig. */
+.bi-mailedit--inline { max-width: 640px; }
+
+.bi-mailedit__hint {
+  font-size: 12px;
+  color: #646970;
+}
+
+.bi-mailedit__field.large-text {
+  display: block;
+  margin: 0;
+  border-radius: 0 0 4px 4px;
+  font-family: Menlo, Consolas, monospace;
+  font-size: 13px;
+}

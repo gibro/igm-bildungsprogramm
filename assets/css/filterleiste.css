@@ -124,3 +124,35 @@
   .bi-title { font-size: 22px; }
   .bi-options { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   Eigenständige Suchmaske [bi_suchmaske]
+   Filter wirken hier nicht sofort – erst der Button springt auf
+   die Seminarübersicht mit [bi_seminarsuche].
+   ============================================================ */
+
+.bi-submit { margin-top: 18px; display: flex; justify-content: flex-end; }
+.bi-submit-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 13px 22px; border: 0 !important; border-radius: 999px;
+  background-color: var(--bi-accent) !important; color: #fff !important;
+  font-size: 15px; font-weight: 700; line-height: 1.2; cursor: pointer;
+  transition: background-color .15s;
+}
+.bi-submit-btn:hover,
+.bi-submit-btn:focus {
+  background-color: var(--bi-accent-dark) !important;   /* Theme-Hover neutralisieren */
+  color: #fff !important;
+}
+.bi-submit-btn svg { color: #fff; flex: 0 0 auto; }
+/* Trefferzahl als dezente Pille im Button (wird per AJAX aktualisiert) */
+.bi-submit-count { background: rgba(255, 255, 255, .22); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 600; }
+
+/* Während des AJAX-Nachladens die Zähler leicht ausblenden (kein Layout-Sprung) */
+.bi-filter-standalone.bi-is-loading .bi-count,
+.bi-filter-standalone.bi-is-loading .bi-submit-count { opacity: .45; transition: opacity .15s; }
+
+@media (max-width: 600px) {
+  .bi-submit { justify-content: stretch; }
+  .bi-submit-btn { width: 100%; justify-content: center; }
+}

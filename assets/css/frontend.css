@@ -25,6 +25,8 @@
 .bi-row-title a { color: #1d2327; text-decoration: none; }
 .bi-row-title a:hover { color: var(--bi-accent); text-decoration: underline; }
 .bi-row-badge { display: inline-block; vertical-align: middle; margin-left: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #92400e; background: #fef3c7; padding: 3px 8px; border-radius: 999px; }
+/* Seminarform „Online" – ruhiges Blau, damit „Ausgebucht" die auffällige Marke bleibt */
+.bi-row-badge--online { color: #1e40af; background: #dbeafe; }
 .bi-row-ort { font-size: 15px; color: #374151; margin-bottom: 4px; }
 .bi-row-sub { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--bi-muted); }
 .bi-row-sub strong { font-weight: 600; }
@@ -55,6 +57,8 @@
 .igm-detail__layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px; align-items: start; }
 .igm-detail__main { min-width: 0; }
 .igm-detail__title { font-size: 32px; line-height: 1.15; font-weight: 800; margin: 0 0 18px; }
+/* Untertitel (nur Online-Seminare) – sitzt direkt unter der Überschrift */
+.igm-detail__subtitle { font-size: 19px; line-height: 1.4; font-weight: 600; color: var(--bi-muted); margin: -12px 0 18px; }
 .igm-detail__desc { font-size: 16px; line-height: 1.7; color: #1d2327; }
 .igm-detail__desc p { margin: 0 0 1em; }
 .igm-detail__section-title { font-size: 22px; font-weight: 700; margin: 1.8em 0 .6em; padding-bottom: .3em; border-bottom: 2px solid var(--bi-accent); }
@@ -66,22 +70,78 @@
 .igm-detail__topics ul li { list-style: disc; }
 .igm-detail__topics ol li { list-style: decimal; }
 
-/* Weitere Termine (Tabelle) */
-.igm-termin-table { width: 100%; border-collapse: collapse; font-size: 16px; }
-.igm-termin-table th {
-  text-align: left; font-size: 12.5px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .03em; color: var(--bi-muted); padding: 10px 16px 10px 0;
-  border-bottom: 2px solid var(--bi-border);
+/* Weitere Termine (Tabelle)
+   Durchgängig !important: viele Themes bringen eigene table/th/td-Styles mit
+   (Zebrastreifen, Rahmen, Hintergründe, Schriftgrößen, display:block für
+   Responsive-Tabellen) und überschreiben sonst diese Definitionen.
+   CSS-Variablen mit Fallback, falls die Tabelle außerhalb von .igm-detail steht. */
+.igm-weitere-termine { margin: 0 !important; }
+
+.igm-termin-table {
+  display: table !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  table-layout: auto !important;
+  background: none !important;
+  box-shadow: none !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+  color: #1d2327 !important;
 }
-.igm-termin-table td { padding: 14px 16px 14px 0; border-bottom: 1px solid var(--bi-border); vertical-align: middle; }
+.igm-termin-table thead { display: table-header-group !important; background: none !important; border: 0 !important; }
+.igm-termin-table tbody { display: table-row-group !important; background: none !important; border: 0 !important; }
+.igm-termin-table tr    { display: table-row !important; background: none !important; border: 0 !important; }
+/* Zebrastreifen und Zeilen-Hover des Themes abschalten */
+.igm-termin-table tbody tr:nth-child(even),
+.igm-termin-table tbody tr:nth-child(odd),
+.igm-termin-table tbody tr:hover { background: none !important; background-color: transparent !important; }
+
+.igm-termin-table th {
+  display: table-cell !important;
+  text-align: left !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: .03em !important;
+  color: var(--bi-muted, #6b7280) !important;
+  background: none !important;
+  padding: 10px 16px 10px 0 !important;
+  border: 0 !important;
+  border-bottom: 2px solid var(--bi-border, #e3e5e8) !important;
+  vertical-align: bottom !important;
+  width: auto !important;
+}
+.igm-termin-table td {
+  display: table-cell !important;
+  padding: 14px 16px 14px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--bi-border, #e3e5e8) !important;
+  background: none !important;
+  vertical-align: middle !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+  color: #1d2327 !important;
+  width: auto !important;
+}
 .igm-termin-table th:last-child,
-.igm-termin-table td:last-child { padding-right: 0; }
-.igm-termin-table__ort { color: #1d2327; }
-.igm-termin-table__zeitraum { white-space: nowrap; }
-.igm-termin-table__zeitraum a { font-weight: 700; color: #1d2327; text-decoration: none; }
-.igm-termin-table__zeitraum a:hover { color: var(--bi-accent); }
-.igm-termin-table__action { text-align: right; }
-.igm-termin-table .igm-btn-buchen { display: inline-block; margin-top: 0; padding: 10px 18px; font-size: 15px; }
+.igm-termin-table td:last-child { padding-right: 0 !important; }
+.igm-termin-table td::before { content: none !important; }   /* Mobile-Label nur unter 640px */
+.igm-termin-table__ort { color: #1d2327 !important; }
+.igm-termin-table__zeitraum { white-space: nowrap !important; }
+.igm-termin-table__zeitraum a {
+  font-weight: 700 !important; color: #1d2327 !important;
+  text-decoration: none !important; background: none !important; box-shadow: none !important;
+}
+.igm-termin-table__zeitraum a:hover { color: var(--bi-accent, #e2001a) !important; text-decoration: none !important; }
+.igm-termin-table__action { text-align: right !important; }
+.igm-termin-table .igm-btn-buchen {
+  display: inline-block !important; width: auto !important; margin-top: 0 !important;
+  padding: 10px 18px !important; font-size: 15px !important; white-space: nowrap !important;
+}
 
 /* Sidebar */
 .igm-detail__sidebar { position: sticky; top: 24px; }
@@ -131,18 +191,22 @@
 }
 
 @media (max-width: 640px) {
-  .igm-termin-table thead { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  /* Karten-Layout statt Tabelle – ebenfalls !important, sonst greifen Theme-Regeln */
+  .igm-termin-table thead {
+    position: absolute !important; left: -9999px !important;
+    width: 1px !important; height: 1px !important; overflow: hidden !important;
+  }
   .igm-termin-table,
   .igm-termin-table tbody,
   .igm-termin-table tr,
-  .igm-termin-table td { display: block; }
-  .igm-termin-table tr { padding: 14px 0; border-bottom: 1px solid var(--bi-border); }
-  .igm-termin-table td { padding: 2px 0; border-bottom: 0; }
+  .igm-termin-table td { display: block !important; width: 100% !important; }
+  .igm-termin-table tr { padding: 14px 0 !important; border-bottom: 1px solid var(--bi-border, #e3e5e8) !important; }
+  .igm-termin-table td { padding: 2px 0 !important; border-bottom: 0 !important; }
   .igm-termin-table td[data-label]::before {
-    content: attr(data-label) ": "; font-size: 12.5px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .03em; color: var(--bi-muted);
+    content: attr(data-label) ": " !important; font-size: 12.5px !important; font-weight: 700 !important;
+    text-transform: uppercase !important; letter-spacing: .03em !important; color: var(--bi-muted, #6b7280) !important;
   }
-  .igm-termin-table__action { text-align: left; padding-top: 10px; }
+  .igm-termin-table__action { text-align: left !important; padding-top: 10px !important; }
 }
 
 /* ---------------- Anmeldeformular ---------------- */

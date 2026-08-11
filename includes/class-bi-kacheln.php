@@ -59,7 +59,7 @@ class BI_Kacheln {
 
 	/** Filter-Attribute, die 1:1 als GET-Parameter an die Suchseite gehen */
 	private static function filter_params() {
-		return array( 'q', 'ort', 'thema', 'ziel', 'frei', 'von', 'bis', 'nr' );
+		return array( 'q', 'form', 'ort', 'thema', 'ziel', 'frei', 'von', 'bis', 'nr' );
 	}
 
 	/** Alle Felder, die der Builder an die Vorschau schickt */
@@ -236,7 +236,7 @@ class BI_Kacheln {
 	/** ---------- Shortcode-String aus Builder-Feldern bauen ---------- */
 
 	private static function build_shortcode( $atts ) {
-		$order    = array( 'layout', 'bild', 'ratio', 'fokus', 'titel', 'text', 'button', 'ueberschrift', 'q', 'ort', 'thema', 'ziel', 'frei', 'von', 'bis', 'nr', 'programm', 'suche_url' );
+		$order    = array( 'layout', 'bild', 'ratio', 'fokus', 'titel', 'text', 'button', 'ueberschrift', 'q', 'form', 'ort', 'thema', 'ziel', 'frei', 'von', 'bis', 'nr', 'programm', 'suche_url' );
 		$defaults = array( 'button' => 'Zu den Seminaren', 'ueberschrift' => 'h3' );
 		$parts    = array( 'bi_kachel' );
 		foreach ( $order as $k ) {
@@ -334,7 +334,7 @@ class BI_Kacheln {
 
 	public static function render_builder() {
 		$choices = class_exists( 'BI_Filter' ) ? BI_Filter::facet_choices() : array();
-		$labels  = array( 'ort' => 'Bildungszentrum', 'thema' => 'Themenfeld', 'ziel' => 'Zielgruppe', 'frei' => 'Freistellung' );
+		$labels  = array( 'form' => 'Seminarform', 'ort' => 'Bildungszentrum', 'thema' => 'Themenfeld', 'ziel' => 'Zielgruppe', 'frei' => 'Freistellung' );
 
 		$programme = get_terms( array( 'taxonomy' => BI_TAX_PROGRAMM, 'hide_empty' => false ) );
 		if ( is_wp_error( $programme ) ) {

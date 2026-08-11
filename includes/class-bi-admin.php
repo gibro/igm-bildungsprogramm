@@ -91,16 +91,22 @@ class BI_Admin {
 		// ---- Kennzahlen ------------------------------------------------
 		$seminars_pub = (int) ( wp_count_posts( BI_CPT )->publish ?? 0 );
 
-		$q_kommend = new WP_Query( array(
-			'post_type'      => BI_CPT,
-			'post_status'    => 'publish',
-			'fields'         => 'ids',
-			'posts_per_page' => 1,
-			'meta_query'     => array(
-				array( 'key' => '_bi_startdatum', 'value' => $today, 'compare' => '>=', 'type' => 'DATE' ),
-			),
-		) );
-		$seminars_kommend = (int) $q_kommend->found_posts;
+		$kommend = function ( $post_type ) use ( $today ) {
+			$q = new WP_Query( array(
+				'post_type'      => $post_type,
+				'post_status'    => 'publish',
+				'fields'         => 'ids',
+				'posts_per_page' => 1,
+				'meta_query'     => array(
+					array( 'key' => '_bi_startdatum', 'value' => $today, 'compare' => '>=', 'type' => 'DATE' ),
+				),
+			) );
+			return (int) $q->found_posts;
+		};
+		$seminars_kommend = $kommend( BI_CPT );
+
+		$online_pub     = (int) ( wp_count_posts( BI_ONLINE )->publish ?? 0 );
+		$online_kommend = $kommend( BI_ONLINE );
 
 		$anm_30 = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM $table WHERE created >= %s",
@@ -173,49 +179,74 @@ class BI_Admin {
 		// (2b) Kommende Seminare ohne Ansprechpartner-E-Mail – nur relevant, wenn ein
 		//      aktiver Trigger vom Typ „ansprechpartner" diese Adresse nutzt.
 		if ( isset( $active_types['ansprechpartner'] ) ) {
-			$q_ohne_ap = new WP_Query( array(
-				'post_type'      => BI_CPT,
-				'post_status'    => 'publish',
-				'fields'         => 'ids',
-				'posts_per_page' => 1,
-				'meta_query'     => array(
-					'relation' => 'AND',
-					array( 'key' => '_bi_startdatum', 'value' => $today, 'compare' => '>=', 'type' => 'DATE' ),
-					array(
-						'relation' => 'OR',
-						array( 'key' => '_bi_ansprechpartner_email', 'compare' => 'NOT EXISTS' ),
-						array( 'key' => '_bi_ansprechpartner_email', 'value' => '', 'compare' => '=' ),
+			// Je Beitragstyp getrennt zählen, damit der Link auf die richtige Liste zeigt.
+			// Beide nutzen denselben Meta-Schlüssel; bei Online-Seminaren heißt das Feld
+			// nur „Anmeldung (E-Mail)".
+			foreach ( bi_seminar_post_types() as $pt ) {
+				$q_ohne_ap = new WP_Query( array(
+					'post_type'      => $pt,
+					'post_status'    => 'publish',
+					'fields'         => 'ids',
+					'posts_per_page' => 1,
+					'meta_query'     => array(
+						'relation' => 'AND',
+						array( 'key' => '_bi_startdatum', 'value' => $today, 'compare' => '>=', 'type' => 'DATE' ),
+						array(
+							'relation' => 'OR',
+							array( 'key' => '_bi_ansprechpartner_email', 'compare' => 'NOT EXISTS' ),
+							array( 'key' => '_bi_ansprechpartner_email', 'value' => '', 'compare' => '=' ),
+						),
 					),
-				),
-			) );
-			$ohne_ap = (int) $q_ohne_ap->found_posts;
-			if ( $ohne_ap ) {
+				) );
+				$ohne_ap = (int) $q_ohne_ap->found_posts;
+				if ( ! $ohne_ap ) {
+					continue;
+				}
+				$wort  = ( BI_ONLINE === $pt ) ? 'Online-Seminar' : 'Seminar';
+				$feld  = ( BI_ONLINE === $pt ) ? 'Anmelde-E-Mail' : 'Ansprechpartner-E-Mail';
 				$hinweise[] = sprintf(
-					'<strong>%s ohne Ansprechpartner-E-Mail</strong> – der Trigger „Benachrichtigung an Ansprechpartner" kann dort nicht versendet werden. <a href="%s">Seminare prüfen</a>',
-					1 === $ohne_ap ? '1 kommendes Seminar' : $ohne_ap . ' kommende Seminare',
-					esc_url( admin_url( 'edit.php?post_type=' . BI_CPT . '&bi_missing_ap=1' ) )
+					'<strong>%s ohne %s</strong> – der Trigger „Benachrichtigung an Ansprechpartner" kann dort nicht versendet werden. <a href="%s">Prüfen</a>',
+					1 === $ohne_ap ? '1 kommendes ' . $wort : $ohne_ap . ' kommende ' . $wort . 'e',
+					$feld,
+					esc_url( admin_url( 'edit.php?post_type=' . $pt . '&bi_missing_ap=1' ) )
 				);
 			}
 		}
 
-		// (3) Veröffentlichte Seminare ohne Startdatum
-		$q_ohne_datum = new WP_Query( array(
-			'post_type'      => BI_CPT,
-			'post_status'    => 'publish',
-			'fields'         => 'ids',
-			'posts_per_page' => 1,
-			'meta_query'     => array(
-				'relation' => 'OR',
-				array( 'key' => '_bi_startdatum', 'compare' => 'NOT EXISTS' ),
-				array( 'key' => '_bi_startdatum', 'value' => '', 'compare' => '=' ),
-			),
-		) );
-		$ohne_datum = (int) $q_ohne_datum->found_posts;
-		if ( $ohne_datum ) {
+		// (2c) Online-Seminare, die als Teams-Webinar gepflegt sind, aber keinen
+		//      Anmeldelink haben – die Weiche fällt dort still aufs interne Formular zurück.
+		$ohne_link = BI_Online::ohne_anmeldelink();
+		if ( $ohne_link ) {
 			$hinweise[] = sprintf(
-				'<strong>%s ohne Startdatum</strong> – nicht buchbar und nicht im Datumsfilter sichtbar. <a href="%s">Seminare prüfen</a>',
-				1 === $ohne_datum ? '1 veröffentlichtes Seminar' : $ohne_datum . ' veröffentlichte Seminare',
-				esc_url( admin_url( 'edit.php?post_type=' . BI_CPT . '&bi_missing_start=1' ) )
+				'<strong>%s als Teams-Webinar ohne Anmeldelink</strong> – dort greift statt der externen Anmeldeseite das interne Formular. <a href="%s">Online-Seminare prüfen</a>',
+				1 === count( $ohne_link ) ? '1 kommendes Online-Seminar' : count( $ohne_link ) . ' kommende Online-Seminare',
+				esc_url( admin_url( 'edit.php?post_type=' . BI_ONLINE . '&bi_missing_link=1' ) )
+			);
+		}
+
+		// (3) Veröffentlichte Seminare ohne Startdatum – je Beitragstyp getrennt,
+		//     damit der Link direkt in die passende Liste führt.
+		foreach ( bi_seminar_post_types() as $pt ) {
+			$q_ohne_datum = new WP_Query( array(
+				'post_type'      => $pt,
+				'post_status'    => 'publish',
+				'fields'         => 'ids',
+				'posts_per_page' => 1,
+				'meta_query'     => array(
+					'relation' => 'OR',
+					array( 'key' => '_bi_startdatum', 'compare' => 'NOT EXISTS' ),
+					array( 'key' => '_bi_startdatum', 'value' => '', 'compare' => '=' ),
+				),
+			) );
+			$ohne_datum = (int) $q_ohne_datum->found_posts;
+			if ( ! $ohne_datum ) {
+				continue;
+			}
+			$wort = ( BI_ONLINE === $pt ) ? 'Online-Seminar' : 'Seminar';
+			$hinweise[] = sprintf(
+				'<strong>%s ohne Startdatum</strong> – nicht buchbar und nicht im Datumsfilter sichtbar. <a href="%s">Prüfen</a>',
+				1 === $ohne_datum ? '1 veröffentlichtes ' . $wort : $ohne_datum . ' veröffentlichte ' . $wort . 'e',
+				esc_url( admin_url( 'edit.php?post_type=' . $pt . '&bi_missing_start=1' ) )
 			);
 		}
 
@@ -228,7 +259,7 @@ class BI_Admin {
 		// ---- Nächste startende Seminare (14 Tage) ----------------------
 		$bis    = date( 'Y-m-d', $now + 14 * DAY_IN_SECONDS );
 		$q_next = new WP_Query( array(
-			'post_type'      => BI_CPT,
+			'post_type'      => bi_seminar_post_types(),
 			'post_status'    => 'publish',
 			'posts_per_page' => 6,
 			'meta_key'       => '_bi_startdatum',
@@ -249,9 +280,15 @@ class BI_Admin {
 				<?php
 				self::card(
 					number_format_i18n( $seminars_pub ),
-					'Seminare (veröffentlicht)',
+					'Präsenz-Seminare (veröffentlicht)',
 					admin_url( 'edit.php?post_type=' . BI_CPT ),
 					sprintf( 'davon %s kommend', number_format_i18n( $seminars_kommend ) )
+				);
+				self::card(
+					number_format_i18n( $online_pub ),
+					'Online-Seminare (veröffentlicht)',
+					admin_url( 'edit.php?post_type=' . BI_ONLINE ),
+					sprintf( 'davon %s kommend', number_format_i18n( $online_kommend ) )
 				);
 				self::card(
 					number_format_i18n( $anm_30 ),
@@ -340,8 +377,16 @@ class BI_Admin {
 					<ol>
 						<li><strong>PLZ importieren</strong> → <em>Einstellungen → Tab „PLZ-Import"</em>, CSV mit Spalten PLZ / Geschäftsstelle / E-Mail.</li>
 						<li><strong>Seminare importieren</strong> → <em>Einstellungen → Tab „Seminar-Import"</em>, CSV hochladen und Spalten zuordnen.</li>
+						<li><strong>Online-Seminare importieren</strong> → <em>Einstellungen → Tab „Online-Seminar-Import"</em>. Eigenes Feldset
+							(Referent*innen, Veranstalter*in, Webinar-Tool, Anmeldelink …); Zielgruppen und Freistellungen teilen sich
+							beide Seminarformen. Für Teams-<em>Webinare</em> den <em>Anmeldelink</em> setzen – dann führt der
+							Buchungs-Button auf die Anmeldeseite des Webinars statt ins eigene Formular.</li>
 						<li><strong>Bildungszentren-Mails</strong> → unter „Seminare → Bildungszentrum" je Term eine E-Mail eintragen (für den Trigger „Bildungszentrum").</li>
-						<li><strong>Mail-Benachrichtigungen</strong> prüfen/anpassen → gleichnamiger Menüpunkt.</li>
+						<li><strong>Mail-Benachrichtigungen</strong> prüfen/anpassen → gleichnamiger Menüpunkt.
+							Dort je Benachrichtigung auch die <em>Antwortadresse</em> und die <em>PDF-Anhänge</em>
+							(Seminardetails, Beschlussvorlage nach § 37 Abs. 6 BetrVG) einstellen.</li>
+						<li><strong>PDF-Anhänge</strong> vorbereiten → <em>Einstellungen → Tab „PDF-Anhänge"</em>:
+							Logo hochladen und Name/Anschrift des Veranstalters eintragen, dann die Vorschau prüfen.</li>
 						<li><strong>Einstellungen</strong> → Anmeldevarianten konfigurieren: Direktanmeldung-Seite und Link zur Geschäftsstellensuche.</li>
 						<li><strong>Such-Seite</strong> anlegen mit Shortcode
 							<code>[bi_seminarsuche anmeldung_url="/anmeldung"]</code>.</li>
@@ -351,7 +396,8 @@ class BI_Admin {
 					<h3>Shortcodes</h3>
 					<table class="widefat striped" style="max-width:780px">
 						<tbody>
-							<tr><td><code>[bi_seminarsuche]</code></td><td>Such-/Filterleiste mit Ergebnisliste. Attribute: <code>anmeldung_url</code>, <code>per_page</code>, <code>programm</code> (auf ein Programmjahr beschränken, z.&nbsp;B. <code>programm="2026"</code>).</td></tr>
+							<tr><td><code>[bi_seminarsuche]</code></td><td>Such-/Filterleiste mit Ergebnisliste – Präsenz- und Online-Seminare gemeinsam, getrennt über den Filter-Chip „Seminarform". Attribute: <code>anmeldung_url</code>, <code>per_page</code>, <code>programm</code> (auf ein Programmjahr beschränken, z.&nbsp;B. <code>programm="2026"</code>), <code>form</code> (<code>praesenz</code> oder <code>online</code> – blendet den Chip aus und zeigt nur diese Form).</td></tr>
+							<tr><td><code>[bi_suchmaske]</code></td><td>Nur die Suchmaske ohne Ergebnisliste – z.&nbsp;B. für Startseite oder Sidebar. Die Filter wirken hier nicht sofort; der Button „Suche starten" springt mit der Auswahl auf die Seminarübersicht. Attribute: <code>ziel_url</code> (Standard: Einstellung „Seminarübersicht"), <code>button</code>, <code>titel</code>, <code>kicker</code>, <code>hinweis</code>, <code>programm</code>.</td></tr>
 							<tr><td><code>[bi_anmeldung]</code></td><td>Anmeldeformular. Attribut: <code>seminar="ID"</code> für festes Seminar.</td></tr>
 						</tbody>
 					</table>

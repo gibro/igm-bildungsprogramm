@@ -2,15 +2,34 @@
 /**
  * Such- & Filterleiste + Ergebnisliste – Shortcode [bi_seminarsuche].
  *
- * Liest die GET-Parameter q, ort, thema, ziel, frei, von, bis, nr (Mehrfachwerte
- * pipe-getrennt: ?ziel=A|B bzw. ?nr=LO12345|BO67890) und baut daraus eine
- * WP_Query gegen den CPT. nr filtert auf die Seminarnummer (_bi_seminarnummer).
- * Facetten sind Taxonomien -> echtes ODER über tax_query (operator IN).
- * "Buchbar" = _bi_startdatum >= heute.
+ * Liest die GET-Parameter q, form, ort, thema, ziel, frei, von, bis, nr
+ * (Mehrfachwerte pipe-getrennt: ?ziel=A|B bzw. ?nr=LO12345|BO67890) und baut
+ * daraus eine WP_Query gegen beide Seminar-Beitragstypen. nr filtert auf die
+ * Seminarnummer (_bi_seminarnummer). Facetten sind Taxonomien -> echtes ODER
+ * über tax_query (operator IN). "Buchbar" = _bi_startdatum >= heute.
+ *
+ * Sonderfall Facette „form" (Seminarform): sie hängt an keiner Taxonomie,
+ * sondern schaltet zwischen den Beitragstypen
+ *   praesenz -> bi_seminar
+ *   online   -> bi_online
+ * Der Chip erscheint nur, wenn im aktuellen Ergebnis-Universum tatsächlich
+ * beide Formen vorkommen.
  *
  * Attribute:
  *   [bi_seminarsuche anmeldung_url="/anmeldung"]  Ziel des "Anmelden"-Buttons
  *   [bi_seminarsuche per_page="20"]
+ *   [bi_seminarsuche form="online"]               Seite fest auf eine Seminarform beschränken
+ *
+ * Zusätzlich [bi_suchmaske]: nur die Such-/Filterleiste, ohne Ergebnisliste – für
+ * Startseite, Sidebar o. ä. Die Filter wirken dort NICHT sofort, sondern werden
+ * gesammelt; ein Button "Suche starten" springt mit allen gewählten Parametern auf
+ * die Seite mit [bi_seminarsuche]. Die Trefferzahl und die Facetten-Zähler werden
+ * per AJAX (Action bi_filter_refresh) live nachgeladen.
+ *
+ *   [bi_suchmaske]                             Ziel = Einstellung "Seminarübersicht"
+ *   [bi_suchmaske ziel_url="/seminare"]        Zielseite manuell setzen
+ *   [bi_suchmaske button="Seminare anzeigen"]  Beschriftung des Buttons
+ *   [bi_suchmaske titel="…" kicker="…" hinweis="…" programm="2026" form="online"]
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -19,14 +38,85 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BI_Filter {
 
-	/** GET-Param => Taxonomie + multi-Flag */
+	/** GET-Param => Taxonomie + multi-Flag. 'form' ist eine Pseudo-Facette ohne Taxonomie. */
 	public static function facets() {
 		return array(
-			'ort'   => array( 'tax' => BI_TAX_ORT,   'multi' => true ),
-			'thema' => array( 'tax' => BI_TAX_THEMA, 'multi' => true ),
-			'ziel'  => array( 'tax' => BI_TAX_ZIEL,  'multi' => true ),
-			'frei'  => array( 'tax' => BI_TAX_FREI,  'multi' => true ),
+			'form'  => array( 'tax' => '',            'multi' => true ),
+			'ort'   => array( 'tax' => BI_TAX_ORT,    'multi' => true ),
+			'thema' => array( 'tax' => BI_TAX_THEMA,  'multi' => true ),
+			'ziel'  => array( 'tax' => BI_TAX_ZIEL,   'multi' => true ),
+			'frei'  => array( 'tax' => BI_TAX_FREI,   'multi' => true ),
 		);
+	}
+
+	/** Alle Parameternamen, die eine Suche transportiert (auch für Kacheln/AJAX). */
+	public static function query_params() {
+		return array_merge( array( 'q' ), array_keys( self::facets() ), array( 'von', 'bis', 'nr' ) );
+	}
+
+	/* ---------- Seminarform (Pseudo-Facette „form") ---------- */
+
+	/** Filterwert => Beitragstyp */
+	public static function form_map() {
+		return array(
+			'praesenz' => BI_CPT,
+			'online'   => BI_ONLINE,
+		);
+	}
+
+	/** Filterwert => Anzeigename */
+	private static function form_labels() {
+		return array(
+			'praesenz' => 'Präsenz-Seminare',
+			'online'   => 'Online-Seminare',
+		);
+	}
+
+	/** Umkehrung: Beitragstyp => Filterwert */
+	private static function form_key_for( $post_type ) {
+		$key = array_search( $post_type, self::form_map(), true );
+		return $key ?: '';
+	}
+
+	/** Vom Shortcode fest vorgegebene Seminarform (leer = beide, per Chip wählbar) */
+	private static $force_form = '';
+
+	/**
+	 * Beitragstypen der aktuellen Abfrage: Shortcode-Vorgabe schlägt Chip-Auswahl,
+	 * ohne beides gelten beide Typen.
+	 */
+	private static function selected_post_types( $skip_facet = '' ) {
+		$map = self::form_map();
+
+		if ( '' !== self::$force_form && isset( $map[ self::$force_form ] ) ) {
+			return array( $map[ self::$force_form ] );
+		}
+		if ( 'form' === $skip_facet || empty( $_GET['form'] ) ) {
+			return bi_seminar_post_types();
+		}
+		$vals = array_filter( array_map( 'trim', explode( '|', sanitize_text_field( wp_unslash( $_GET['form'] ) ) ) ), 'strlen' );
+
+		$types = array();
+		foreach ( $vals as $v ) {
+			if ( isset( $map[ $v ] ) ) {
+				$types[] = $map[ $v ];
+			}
+		}
+		return $types ? array_values( array_unique( $types ) ) : bi_seminar_post_types();
+	}
+
+	/** Optionen des Seminarform-Chips aus den Beitragstyp-Zählern [post_type => n] */
+	private static function form_options( $counts ) {
+		$opts = array();
+		foreach ( self::form_labels() as $value => $label ) {
+			$pt = self::form_map()[ $value ];
+			$c  = isset( $counts[ $pt ] ) ? (int) $counts[ $pt ] : 0;
+			if ( $c <= 0 ) {
+				continue; // Form ohne kommende Termine nicht anbieten
+			}
+			$opts[] = array( 'value' => $value, 'label' => $label, 'count' => $c );
+		}
+		return $opts;
 	}
 
 	/* ---------- Bildungszentrum-Gruppierung (reine Filter-Anzeige) ----------
@@ -46,6 +136,7 @@ class BI_Filter {
 			'Bildungszentrum Bad Orb'     => array( 'bad orb' ),
 			'Bildungszentrum Lohr'        => array( 'lohr' ),
 			'Bildungszentrum Schliersee'  => array( 'schliersee' ),
+			'Vorstand'                    => array( 'vorstand' ),
 		);
 	}
 
@@ -94,7 +185,9 @@ class BI_Filter {
 			'Mitglieder der Tarifkommission'                     => 'Tarifkommission',
 			'Jugend- und Auszubildendenvertretung'               => 'JAV',
 			'Jugend- und Auszubildendenvertretungen'             => 'JAV',
+			'JAV-Vorsitzende und Stellvertreter*innen'           => 'JAV',
 			'Wirtschaftsausschuss-Mitglieder'                    => 'Wirtschaftsausschuss',
+			'Mitglieder des Wirtschaftsausschusses'              => 'Wirtschaftsausschuss',
 			'am Wirtschaftsausschuss interessierte Beschäftigte' => 'Wirtschaftsausschuss',
 		);
 	}
@@ -268,6 +361,26 @@ class BI_Filter {
 		return $map;
 	}
 
+	/** Beitragstyp-Zähler [ post_type => Anzahl ] über eine Menge von Post-IDs. */
+	private static function post_type_counts_for_ids( $ids ) {
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		global $wpdb;
+		$in   = implode( ',', array_map( 'intval', $ids ) );
+		$rows = $wpdb->get_results(
+			"SELECT post_type, COUNT(*) AS c FROM {$wpdb->posts} WHERE ID IN ($in) GROUP BY post_type",
+			ARRAY_A
+		);
+		$map = array();
+		if ( $rows ) {
+			foreach ( $rows as $r ) {
+				$map[ (string) $r['post_type'] ] = (int) $r['c'];
+			}
+		}
+		return $map;
+	}
+
 	private static $title_query = '';
 
 	/**
@@ -275,12 +388,25 @@ class BI_Filter {
 	 * mit kommenden Seminaren, gleiche Gruppierung (Bildungszentren, Zielgruppen),
 	 * gleiche Anzeigenamen und Sortierung (inkl. gepinnter Einträge + Separatoren).
 	 * Einträge: [ value, label, count ] oder [ separator => true ].
+	 *
+	 * @param string     $param  Facetten-Parameter.
+	 * @param array|null $counts Zähler: Term-IDs (Taxonomie-Facetten) bzw. Beitragstypen
+	 *                           (Facette „form"). null = selbst berechnen.
 	 */
 	public static function frontend_options( $param, $counts = null ) {
 		$facets = self::facets();
 		if ( ! isset( $facets[ $param ] ) ) {
 			return array();
 		}
+
+		if ( 'form' === $param ) {
+			if ( null === $counts ) {
+				// eigene Auswahl ausklammern, sonst zeigt der Chip nur die gewählte Form
+				$counts = self::post_type_counts_for_ids( self::count_base_ids( '', 'form' ) );
+			}
+			return self::form_options( $counts );
+		}
+
 		if ( null === $counts ) {
 			$counts = self::facet_counts();
 		}
@@ -320,17 +446,20 @@ class BI_Filter {
 	 * der Frontend-Filterleiste (frontend_options), für alle Facetten auf einmal.
 	 */
 	public static function facet_choices() {
+		$base_ids = self::count_base_ids();
+		$terms    = self::term_counts_for_ids( $base_ids );
+		$types    = self::post_type_counts_for_ids( $base_ids );
+
 		$choices = array();
-		$counts  = self::facet_counts();
 		foreach ( array_keys( self::facets() ) as $param ) {
-			$choices[ $param ] = self::frontend_options( $param, $counts );
+			$choices[ $param ] = self::frontend_options( $param, ( 'form' === $param ) ? $types : $terms );
 		}
 		return $choices;
 	}
 
 	/**
-	 * Anzahl buchbarer Seminare für einen Parametersatz (q, ort, thema, ziel, frei,
-	 * von, bis, nr – Werte wie in der URL, unkodiert). Wird von den Marketing-Kacheln
+	 * Anzahl buchbarer Seminare für einen Parametersatz (q, form, ort, thema, ziel,
+	 * frei, von, bis, nr – Werte wie in der URL, unkodiert). Wird von den Marketing-Kacheln
 	 * genutzt, um die Trefferzahl eines Kachel-Links zu ermitteln. Setzt $_GET
 	 * vorübergehend auf die Parameter, damit build_args unverändert greift.
 	 */
@@ -356,8 +485,13 @@ class BI_Filter {
 
 	public static function init() {
 		add_shortcode( 'bi_seminarsuche', array( __CLASS__, 'shortcode' ) );
+		add_shortcode( 'bi_suchmaske', array( __CLASS__, 'shortcode_maske' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'register_assets' ) );
 		add_filter( 'posts_where', array( __CLASS__, 'title_where' ), 10, 2 );
+
+		// Live-Zähler + Facetten für die eigenständige Suchmaske (lesend, daher auch für Gäste)
+		add_action( 'wp_ajax_bi_filter_refresh', array( __CLASS__, 'ajax_refresh' ) );
+		add_action( 'wp_ajax_nopriv_bi_filter_refresh', array( __CLASS__, 'ajax_refresh' ) );
 	}
 
 	public static function register_assets() {
@@ -377,18 +511,36 @@ class BI_Filter {
 
 	/** Kategorien (inkl. Optionen aus den vorhandenen Terms) für die JS-Konfiguration */
 	private static function js_config( $programm = '' ) {
-		$icons = array( 'ort' => 'pin', 'thema' => 'tag', 'ziel' => 'users', 'frei' => 'file' );
-		$labels = array( 'ort' => 'Bildungszentrum', 'thema' => 'Themenfeld', 'ziel' => 'Zielgruppe', 'frei' => 'Freistellung' );
+		$icons  = array( 'form' => 'screen', 'ort' => 'pin', 'thema' => 'tag', 'ziel' => 'users', 'frei' => 'file' );
+		$labels = array( 'form' => 'Seminarform', 'ort' => 'Bildungszentrum', 'thema' => 'Themenfeld', 'ziel' => 'Zielgruppe', 'frei' => 'Freistellung' );
 
 		// Facettierte Zähler: Basis sind alle bereits gewählten Filter (kommend + sichtbar,
 		// Datumsbereich, Suche, ggf. Programmjahr). Pro Facette mit eigener Auswahl werden die
 		// Zähler OHNE diese Auswahl berechnet, damit man innerhalb der Facette noch wechseln kann.
-		$full_counts = self::facet_counts( $programm );
+		$base_ids    = self::count_base_ids( $programm );
+		$full_terms  = self::term_counts_for_ids( $base_ids );
+		$full_types  = self::post_type_counts_for_ids( $base_ids );
 
 		$cats = array();
 		foreach ( self::facets() as $param => $f ) {
-			$counts = ! empty( $_GET[ $param ] ) ? self::facet_counts( $programm, $param ) : $full_counts;
-			$opts   = self::frontend_options( $param, $counts );
+			$own = ! empty( $_GET[ $param ] );
+
+			if ( 'form' === $param ) {
+				// Bei fest vorgegebener Seminarform (Shortcode-Attribut) keinen Chip anbieten.
+				if ( '' !== self::$force_form ) {
+					continue;
+				}
+				$counts = $own ? self::post_type_counts_for_ids( self::count_base_ids( $programm, 'form' ) ) : $full_types;
+				$opts   = self::form_options( $counts );
+				// Nur anbieten, wenn es etwas zu unterscheiden gibt – oder wenn bereits
+				// eine Form gewählt ist, damit der Chip zum Zurücknehmen sichtbar bleibt.
+				if ( count( $opts ) < 2 && ! $own ) {
+					continue;
+				}
+			} else {
+				$counts = $own ? self::facet_counts( $programm, $param ) : $full_terms;
+				$opts   = self::frontend_options( $param, $counts );
+			}
 
 			// Zähler als eigenes Feld (im JS als dezente graue Zahl hinter dem Label gerendert).
 			foreach ( $opts as &$o ) {
@@ -443,6 +595,9 @@ class BI_Filter {
 
 		$tax_query = array();
 		foreach ( self::facets() as $param => $f ) {
+			if ( 'form' === $param || '' === $f['tax'] ) {
+				continue; // Seminarform wirkt über post_type, nicht über eine Taxonomie
+			}
 			if ( $param === $skip_facet ) {
 				continue; // eigene Facette für deren Zähler ausblenden (facettierte Suche)
 			}
@@ -487,7 +642,7 @@ class BI_Filter {
 		}
 
 		$args = array(
-			'post_type'   => BI_CPT,
+			'post_type'   => self::selected_post_types( $skip_facet ),
 			'post_status' => 'publish',
 			// Immer aufsteigend nach Startdatum (ab heute) sortieren
 			'orderby'     => array( 'startdatum' => 'ASC' ),
@@ -499,6 +654,36 @@ class BI_Filter {
 		return array_merge( $args, $extra );
 	}
 
+	/**
+	 * Gesamtzahl buchbarer Seminare ohne jeden Filter (optional auf ein Programmjahr
+	 * beschränkt). Bezugsgröße für die Anzeige "… von N Seminaren". Eine fest
+	 * vorgegebene Seminarform (Shortcode-Attribut) wirkt auch hier.
+	 */
+	private static function total_count( $programm = '' ) {
+		$map   = self::form_map();
+		$types = ( '' !== self::$force_form && isset( $map[ self::$force_form ] ) )
+			? array( $map[ self::$force_form ] )
+			: bi_seminar_post_types();
+
+		$args = array(
+			'post_type'   => $types,
+			'post_status' => 'publish',
+			'fields'      => 'ids',
+			'nopaging'    => true,
+			'meta_query'  => array(
+				array( 'key' => '_bi_startdatum', 'value' => current_time( 'Y-m-d' ), 'compare' => '>=', 'type' => 'DATE' ),
+				BI_CPT::visible_clause(),
+			),
+		);
+		if ( '' !== $programm ) {
+			$args['tax_query'] = array(
+				array( 'taxonomy' => BI_TAX_PROGRAMM, 'field' => 'name', 'terms' => array( $programm ) ),
+			);
+		}
+		$q = new WP_Query( $args );
+		return (int) $q->found_posts;
+	}
+
 	/** Titel-Suche (q) per posts_where, damit nur der Titel durchsucht wird */
 	public static function title_where( $where, $query ) {
 		if ( self::$title_query && $query->get( 'bi_title_search' ) ) {
@@ -508,6 +693,12 @@ class BI_Filter {
 		return $where;
 	}
 
+	/** Shortcode-Attribut form="online|praesenz" prüfen */
+	private static function sanitize_form_att( $value ) {
+		$value = sanitize_key( $value );
+		return isset( self::form_map()[ $value ] ) ? $value : '';
+	}
+
 	/** ---------- Shortcode ---------- */
 
 	public static function shortcode( $atts ) {
@@ -515,10 +706,12 @@ class BI_Filter {
 			'anmeldung_url' => '',
 			'per_page'      => 20,
 			'programm'      => '', // auf ein Programmjahr beschränken, z. B. programm="2026"
+			'form'          => '', // auf eine Seminarform beschränken: praesenz | online
 		), $atts, 'bi_seminarsuche' );
 		$programm = sanitize_text_field( $atts['programm'] );
 		// Früh setzen, damit die facettierten Zähler in js_config die Freitextsuche berücksichtigen.
 		self::$title_query = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
+		self::$force_form  = self::sanitize_form_att( $atts['form'] );
 
 		wp_enqueue_style( 'flatpickr' );
 		wp_enqueue_style( 'flatpickr-igm' );
@@ -531,23 +724,7 @@ class BI_Filter {
 		$config_json = wp_json_encode( self::js_config( $programm ), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT );
 
 		// Gesamtzahl buchbar (ohne Filter, aber im selben Programmjahr)
-		$total_args = array(
-			'post_type'   => BI_CPT,
-			'post_status' => 'publish',
-			'fields'      => 'ids',
-			'nopaging'    => true,
-			'meta_query'  => array(
-				array( 'key' => '_bi_startdatum', 'value' => current_time( 'Y-m-d' ), 'compare' => '>=', 'type' => 'DATE' ),
-				BI_CPT::visible_clause(),
-			),
-		);
-		if ( '' !== $programm ) {
-			$total_args['tax_query'] = array(
-				array( 'taxonomy' => BI_TAX_PROGRAMM, 'field' => 'name', 'terms' => array( $programm ) ),
-			);
-		}
-		$total_q = new WP_Query( $total_args );
-		$total   = (int) $total_q->found_posts;
+		$total = self::total_count( $programm );
 
 		// Gefilterte Ergebnisliste ($title_query wurde oben bereits gesetzt)
 		$paged = max( 1, get_query_var( 'paged' ), isset( $_GET['paged'] ) ? intval( $_GET['paged'] ) : 1 );
@@ -591,14 +768,139 @@ class BI_Filter {
 		<?php
 		wp_reset_postdata();
 		self::$title_query = '';
+		self::$force_form  = '';
 		return ob_get_clean();
+	}
+
+	/** ---------- Eigenständige Suchmaske [bi_suchmaske] ---------- */
+
+	/** Fortlaufende Nummer, damit mehrere Masken auf einer Seite eigene IDs bekommen. */
+	private static $maske_id = 0;
+
+	/**
+	 * Nur die Such-/Filterleiste, ohne Ergebnisliste. Die Auswahl wird im Browser
+	 * gesammelt (kein Reload je Klick); "Suche starten" übergibt sie als GET-Parameter
+	 * an die Seite mit [bi_seminarsuche].
+	 */
+	public static function shortcode_maske( $atts ) {
+		$atts = shortcode_atts( array(
+			'ziel_url' => '',   // Zielseite; leer = Einstellung "Seminarübersicht"
+			'programm' => '',   // auf ein Programmjahr beschränken, z. B. programm="2026"
+			'form'     => '',   // auf eine Seminarform beschränken: praesenz | online
+			'kicker'   => 'Bildungsprogramm',
+			'titel'    => 'Seminar finden',
+			'button'   => 'Suche starten',
+			'hinweis'  => 'Mehrfachauswahl möglich · Ergebnisse auf der Seminarübersicht',
+		), $atts, 'bi_suchmaske' );
+
+		$programm = sanitize_text_field( $atts['programm'] );
+		$form     = self::sanitize_form_att( $atts['form'] );
+
+		// Zielseite: Attribut > Einstellung/Autoerkennung > Startseite
+		// esc_url_raw filtert unerlaubte Protokolle (javascript: o. ä.), relative Pfade bleiben erhalten.
+		$ziel = trim( $atts['ziel_url'] );
+		$ziel = ( '' !== $ziel ) ? esc_url_raw( $ziel ) : '';
+		if ( '' === $ziel && class_exists( 'BI_Registration' ) ) {
+			$ziel = BI_Registration::uebersicht_url();
+		}
+		if ( '' === $ziel ) {
+			$ziel = home_url( '/' );
+		}
+
+		wp_enqueue_style( 'flatpickr' );
+		wp_enqueue_style( 'flatpickr-igm' );
+		wp_enqueue_style( 'bi-filterleiste' );
+		wp_enqueue_script( 'bi-filterleiste' );
+
+		// Konfiguration ohne aktive Filter aufbauen: die Maske startet immer leer,
+		// auch wenn in der URL der Trägerseite zufällig Filterparameter stehen.
+		$get_backup   = $_GET;
+		$title_backup = self::$title_query;
+		$_GET              = array();
+		self::$title_query = '';
+		self::$force_form  = $form;
+
+		$config = self::js_config( $programm );
+		$count  = count( self::count_base_ids( $programm ) );
+		$total  = self::total_count( $programm );
+
+		$_GET              = $get_backup;
+		self::$title_query = $title_backup;
+		self::$force_form  = '';
+
+		$id = 'bi-suchmaske-' . ( ++self::$maske_id );
+
+		$config['root']        = '#' . $id;
+		$config['standalone']  = true;
+		$config['targetUrl']   = $ziel;
+		$config['buttonLabel'] = $atts['button'];
+		$config['kicker']      = $atts['kicker'];
+		$config['title']       = $atts['titel'];
+		$config['hint']        = $atts['hinweis'];
+		$config['programm']    = $programm;
+		$config['form']        = $form;
+		$config['ajaxUrl']     = admin_url( 'admin-ajax.php' );
+
+		$config_json = wp_json_encode( $config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT );
+
+		ob_start();
+		?>
+		<div id="<?php echo esc_attr( $id ); ?>"
+			data-bi-config="<?php echo esc_attr( $config_json ); ?>"
+			data-bi-total="<?php echo esc_attr( $total ); ?>"
+			data-bi-count="<?php echo esc_attr( $count ); ?>"></div>
+		<?php
+		return ob_get_clean();
+	}
+
+	/**
+	 * AJAX: liefert zur übergebenen Auswahl die neu berechneten Facetten-Optionen
+	 * (inkl. Zähler) sowie Treffer- und Gesamtzahl. Nur lesend, daher ohne Nonce.
+	 */
+	public static function ajax_refresh() {
+		$programm = isset( $_POST['programm'] ) ? sanitize_text_field( wp_unslash( $_POST['programm'] ) ) : '';
+		$form     = isset( $_POST['bi_force_form'] ) ? self::sanitize_form_att( wp_unslash( $_POST['bi_force_form'] ) ) : '';
+
+		$get_backup   = $_GET;
+		$title_backup = self::$title_query;
+
+		// $_GET aus den geposteten Parametern nachbilden, damit build_args/js_config unverändert greifen
+		$_GET = array();
+		foreach ( self::query_params() as $key ) {
+			if ( ! isset( $_POST[ $key ] ) ) {
+				continue;
+			}
+			$value = trim( (string) wp_unslash( $_POST[ $key ] ) );
+			if ( '' !== $value ) {
+				$_GET[ $key ] = $value;
+			}
+		}
+		self::$title_query = isset( $_GET['q'] ) ? sanitize_text_field( $_GET['q'] ) : '';
+		self::$force_form  = $form;
+
+		$config = self::js_config( $programm );
+		$count  = count( self::count_base_ids( $programm ) );
+		$total  = self::total_count( $programm );
+
+		$_GET              = $get_backup;
+		self::$title_query = $title_backup;
+		self::$force_form  = '';
+
+		wp_send_json_success( array(
+			'categories' => $config['categories'],
+			'count'      => $count,
+			'total'      => $total,
+		) );
 	}
 
 	/** Eine Listenzeile (Datumsblock links · Infos · Details-Button rechts) */
 	private static function render_row( $post_id ) {
+		$is_online = bi_is_online( $post_id );
+
 		$start   = get_post_meta( $post_id, '_bi_startdatum', true );
 		$end     = get_post_meta( $post_id, '_bi_enddatum', true );
 		$uhr     = get_post_meta( $post_id, '_bi_startuhrzeit', true );
+		$enduhr  = get_post_meta( $post_id, '_bi_enduhrzeit', true );
 		$anru    = get_post_meta( $post_id, '_bi_anreiseuhrzeit', true );
 		$nr      = get_post_meta( $post_id, '_bi_seminarnummer', true );
 		$ort     = wp_get_object_terms( $post_id, BI_TAX_ORT, array( 'fields' => 'names' ) );
@@ -612,13 +914,25 @@ class BI_Filter {
 		$monthyear = $ts ? date_i18n( 'F Y', $ts ) : '';
 		$time      = $uhr ? $uhr : $anru; // Startzeit, sonst Anreisezeit
 
-		// Dauer in Tagen aus Start/Ende
-		$dauer = '';
-		if ( $start && $end ) {
+		// Ortszeile: bei Online-Seminaren „Online" (plus Veranstalter*in, falls gepflegt)
+		$ortzeile = ( $ort && ! is_wp_error( $ort ) ) ? $ort[0] : '';
+		if ( $is_online ) {
+			$ortzeile = $ortzeile ? 'Online · ' . $ortzeile : 'Online';
+		}
+
+		// Dauer: mehrtägig in Tagen, eintägige Online-Termine als Uhrzeit-Spanne
+		$dauer       = '';
+		$dauer_label = 'Dauer';
+		if ( $start && $end && $end !== $start ) {
 			$days = (int) round( ( strtotime( $end ) - strtotime( $start ) ) / DAY_IN_SECONDS ) + 1;
 			if ( $days >= 1 ) {
 				$dauer = $days . ( 1 === $days ? ' Tag' : ' Tage' );
 			}
+		} elseif ( $is_online && $uhr && $enduhr ) {
+			$dauer       = $uhr . ' – ' . $enduhr . ' Uhr';
+			$dauer_label = 'Zeit';
+		} elseif ( $start && $end ) {
+			$dauer = '1 Tag';
 		}
 
 		ob_start();
@@ -633,14 +947,15 @@ class BI_Filter {
 			<div class="bi-row-body">
 				<h3 class="bi-row-title">
 					<a href="<?php echo esc_url( $permalink ); ?>"><?php echo esc_html( get_the_title( $post_id ) ); ?></a>
+					<?php if ( $is_online ) : ?><span class="bi-row-badge bi-row-badge--online">Online</span><?php endif; ?>
 					<?php if ( $ausgebucht ) : ?><span class="bi-row-badge">Ausgebucht</span><?php endif; ?>
 				</h3>
-				<?php if ( $ort && ! is_wp_error( $ort ) ) : ?>
-					<div class="bi-row-ort"><?php echo esc_html( $ort[0] ); ?></div>
+				<?php if ( $ortzeile ) : ?>
+					<div class="bi-row-ort"><?php echo esc_html( $ortzeile ); ?></div>
 				<?php endif; ?>
 				<div class="bi-row-sub">
 					<?php if ( $prog && ! is_wp_error( $prog ) ) : ?><span><?php echo esc_html( $prog[0] ); ?></span><?php endif; ?>
-					<?php if ( $dauer ) : ?><span><strong>Dauer:</strong> <?php echo esc_html( $dauer ); ?></span><?php endif; ?>
+					<?php if ( $dauer ) : ?><span><strong><?php echo esc_html( $dauer_label ); ?>:</strong> <?php echo esc_html( $dauer ); ?></span><?php endif; ?>
 					<?php if ( $nr ) : ?><span><strong>Nr.:</strong> <?php echo esc_html( $nr ); ?></span><?php endif; ?>
 				</div>
 			</div>
