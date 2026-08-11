@@ -184,11 +184,11 @@ class BI_Tracking {
 
 	/** Kampagnen-Link: protokollieren, Cookie setzen, weiterleiten. */
 	public static function maybe_handle_link() {
-		if ( is_admin() || wp_doing_ajax() || wp_doing_cron() || empty( $_GET[ self::PARAM ] ) ) {
+		if ( is_admin() || wp_doing_ajax() || wp_doing_cron() || '' === bi_get( self::PARAM ) ) {
 			return;
 		}
 
-		$slug     = sanitize_title( wp_unslash( $_GET[ self::PARAM ] ) );
+		$slug     = sanitize_title( bi_get( self::PARAM ) );
 		$kampagne = $slug ? self::get_by_slug( $slug ) : null;
 		$target   = $kampagne ? self::target_url( $kampagne ) : BI_Registration::uebersicht_url();
 		// Ziel darf den Kampagnen-Parameter nicht erneut enthalten – sonst Endlosschleife.
@@ -281,11 +281,8 @@ class BI_Tracking {
 
 	/** Aktueller Pfad aus dem Cookie: ['id' => Kampagne, 'token' => Pfad] oder null */
 	private static function current() {
-		if ( empty( $_COOKIE[ self::COOKIE ] ) ) {
-			return null;
-		}
-		$raw = sanitize_text_field( wp_unslash( $_COOKIE[ self::COOKIE ] ) );
-		if ( ! preg_match( '/^(\d+)\.([A-Za-z0-9]{8,32})$/', $raw, $m ) ) {
+		$raw = sanitize_text_field( bi_cookie( self::COOKIE ) );
+		if ( '' === $raw || ! preg_match( '/^(\d+)\.([A-Za-z0-9]{8,32})$/', $raw, $m ) ) {
 			return null;
 		}
 		return array( 'id' => (int) $m[1], 'token' => $m[2] );

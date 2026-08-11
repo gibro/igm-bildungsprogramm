@@ -23,7 +23,16 @@ class BI_PLZ {
 
 	/** AJAX: PLZ -> { geschaeftsstelle, email } */
 	public static function ajax_lookup() {
-		$row = self::lookup( sanitize_text_field( wp_unslash( $_GET['plz'] ?? '' ) ) );
+		// Die Antwort enthält die Mailadresse der Geschäftsstelle – die braucht der
+		// mailto:-Button auf der Detailseite, sie steht ohnehin öffentlich auf
+		// igmetall.de. Der PLZ-Raum ist aber endlich: ohne Drosselung ließe sich das
+		// gesamte Verzeichnis in wenigen Minuten abfragen. Das Kontingent liegt weit
+		// über jeder normalen Nutzung – dort wird eine, selten zwei PLZ gesucht.
+		if ( ! bi_rate_hit( 'bi_plz|' . bi_client_ip(), (int) apply_filters( 'bi_limit_plz_lookups', 60 ), HOUR_IN_SECONDS ) ) {
+			wp_send_json_error( array( 'message' => 'Zu viele Abfragen in kurzer Zeit. Bitte versuche es später erneut.' ), 429 );
+		}
+
+		$row = self::lookup( sanitize_text_field( bi_get( 'plz' ) ) );
 		if ( ! $row ) {
 			wp_send_json_error( array( 'message' => 'Zu dieser Postleitzahl wurde keine Geschäftsstelle gefunden.' ) );
 		}

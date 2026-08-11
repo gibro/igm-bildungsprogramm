@@ -3,7 +3,7 @@
  * Plugin Name:       Bildungsprogramm
  * Plugin URI:        https://bildung.igmetall.de/
  * Description:        Eigenständiges Seminar-/Veranstaltungssystem: Such- & Filterleiste, CSV-Import für Präsenz- und Online-Seminare sowie PLZ-Geschäftsstellen, Anmeldeformular mit konfigurierbaren Mail-Triggern. Unabhängig von Formidable.
- * Version:           1.43.0
+ * Version:           1.44.0
  * Author:            IG Metall Bildung
  * Text Domain:       bi-seminarsuche
  * Requires at least: 5.8
@@ -33,7 +33,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Direktaufruf verhindern
 }
 
-define( 'BI_VERSION', '1.43.0' );
+define( 'BI_VERSION', '1.44.0' );
 define( 'BI_DB_VERSION', '4' ); // Schema-Version der eigenen Tabellen (Upgrade via dbDelta)
 define( 'BI_FILE', __FILE__ );
 define( 'BI_PATH', plugin_dir_path( __FILE__ ) );
@@ -126,6 +126,92 @@ function bi_deactivate() {
 function bi_table( $name ) {
 	global $wpdb;
 	return $wpdb->prefix . 'bi_' . $name;
+}
+
+/**
+ * Wert aus einem Request als Skalar lesen.
+ *
+ * Öffentliche Parameter dürfen als Array ankommen (?thema[]=x, bi_track[a]=1).
+ * Ohne diese Prüfung landen sie in sanitize_text_field()/explode() und lösen
+ * dort einen TypeError aus – also HTTP 500 auf einer öffentlichen Seite, den
+ * jeder ohne Aufwand wiederholen kann. Arrays und Objekte gelten deshalb als
+ * „nicht gesetzt".
+ */
+function bi_scalar( $value, $default = '' ) {
+	if ( is_array( $value ) || is_object( $value ) || null === $value ) {
+		return $default;
+	}
+	return (string) $value;
+}
+
+/** Skalarer, bereits unslashed Wert aus $_GET */
+function bi_get( $key, $default = '' ) {
+	return isset( $_GET[ $key ] ) ? bi_scalar( wp_unslash( $_GET[ $key ] ), $default ) : $default; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+}
+
+/** Skalarer, bereits unslashed Wert aus $_POST */
+function bi_post( $key, $default = '' ) {
+	return isset( $_POST[ $key ] ) ? bi_scalar( wp_unslash( $_POST[ $key ] ), $default ) : $default; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+}
+
+/** Skalarer Wert aus $_COOKIE */
+function bi_cookie( $key, $default = '' ) {
+	return isset( $_COOKIE[ $key ] ) ? bi_scalar( wp_unslash( $_COOKIE[ $key ] ), $default ) : $default;
+}
+
+/**
+ * Ein Versuch im benannten Kontingent. true = erlaubt, false = Limit erreicht.
+ *
+ * Das Zeitfenster startet mit dem ersten Versuch und wird durch weitere Versuche
+ * NICHT verlängert – sonst könnte sich ein hartnäckig wiederholender Browser
+ * (oder ein Reload-Reflex) dauerhaft selbst aussperren.
+ *
+ * @param string $bucket Frei gewählter Schlüssel, z. B. "anmeldung|ip|1.2.3.4".
+ * @param int    $limit  Erlaubte Versuche im Fenster.
+ * @param int    $window Fensterlänge in Sekunden.
+ */
+function bi_rate_hit( $bucket, $limit, $window ) {
+	$key   = 'bi_rl_' . md5( $bucket );
+	$state = get_transient( $key );
+	$now   = time();
+
+	if ( ! is_array( $state ) || empty( $state['start'] ) || $state['start'] + $window <= $now ) {
+		set_transient( $key, array( 'start' => $now, 'n' => 1 ), $window );
+		return true;
+	}
+	if ( (int) $state['n'] >= $limit ) {
+		return false;
+	}
+	$state['n'] = (int) $state['n'] + 1;
+	set_transient( $key, $state, max( 1, $state['start'] + $window - $now ) );
+	return true;
+}
+
+/** Kontingent wieder freigeben (wenn ein Versuch am Ende doch nicht zählen soll) */
+function bi_rate_release( $bucket ) {
+	delete_transient( 'bi_rl_' . md5( $bucket ) );
+}
+
+/**
+ * Adresse des Absenders – ausschließlich als Schlüssel für Kontingente, sie wird
+ * nirgends gespeichert.
+ *
+ * Hinter Reverse-Proxy oder CDN ist REMOTE_ADDR die Proxy-Adresse; ohne den
+ * X-Forwarded-For-Zweig liefen dann alle Besucher gemeinsam in dasselbe Limit.
+ * Der Header ist fälschbar und deshalb kein Sicherheitsmerkmal – für das
+ * Auseinanderhalten echter Nutzer genügt er, und die fälschungssichere Bremse
+ * ist das globale Mailbudget in BI_Registration.
+ */
+function bi_client_ip() {
+	$ip  = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+	$fwd = isset( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ? (string) $_SERVER['HTTP_X_FORWARDED_FOR'] : '';
+	if ( '' !== $fwd ) {
+		$first = trim( explode( ',', $fwd )[0] );
+		if ( filter_var( $first, FILTER_VALIDATE_IP ) ) {
+			$ip = $first;
+		}
+	}
+	return (string) apply_filters( 'bi_client_ip', $ip );
 }
 
 /**

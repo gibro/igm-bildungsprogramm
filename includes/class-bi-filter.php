@@ -91,10 +91,10 @@ class BI_Filter {
 		if ( '' !== self::$force_form && isset( $map[ self::$force_form ] ) ) {
 			return array( $map[ self::$force_form ] );
 		}
-		if ( 'form' === $skip_facet || empty( $_GET['form'] ) ) {
+		if ( 'form' === $skip_facet || '' === bi_get( 'form' ) ) {
 			return bi_seminar_post_types();
 		}
-		$vals = array_filter( array_map( 'trim', explode( '|', sanitize_text_field( wp_unslash( $_GET['form'] ) ) ) ), 'strlen' );
+		$vals = array_filter( array_map( 'trim', explode( '|', sanitize_text_field( bi_get( 'form' ) ) ) ), 'strlen' );
 
 		$types = array();
 		foreach ( $vals as $v ) {
@@ -523,7 +523,7 @@ class BI_Filter {
 
 		$cats = array();
 		foreach ( self::facets() as $param => $f ) {
-			$own = ! empty( $_GET[ $param ] );
+			$own = ( '' !== bi_get( $param ) );
 
 			if ( 'form' === $param ) {
 				// Bei fest vorgegebener Seminarform (Shortcode-Attribut) keinen Chip anbieten.
@@ -579,15 +579,15 @@ class BI_Filter {
 			'startdatum' => array( 'key' => '_bi_startdatum', 'value' => $today, 'compare' => '>=', 'type' => 'DATE' ),
 			BI_CPT::visible_clause(), // Anzeigen? = nein ausblenden
 		);
-		if ( ! empty( $_GET['von'] ) ) {
-			$meta_query[] = array( 'key' => '_bi_startdatum', 'value' => sanitize_text_field( wp_unslash( $_GET['von'] ) ), 'compare' => '>=', 'type' => 'DATE' );
+		if ( '' !== bi_get( 'von' ) ) {
+			$meta_query[] = array( 'key' => '_bi_startdatum', 'value' => sanitize_text_field( bi_get( 'von' ) ), 'compare' => '>=', 'type' => 'DATE' );
 		}
-		if ( ! empty( $_GET['bis'] ) ) {
-			$meta_query[] = array( 'key' => '_bi_startdatum', 'value' => sanitize_text_field( wp_unslash( $_GET['bis'] ) ), 'compare' => '<=', 'type' => 'DATE' );
+		if ( '' !== bi_get( 'bis' ) ) {
+			$meta_query[] = array( 'key' => '_bi_startdatum', 'value' => sanitize_text_field( bi_get( 'bis' ) ), 'compare' => '<=', 'type' => 'DATE' );
 		}
 		// Seminarnummern (pipe-getrennt, z. B. von Marketing-Kacheln): ODER innerhalb der Liste
-		if ( ! empty( $_GET['nr'] ) ) {
-			$nrs = array_filter( array_map( 'trim', explode( '|', sanitize_text_field( wp_unslash( $_GET['nr'] ) ) ) ), 'strlen' );
+		if ( '' !== bi_get( 'nr' ) ) {
+			$nrs = array_filter( array_map( 'trim', explode( '|', sanitize_text_field( bi_get( 'nr' ) ) ) ), 'strlen' );
 			if ( $nrs ) {
 				$meta_query[] = array( 'key' => '_bi_seminarnummer', 'value' => $nrs, 'compare' => 'IN' );
 			}
@@ -601,10 +601,10 @@ class BI_Filter {
 			if ( $param === $skip_facet ) {
 				continue; // eigene Facette für deren Zähler ausblenden (facettierte Suche)
 			}
-			if ( empty( $_GET[ $param ] ) ) {
+			if ( '' === bi_get( $param ) ) {
 				continue;
 			}
-			$vals = array_filter( array_map( 'trim', explode( '|', wp_unslash( $_GET[ $param ] ) ) ), 'strlen' );
+			$vals = array_filter( array_map( 'trim', explode( '|', bi_get( $param ) ) ), 'strlen' );
 			if ( ! $vals ) {
 				continue;
 			}
@@ -710,7 +710,7 @@ class BI_Filter {
 		), $atts, 'bi_seminarsuche' );
 		$programm = sanitize_text_field( $atts['programm'] );
 		// Früh setzen, damit die facettierten Zähler in js_config die Freitextsuche berücksichtigen.
-		self::$title_query = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
+		self::$title_query = sanitize_text_field( bi_get( 'q' ) );
 		self::$force_form  = self::sanitize_form_att( $atts['form'] );
 
 		wp_enqueue_style( 'flatpickr' );
@@ -727,7 +727,7 @@ class BI_Filter {
 		$total = self::total_count( $programm );
 
 		// Gefilterte Ergebnisliste ($title_query wurde oben bereits gesetzt)
-		$paged = max( 1, get_query_var( 'paged' ), isset( $_GET['paged'] ) ? intval( $_GET['paged'] ) : 1 );
+		$paged = max( 1, get_query_var( 'paged' ), intval( bi_get( 'paged', '1' ) ) );
 		$args  = self::build_args( array(
 			'posts_per_page'  => intval( $atts['per_page'] ),
 			'paged'           => $paged,
@@ -858,24 +858,23 @@ class BI_Filter {
 	 * (inkl. Zähler) sowie Treffer- und Gesamtzahl. Nur lesend, daher ohne Nonce.
 	 */
 	public static function ajax_refresh() {
-		$programm = isset( $_POST['programm'] ) ? sanitize_text_field( wp_unslash( $_POST['programm'] ) ) : '';
-		$form     = isset( $_POST['bi_force_form'] ) ? self::sanitize_form_att( wp_unslash( $_POST['bi_force_form'] ) ) : '';
+		$programm = sanitize_text_field( bi_post( 'programm' ) );
+		$form     = self::sanitize_form_att( bi_post( 'bi_force_form' ) );
 
 		$get_backup   = $_GET;
 		$title_backup = self::$title_query;
 
-		// $_GET aus den geposteten Parametern nachbilden, damit build_args/js_config unverändert greifen
+		// $_GET aus den geposteten Parametern nachbilden, damit build_args/js_config unverändert greifen.
+		// Nur Skalare übernehmen und je Wert begrenzen: sonst erzeugt ein Arrayparameter
+		// oder ein sehr langer Wert in den nachgelagerten explode()/IN()-Pfaden Last statt Ergebnis.
 		$_GET = array();
 		foreach ( self::query_params() as $key ) {
-			if ( ! isset( $_POST[ $key ] ) ) {
-				continue;
-			}
-			$value = trim( (string) wp_unslash( $_POST[ $key ] ) );
+			$value = trim( bi_post( $key ) );
 			if ( '' !== $value ) {
-				$_GET[ $key ] = $value;
+				$_GET[ $key ] = substr( $value, 0, 300 );
 			}
 		}
-		self::$title_query = isset( $_GET['q'] ) ? sanitize_text_field( $_GET['q'] ) : '';
+		self::$title_query = sanitize_text_field( bi_get( 'q' ) );
 		self::$force_form  = $form;
 
 		$config = self::js_config( $programm );

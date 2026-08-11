@@ -23,6 +23,7 @@ class BI_Registration {
 		add_action( 'admin_post_bi_anmeldung', array( __CLASS__, 'handle_submit' ) );
 		add_action( 'admin_post_bi_export_anmeldungen', array( __CLASS__, 'handle_export' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'register_assets' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'budget_notice' ) );
 	}
 
 	public static function register_assets() {
@@ -112,9 +113,16 @@ class BI_Registration {
 	}
 
 	/**
-	 * Wizard-Schritte. Feld: [label, type, required, full, placeholder, options, default].
+	 * Wizard-Schritte. Feld: [label, type, required, full, placeholder, options, default, max].
 	 * type: text|email|tel|plz|textarea|select|radio|freistellung
 	 * category: privat|dienstlich|neutral
+	 *
+	 * `max` ist die fachliche Höchstlänge in Zeichen. Sie wird zweifach durchgesetzt:
+	 * als maxlength im Browser (dort merkt sie niemand) und noch einmal serverseitig
+	 * in handle_submit(). Ohne die serverseitige Prüfung kann ein direkt abgesetztes
+	 * POST beliebig große Werte in Datenbank, JSON-Spalte und alle drei Mailtexte
+	 * schreiben. Die Werte liegen bewusst deutlich über jeder realen Eingabe und
+	 * unterhalb der jeweiligen Spaltenbreite in create_table().
 	 */
 	public static function form_steps() {
 		return array(
@@ -124,12 +132,12 @@ class BI_Registration {
 				'desc'  => 'Name und Anschrift der teilnehmenden Person.',
 				'fields' => array(
 					'anrede'   => array( 'label' => 'Anrede', 'type' => 'select', 'col' => 6, 'options' => array( '', 'Frau', 'Herr', 'Divers', 'Keine Angabe' ) ),
-					'titel'    => array( 'label' => 'Titel', 'type' => 'text', 'col' => 6, 'placeholder' => 'z. B. Dr.' ),
-					'vorname'  => array( 'label' => 'Vorname', 'type' => 'text', 'col' => 6, 'required' => true, 'placeholder' => 'Vorname' ),
-					'nachname' => array( 'label' => 'Nachname', 'type' => 'text', 'col' => 6, 'required' => true, 'placeholder' => 'Nachname' ),
-					'strasse'  => array( 'label' => 'Straße & Hausnummer', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Musterstraße 12' ),
+					'titel'    => array( 'label' => 'Titel', 'type' => 'text', 'col' => 6, 'placeholder' => 'z. B. Dr.', 'max' => 60 ),
+					'vorname'  => array( 'label' => 'Vorname', 'type' => 'text', 'col' => 6, 'required' => true, 'placeholder' => 'Vorname', 'max' => 100 ),
+					'nachname' => array( 'label' => 'Nachname', 'type' => 'text', 'col' => 6, 'required' => true, 'placeholder' => 'Nachname', 'max' => 100 ),
+					'strasse'  => array( 'label' => 'Straße & Hausnummer', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Musterstraße 12', 'max' => 150 ),
 					'plz'      => array( 'label' => 'PLZ', 'type' => 'plz', 'col' => 4, 'required' => true, 'placeholder' => '12345' ),
-					'ort'      => array( 'label' => 'Ort', 'type' => 'text', 'col' => 8, 'required' => true, 'placeholder' => 'Beispielort' ),
+					'ort'      => array( 'label' => 'Ort', 'type' => 'text', 'col' => 8, 'required' => true, 'placeholder' => 'Beispielort', 'max' => 100 ),
 				),
 			),
 			array(
@@ -137,11 +145,11 @@ class BI_Registration {
 				'title' => 'Kontakt & Mitgliedschaft', 'sub' => 'Privat',
 				'desc'  => 'Wie wir dich erreichen und deine IG-Metall-Mitgliedschaft.',
 				'fields' => array(
-					'telefon'         => array( 'label' => 'Telefon', 'type' => 'tel', 'col' => 6, 'placeholder' => '0202 1234567' ),
-					'mobil'           => array( 'label' => 'Mobiltelefon', 'type' => 'tel', 'col' => 6, 'required' => true, 'placeholder' => '0151 1234567' ),
-					'email'           => array( 'label' => 'E-Mail', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'name@beispiel.de' ),
+					'telefon'         => array( 'label' => 'Telefon', 'type' => 'tel', 'col' => 6, 'placeholder' => '0202 1234567', 'max' => 40 ),
+					'mobil'           => array( 'label' => 'Mobiltelefon', 'type' => 'tel', 'col' => 6, 'required' => true, 'placeholder' => '0151 1234567', 'max' => 40 ),
+					'email'           => array( 'label' => 'E-Mail', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'name@beispiel.de', 'max' => 180 ),
 					'mitglied'        => array( 'label' => 'Bist du Mitglied der IG Metall?', 'type' => 'radio', 'full' => true, 'default' => 'ja', 'options' => array( 'ja' => 'Ja', 'nein' => 'Nein' ) ),
-					'mitgliedsnummer' => array( 'label' => 'Mitgliedsnummer', 'type' => 'text', 'col' => 6, 'placeholder' => 'z. B. 1234567890' ),
+					'mitgliedsnummer' => array( 'label' => 'Mitgliedsnummer', 'type' => 'text', 'col' => 6, 'placeholder' => 'z. B. 1234567890', 'max' => 40 ),
 				),
 			),
 			array(
@@ -149,11 +157,11 @@ class BI_Registration {
 				'title' => 'Betrieb & Funktion', 'sub' => 'Dienstlich',
 				'desc'  => 'Angaben zu Arbeitgeber, Funktion und Freistellung.',
 				'fields' => array(
-					'betrieb'         => array( 'label' => 'Betrieb / Arbeitgeber', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Name des Unternehmens' ),
-					'betrieb_strasse' => array( 'label' => 'Straße & Hausnummer (Betrieb)', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Werkstraße 1' ),
+					'betrieb'         => array( 'label' => 'Betrieb / Arbeitgeber', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Name des Unternehmens', 'max' => 150 ),
+					'betrieb_strasse' => array( 'label' => 'Straße & Hausnummer (Betrieb)', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Werkstraße 1', 'max' => 150 ),
 					'betrieb_plz'     => array( 'label' => 'PLZ (Betrieb)', 'type' => 'plz', 'col' => 4, 'required' => true, 'placeholder' => '12345', 'hint' => 'Bestimmt die zuständige Geschäftsstelle.' ),
-					'betrieb_ort'     => array( 'label' => 'Ort (Betrieb)', 'type' => 'text', 'col' => 8, 'required' => true, 'placeholder' => 'Beispielort' ),
-					'betrieb_email'   => array( 'label' => 'E-Mail (Betrieb)', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'personal@beispiel-gmbh.de', 'hint' => 'Dienstliche Adresse, z. B. von Personalabteilung oder Betriebsrat.' ),
+					'betrieb_ort'     => array( 'label' => 'Ort (Betrieb)', 'type' => 'text', 'col' => 8, 'required' => true, 'placeholder' => 'Beispielort', 'max' => 100 ),
+					'betrieb_email'   => array( 'label' => 'E-Mail (Betrieb)', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'personal@beispiel-gmbh.de', 'hint' => 'Dienstliche Adresse, z. B. von Personalabteilung oder Betriebsrat.', 'max' => 180 ),
 					'funktion'        => array( 'label' => 'Funktion im Betriebsrat', 'type' => 'select', 'col' => 6, 'options' => array( '', 'BR-Mitglied', 'BR-Vorsitz', 'stellv. BR-Vorsitz', 'Ersatzmitglied', 'JAV', 'Schwerbehindertenvertretung' ) ),
 					'freistellung'    => array( 'label' => 'Freistellung nach', 'type' => 'freistellung', 'col' => 6, 'required' => true ),
 				),
@@ -163,10 +171,27 @@ class BI_Registration {
 				'title' => 'Abschluss', 'sub' => 'Abschluss',
 				'desc'  => 'Wünsche ergänzen und Anmeldung absenden.',
 				'fields' => array(
-					'bemerkungen' => array( 'label' => 'Bemerkungen / Sonstiges', 'type' => 'textarea', 'full' => true, 'placeholder' => 'Anmerkungen zur Anreise, besondere Wünsche o. Ä.' ),
+					'bemerkungen' => array( 'label' => 'Bemerkungen / Sonstiges', 'type' => 'textarea', 'full' => true, 'placeholder' => 'Anmerkungen zur Anreise, besondere Wünsche o. Ä.', 'max' => 2000 ),
 				),
 			),
 		);
+	}
+
+	/**
+	 * Zulässige Werte eines select-/radio-Feldes.
+	 *
+	 * Die Optionslisten sind teils Liste (select: Werte) und teils Zuordnung
+	 * (radio: Schlüssel => Beschriftung); beides muss hier auf dieselbe Menge
+	 * abgebildet werden. Leere Liste = keine Wertebeschränkung.
+	 */
+	private static function allowed_values( $f ) {
+		if ( empty( $f['options'] ) || ! is_array( $f['options'] ) ) {
+			return array();
+		}
+		$opts = $f['options'];
+		// Assoziative Liste (radio) -> Schlüssel sind die Werte, sonst die Werte selbst.
+		$keys = array_keys( $opts );
+		return ( $keys === range( 0, count( $opts ) - 1 ) ) ? array_values( $opts ) : array_map( 'strval', $keys );
 	}
 
 	private static function all_fields() {
@@ -235,13 +260,24 @@ class BI_Registration {
 		wp_enqueue_script( 'bi-anmeldung' );
 
 		$seminar_id = intval( $atts['seminar'] );
-		if ( ! $seminar_id && isset( $_GET['seminar'] ) ) {
-			$seminar_id = intval( $_GET['seminar'] );
+		if ( ! $seminar_id ) {
+			$seminar_id = intval( bi_get( 'seminar' ) );
 		}
 
+		$state = bi_get( 'bi_anmeldung' );
+
 		// Erfolgs-Screen
-		if ( isset( $_GET['bi_anmeldung'] ) && 'ok' === $_GET['bi_anmeldung'] ) {
+		if ( 'ok' === $state ) {
 			return self::render_success( $seminar_id );
+		}
+
+		// Auf Fehlerseiten stehen wieder Eingaben im Formular – die dürfen kein
+		// Seiten-Cache und kein Proxy zwischenspeichern und an Dritte ausliefern.
+		if ( in_array( $state, array( 'err', 'limit', 'fail' ), true ) ) {
+			if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+				define( 'DONOTCACHEPAGE', true );
+			}
+			nocache_headers();
 		}
 
 		$has_fixed = $seminar_id && bi_is_seminar_post( $seminar_id );
@@ -272,9 +308,21 @@ class BI_Registration {
 				. esc_html( $grund ) . ( $link ? ' ' . $link : '' ) . '</div>';
 		}
 
-		$show_error = ( isset( $_GET['bi_anmeldung'] ) && 'err' === $_GET['bi_anmeldung'] );
-		$old        = ( $show_error && isset( $_GET['old'] ) && is_array( $_GET['old'] ) )
-			? array_map( 'sanitize_text_field', wp_unslash( $_GET['old'] ) ) : array();
+		// Fehlerzustand: In der URL steht nur noch ein Zufallstoken, die Eingaben
+		// selbst liegen serverseitig (siehe store_error_state).
+		$old = in_array( $state, array( 'err', 'limit', 'fail' ), true ) ? self::read_error_state( bi_get( 'e' ) ) : array();
+
+		$notice = '';
+		if ( 'err' === $state ) {
+			$notice = 'Bitte prüfe deine Eingaben – einige Pflichtfelder fehlen oder sind ungültig.';
+		} elseif ( 'limit' === $state ) {
+			$notice = 'Von diesem Anschluss sind in kurzer Zeit ungewöhnlich viele Anmeldungen eingegangen. '
+				. 'Bitte versuche es in etwa einer Stunde erneut – oder wende dich direkt an deine Geschäftsstelle.';
+		} elseif ( 'fail' === $state ) {
+			$notice = 'Deine Anmeldung konnte aus technischen Gründen nicht gespeichert werden. '
+				. 'Deine Eingaben stehen noch im Formular – bitte schicke sie erneut ab. '
+				. 'Klappt es weiterhin nicht, wende dich bitte an deine Geschäftsstelle.';
+		}
 
 		// Trichter-Schritt „Anmeldung begonnen": Das Formular wird nur über den
 		// Buchungs-Button erreicht, sein Aufruf ist also der Klick auf „Jetzt buchen".
@@ -292,6 +340,7 @@ class BI_Registration {
 				<input type="hidden" name="seminar_id" value="<?php echo esc_attr( $seminar_id ); ?>">
 				<input type="hidden" name="redirect" value="<?php echo esc_url( self::current_url() ); ?>">
 				<?php wp_nonce_field( 'bi_anmeldung', 'bi_anmeldung_nonce' ); ?>
+				<?php echo self::timestamp_field(); // phpcs:ignore – intern escaped ?>
 				<div class="bi-wiz__hp" aria-hidden="true"><label>Bitte leer lassen<input type="text" name="bi_hp" tabindex="-1" autocomplete="off"></label></div>
 
 				<!-- Sidebar -->
@@ -329,8 +378,8 @@ class BI_Registration {
 						<div class="bi-wiz__progress"><span class="bi-wiz__progress-fill" style="width:<?php echo esc_attr( round( 100 / count( $steps ) ) ); ?>%"></span></div>
 					</div>
 
-					<?php if ( $show_error ) : ?>
-						<div class="bi-wiz__formerror">Bitte prüfe deine Eingaben – einige Pflichtfelder fehlen oder sind ungültig.</div>
+					<?php if ( $notice ) : ?>
+						<div class="bi-wiz__formerror"><?php echo esc_html( $notice ); ?></div>
 					<?php endif; ?>
 
 					<?php foreach ( $steps as $i => $st ) :
@@ -386,6 +435,9 @@ class BI_Registration {
 		$star = $req ? ' <span class="bi-wiz__req">*</span>' : '';
 		$ph   = isset( $f['placeholder'] ) ? $f['placeholder'] : '';
 		$reqa = $req ? ' data-req="1"' : '';
+		// Höchstlänge schon im Browser durchsetzen: dann läuft niemand versehentlich
+		// in die serverseitige Prüfung aus handle_submit().
+		$maxa = ! empty( $f['max'] ) ? ' maxlength="' . esc_attr( (int) $f['max'] ) . '"' : '';
 
 		ob_start();
 		echo '<div class="' . esc_attr( $cls ) . '">';
@@ -412,7 +464,7 @@ class BI_Registration {
 
 		switch ( $f['type'] ) {
 			case 'textarea':
-				echo '<textarea class="bi-wiz__input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" rows="4" placeholder="' . esc_attr( $ph ) . '"' . $reqa . '>' . esc_textarea( $val ) . '</textarea>';
+				echo '<textarea class="bi-wiz__input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" rows="4" placeholder="' . esc_attr( $ph ) . '"' . $maxa . $reqa . '>' . esc_textarea( $val ) . '</textarea>';
 				break;
 
 			case 'select':
@@ -449,7 +501,7 @@ class BI_Registration {
 				$ac = self::autocomplete_for( $key );
 				echo '<input type="' . esc_attr( $f['type'] ) . '" class="bi-wiz__input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" value="' . esc_attr( $val ) . '" placeholder="' . esc_attr( $ph ) . '"'
 					. ( $ac ? ' autocomplete="' . esc_attr( $ac ) . '"' : '' )
-					. ( 'email' === $f['type'] ? ' data-type="email"' : '' ) . $reqa . '>';
+					. ( 'email' === $f['type'] ? ' data-type="email"' : '' ) . $maxa . $reqa . '>';
 		}
 
 		if ( ! empty( $f['hint'] ) ) {
@@ -490,7 +542,7 @@ class BI_Registration {
 	/** Erfolgs-Screen */
 	private static function render_success( $seminar_id ) {
 		$info  = $seminar_id ? self::seminar_info( $seminar_id ) : array( 'title' => '', 'nummer' => '', 'termin' => '', 'ansprechpartner' => '' );
-		$reset = remove_query_arg( array( 'bi_anmeldung', 'old' ) );
+		$reset = remove_query_arg( array( 'bi_anmeldung', 'old', 'e' ) );
 		ob_start();
 		?>
 		<div class="bi-wiz bi-wiz--success" style="--accent:#E2001A;">
@@ -585,26 +637,144 @@ class BI_Registration {
 		return array_merge( $known, $unknown );
 	}
 
+	/** ---------- Missbrauchsschutz ---------- */
+
+	/** Lebensdauer zwischengelagerter Formulareingaben nach einem Fehler (Sekunden) */
+	const ERR_TTL = 600;
+
+	/** Option, die einen ausgelösten Mail-Notaus für die Adminmeldung festhält */
+	const BUDGET_OPTION = 'bi_mail_budget_tripped';
+
+	/**
+	 * Fehlerhafte Eingaben serverseitig zwischenlagern.
+	 *
+	 * Früher hingen alle Formularwerte als old[...] an der Redirect-URL. Damit
+	 * standen Name, Anschrift, Telefon, Mailadressen, Betrieb und – besonders
+	 * heikel – die Angabe zur Gewerkschaftsmitgliedschaft in Browserverlauf,
+	 * Server- und Proxy-Logs, Referrern und in jeder geteilten URL. Zurück geht
+	 * jetzt nur ein Zufallstoken, das nach zehn Minuten wertlos ist.
+	 */
+	private static function store_error_state( array $data ) {
+		$token = wp_generate_password( 20, false, false );
+		set_transient( 'bi_reg_err_' . $token, $data, self::ERR_TTL );
+		return $token;
+	}
+
+	/** Zwischengelagerte Eingaben zu einem Token (leeres Array = unbekannt/abgelaufen) */
+	private static function read_error_state( $token ) {
+		$token = preg_replace( '/[^A-Za-z0-9]/', '', (string) $token );
+		if ( '' === $token ) {
+			return array();
+		}
+		$data = get_transient( 'bi_reg_err_' . $token );
+		return is_array( $data ) ? $data : array();
+	}
+
+	/** Abbruch mit Zustand ($state = err|limit|fail) und optional gemerkten Eingaben */
+	private static function fail( $state, $redirect, $seminar_id, array $data = array() ) {
+		$args = array( 'bi_anmeldung' => $state, 'seminar' => (int) $seminar_id );
+		if ( $data ) {
+			$args['e'] = self::store_error_state( $data );
+		}
+		wp_safe_redirect( add_query_arg( $args, $redirect ) );
+		exit;
+	}
+
+	/**
+	 * Globaler Notaus für den Mailversand.
+	 *
+	 * Jede Anmeldung erzeugt drei Mails, zwei davon mit serverseitig gerendertem
+	 * PDF- und Word-Anhang. IP- und Mail-Kontingente lassen sich durch Rotation
+	 * umgehen, dieses Budget nicht: Es begrenzt, wie viele Anmeldemails pro
+	 * Stunde die Domain überhaupt verlassen. Im Normalbetrieb greift es nie.
+	 * Anmeldungen werden dabei weiterhin vollständig gespeichert – es entfällt
+	 * nur der automatische Versand, die Geschäftsstelle sieht sie in der Liste.
+	 */
+	private static function mail_budget_ok() {
+		$limit = (int) apply_filters( 'bi_mail_budget_per_hour', 100 );
+		if ( $limit <= 0 ) {
+			return true; // 0 oder negativ = Budget bewusst abgeschaltet
+		}
+		$key = 'bi_mail_budget_' . gmdate( 'YmdH' );
+		$n   = (int) get_transient( $key );
+		if ( $n >= $limit ) {
+			update_option( self::BUDGET_OPTION, time(), false );
+			return false;
+		}
+		set_transient( $key, $n + 1, 2 * HOUR_IN_SECONDS );
+		return true;
+	}
+
+	/** Hinweis im Backend, wenn der Mail-Notaus in den letzten 24 Stunden gegriffen hat */
+	public static function budget_notice() {
+		$when = (int) get_option( self::BUDGET_OPTION, 0 );
+		if ( ! $when || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		if ( time() - $when > DAY_IN_SECONDS ) {
+			delete_option( self::BUDGET_OPTION );
+			return;
+		}
+		echo '<div class="notice notice-warning"><p><strong>Bildungsprogramm:</strong> '
+			. 'Das stündliche Mailbudget für Anmeldungen war zuletzt am '
+			. esc_html( date_i18n( 'd.m.Y H:i', $when ) ) . ' erschöpft. '
+			. 'Anmeldungen wurden weiterhin gespeichert, aber nicht per Mail verschickt – '
+			. 'bitte die Liste der Anmeldungen prüfen.</p></div>';
+	}
+
+	/** Signierte Zeitmarke fürs Formular (Gegenstück zu submitted_too_fast) */
+	private static function timestamp_field() {
+		$ts = time();
+		return '<input type="hidden" name="bi_ts" value="' . esc_attr( $ts ) . '">'
+			. '<input type="hidden" name="bi_tsig" value="' . esc_attr( wp_hash( 'bi_form|' . $ts ) ) . '">';
+	}
+
+	/**
+	 * Wurde das Formular unrealistisch schnell abgeschickt?
+	 *
+	 * Vier Schritte mit rund zwanzig Feldern kostet keinen Menschen unter drei
+	 * Sekunden. Bewusst „fail open": Fehlen die Felder ganz – etwa weil ein
+	 * Seiten-Cache noch eine ältere Fassung des Formulars ausliefert –, gilt das
+	 * NICHT als Bot. Nur eine vorhandene, gültig signierte und zu junge Zeitmarke
+	 * führt zur Ablehnung. So kann ein Cache niemandem die Anmeldung verbauen.
+	 */
+	private static function submitted_too_fast() {
+		$ts  = (int) bi_post( 'bi_ts' );
+		$sig = bi_post( 'bi_tsig' );
+		if ( ! $ts || '' === $sig || ! hash_equals( wp_hash( 'bi_form|' . $ts ), $sig ) ) {
+			return false;
+		}
+		$age = time() - $ts;
+		return ( $age >= 0 && $age < (int) apply_filters( 'bi_min_fill_seconds', 3 ) );
+	}
+
 	/** ---------- POST verarbeiten ---------- */
 
 	public static function handle_submit() {
-		$redirect = isset( $_POST['redirect'] ) ? esc_url_raw( wp_unslash( $_POST['redirect'] ) ) : home_url();
+		// Ziel muss auf der eigenen Seite liegen. wp_safe_redirect() würde fremde
+		// Hosts zwar ebenfalls abweisen, aber ins wp-admin umleiten – dort landet
+		// eine anmeldende Person auf der Loginmaske statt auf der Anmeldeseite.
+		$redirect = wp_validate_redirect( esc_url_raw( bi_post( 'redirect' ) ), self::anmeldung_page_url() ?: home_url() );
 
-		if ( ! isset( $_POST['bi_anmeldung_nonce'] ) || ! wp_verify_nonce( $_POST['bi_anmeldung_nonce'], 'bi_anmeldung' ) ) {
+		if ( ! wp_verify_nonce( bi_post( 'bi_anmeldung_nonce' ), 'bi_anmeldung' ) ) {
 			wp_safe_redirect( add_query_arg( 'bi_anmeldung', 'err', $redirect ) );
 			exit;
 		}
-		if ( ! empty( $_POST['bi_hp'] ) ) {
+
+		$seminar_id = (int) bi_post( 'seminar_id' );
+
+		// Honeypot und Zeitfalle: beides kann nur ein Automat auslösen. Beide melden
+		// bewusst Erfolg zurück, damit ein Bot nicht erkennt, woran er gescheitert ist.
+		if ( '' !== bi_post( 'bi_hp' ) || self::submitted_too_fast() ) {
 			wp_safe_redirect( add_query_arg( 'bi_anmeldung', 'ok', $redirect ) );
 			exit;
 		}
 
-		$seminar_id = intval( $_POST['seminar_id'] ?? 0 );
-		$data       = array();
-		$errors     = false;
+		$data   = array();
+		$errors = false;
 
 		foreach ( self::all_fields() as $key => $f ) {
-			$raw = isset( $_POST[ $key ] ) ? wp_unslash( $_POST[ $key ] ) : '';
+			$raw = bi_post( $key );
 			if ( 'textarea' === $f['type'] ) {
 				$raw = sanitize_textarea_field( $raw );
 			} elseif ( 'email' === $f['type'] ) {
@@ -621,6 +791,16 @@ class BI_Registration {
 			if ( 'email' === $f['type'] && '' !== $raw && ! is_email( $raw ) ) {
 				$errors = true;
 			}
+			// Längenbegrenzung: im Browser verhindert maxlength die Eingabe, hier
+			// scheitert ein direkt abgesetztes POST mit überlangen Werten.
+			if ( ! empty( $f['max'] ) && mb_strlen( $raw ) > (int) $f['max'] ) {
+				$errors = true;
+			}
+			// Auswahlfelder dürfen nur ihre eigenen Optionen liefern.
+			$allowed = self::allowed_values( $f );
+			if ( $allowed && '' !== $raw && ! in_array( $raw, $allowed, true ) ) {
+				$errors = true;
+			}
 			$data[ $key ] = $raw;
 		}
 
@@ -630,18 +810,32 @@ class BI_Registration {
 			$errors = true;
 		}
 
-		if ( empty( $_POST['datenschutz'] ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
+		if ( '' === bi_post( 'datenschutz' ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
 			|| ! BI_CPT::is_bookable( $seminar_id ) ) {
 			$errors = true;
 		}
 
 		if ( $errors ) {
-			wp_safe_redirect( add_query_arg( array(
-				'bi_anmeldung' => 'err',
-				'seminar'      => $seminar_id,
-				'old'          => array_map( 'rawurlencode', $data ),
-			), $redirect ) );
+			self::fail( 'err', $redirect, $seminar_id, $data );
+		}
+
+		// Doppelte Anmeldung derselben Person zum selben Seminar innerhalb weniger
+		// Minuten: kommt im Alltag durch Doppelklick oder Zurück-Taste zustande.
+		// Für die anmeldende Person ist das ein Erfolg – nur die zweite Mailrunde
+		// entfällt. Nebenbei verteuert das jeden Wiederholungsversuch.
+		$dupe = 'bi_dupe|' . strtolower( $data['email'] ) . '|' . $seminar_id;
+		if ( ! bi_rate_hit( $dupe, 1, 10 * MINUTE_IN_SECONDS ) ) {
+			wp_safe_redirect( add_query_arg( array( 'bi_anmeldung' => 'ok', 'seminar' => $seminar_id ), $redirect ) );
 			exit;
+		}
+
+		// Zwei Kontingente, beide großzügig über jedem realistischen Verhalten:
+		// pro Mailadresse (fängt Rotation über wechselnde Seminare ab) und pro
+		// Absenderadresse (fängt Rotation über wechselnde Mailadressen ab).
+		$ok_mail = bi_rate_hit( 'bi_mail|' . strtolower( $data['email'] ), (int) apply_filters( 'bi_limit_per_email', 5 ), HOUR_IN_SECONDS );
+		$ok_ip   = bi_rate_hit( 'bi_ip|' . bi_client_ip(), (int) apply_filters( 'bi_limit_per_ip', 20 ), HOUR_IN_SECONDS );
+		if ( ! $ok_mail || ! $ok_ip ) {
+			self::fail( 'limit', $redirect, $seminar_id, $data );
 		}
 
 		// GS-relevante PLZ = betriebliche PLZ -> Spalte plz.
@@ -649,7 +843,7 @@ class BI_Registration {
 		// auch nach Löschen/Re-Import des Seminars lesbar bleibt.
 		$info = self::seminar_info( $seminar_id );
 		global $wpdb;
-		$wpdb->insert( self::table(), array(
+		$inserted = $wpdb->insert( self::table(), array(
 			'created'        => current_time( 'mysql' ),
 			'seminar_id'     => $seminar_id,
 			// Seminarform mitschreiben: bleibt lesbar, auch wenn der Post später verschwindet.
@@ -673,8 +867,25 @@ class BI_Registration {
 		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
 
 		$submission_id = (int) $wpdb->insert_id;
-		if ( $submission_id ) {
-			BI_Tracking::track( 'anmeldung', $seminar_id, $submission_id );
+
+		// Scheitert der Insert (volle Platte, Schemaabweichung, DB-Fehler), darf die
+		// Seite keinen Erfolg melden: die Person hielte sich sonst für angemeldet,
+		// ohne dass es einen Datensatz gibt. Die Eingaben bleiben erhalten, damit
+		// ein zweiter Versuch nicht bei null anfängt.
+		if ( false === $inserted || ! $submission_id ) {
+			error_log( 'BI_Registration: Anmeldung konnte nicht gespeichert werden. ' . $wpdb->last_error ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			// Duplikatsperre wieder lösen: Es gibt keine erste Anmeldung, gegen die
+			// sie schützen müsste. Ohne diese Freigabe liefe der zweite Versuch in
+			// die Sperre und bekäme einen Erfolg gemeldet, den es nicht gibt.
+			bi_rate_release( $dupe );
+			self::fail( 'fail', $redirect, $seminar_id, $data );
+		}
+
+		BI_Tracking::track( 'anmeldung', $seminar_id, $submission_id );
+
+		// Der Notaus greift erst hier: gespeichert ist die Anmeldung in jedem Fall,
+		// nur der automatische Versand entfällt, wenn das Stundenbudget erschöpft ist.
+		if ( self::mail_budget_ok() ) {
 			BI_Mailer::dispatch( self::get( $submission_id ) );
 		}
 
@@ -693,7 +904,9 @@ class BI_Registration {
 
 	private static function current_url() {
 		$req = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/';
-		$req = remove_query_arg( array( 'bi_anmeldung', 'old' ), $req );
+		// `old` stammt aus der alten Fassung und wird nur noch abgeräumt, falls
+		// jemand eine solche URL gespeichert hat; `e` ist das Fehlertoken.
+		$req = remove_query_arg( array( 'bi_anmeldung', 'old', 'e' ), $req );
 		return home_url( $req );
 	}
 
@@ -955,14 +1168,31 @@ class BI_Registration {
 
 	/** ---------- CSV-Export ---------- */
 
+	/**
+	 * Zelle für den Export entschärfen.
+	 *
+	 * Excel und LibreOffice werten Zellen, die mit = + - @ oder einem Steuerzeichen
+	 * beginnen, beim Öffnen als Formel aus. Ein Bemerkungsfeld mit =HYPERLINK(…)
+	 * liefe also auf dem Rechner der Person, die den Export öffnet. Das
+	 * vorangestellte Hochkomma zwingt zur Textdarstellung; im Tabellenprogramm
+	 * ist es nicht Teil des Zellinhalts.
+	 */
+	private static function csv_cell( $value ) {
+		$value = (string) $value;
+		if ( '' !== $value && false !== strpos( "=+-@\t\r", $value[0] ) ) {
+			$value = "'" . $value;
+		}
+		return $value;
+	}
+
 	public static function handle_export() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_export_anmeldungen' );
 
-		$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
-		$form   = isset( $_GET['form'] ) ? sanitize_key( $_GET['form'] ) : '';
+		$search = sanitize_text_field( bi_get( 's' ) );
+		$form   = sanitize_key( bi_get( 'form' ) );
 		$form   = in_array( $form, bi_seminar_post_types(), true ) ? $form : '';
 		$rows   = self::fetch( $search, 'created', 'desc', 100000, 0, $form );
 		$fields = self::all_fields();
@@ -1001,7 +1231,7 @@ class BI_Registration {
 			}
 			$line[] = $r['status'];
 			$line[] = $r['kampagne'] ?? '';
-			fputcsv( $out, $line, ';' );
+			fputcsv( $out, array_map( array( __CLASS__, 'csv_cell' ), $line ), ';' );
 		}
 		fclose( $out );
 		exit;
