@@ -631,7 +631,7 @@ class BI_Tracking {
 					</tr>
 					<tr>
 						<th><label for="bi_k_url">Ziel: freie Adresse</label></th>
-						<td><input type="url" id="bi_k_url" class="large-text" name="ziel_url" value="<?php echo esc_attr( $k['ziel_url'] ); ?>" placeholder="<?php echo esc_attr( home_url( '/seminare/?handlungsfeld=digitalisierung' ) ); ?>">
+						<td><input type="url" id="bi_k_url" class="large-text" name="ziel_url" value="<?php echo esc_attr( $k['ziel_url'] ); ?>" placeholder="<?php echo esc_attr( home_url( '/seminare/?thema=digitalisierung' ) ); ?>">
 							<p class="description">Wird nur genutzt, wenn oben kein Seminar gewählt ist – z. B. die Seminarsuche mit
 								gesetzten Filtern. Am einfachsten: Suche im Frontend wie gewünscht filtern und die Adresse aus der
 								Adresszeile kopieren. Muss auf dieser Website liegen; ohne Angabe geht es zur Seminarübersicht.</p></td>
@@ -836,7 +836,7 @@ class BI_Tracking {
 	/** ---------- Speichern ---------- */
 
 	public static function save_kampagne() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_save_kampagne' );
@@ -896,7 +896,7 @@ class BI_Tracking {
 	}
 
 	public static function delete_kampagne() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_delete_kampagne' );
@@ -911,7 +911,7 @@ class BI_Tracking {
 	}
 
 	public static function prune_events() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_prune_events' );

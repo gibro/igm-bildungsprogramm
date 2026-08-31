@@ -36,7 +36,7 @@
  *   Weil Betreff/Text schon beim Eintreffen der Anmeldung gerendert werden, bleiben
  *   bereits eingereihte Einträge auch dann korrekt, wenn der Trigger später geändert wird.
  *
- * Admin-Oberfläche (Seite „Mail-Benachrichtigungen"):
+ * Admin-Oberfläche (Seite „Benachrichtigungen"):
  *   Übersicht  – Hero mit den drei seitenweiten Einstellungen (Wöchentlicher Versand,
  *                Test-Versand, Darstellung), darunter der Konsistenz-Check und die
  *                Listentabelle aller Benachrichtigungen (BI_Mail_Table).
@@ -98,7 +98,7 @@ class BI_Mailer {
 		add_action( 'admin_init', array( __CLASS__, 'ensure_cron' ) );
 	}
 
-	/** Editor-Assets nur auf der Seite „Mail-Benachrichtigungen" */
+	/** Editor-Assets nur auf der Seite „Benachrichtigungen" */
 	public static function admin_assets() {
 		if ( ! self::is_page() ) {
 			return;
@@ -107,7 +107,7 @@ class BI_Mailer {
 		wp_enqueue_script( 'bi-mail-editor', BI_URL . 'assets/js/mail-editor.js', array(), BI_VERSION, true );
 	}
 
-	/** Läuft gerade die Seite „Mail-Benachrichtigungen"? */
+	/** Läuft gerade die Seite „Benachrichtigungen"? */
 	private static function is_page() {
 		$page = isset( $_REQUEST['page'] ) ? sanitize_key( wp_unslash( $_REQUEST['page'] ) ) : '';
 		return self::PAGE === $page;
@@ -294,13 +294,15 @@ class BI_Mailer {
 			array(
 				'id'      => 3,
 				'active'  => 1,
-				'name'    => 'Benachrichtigung an Ansprechpartner',
-				'type'    => 'ansprechpartner',
+				'name'    => 'Benachrichtigung an das Bildungszentrum',
+				'type'    => 'bildungszentrum',
 				'recipient' => '',
 				'from'    => $default_from,
 				'reply_to' => '{email}',   // Antwort geht direkt an die angemeldete Person
 				'subject' => 'Neue Anmeldung: {seminar_titel}',
-				'body'    => "Hallo {ansprechpartner},\n\nfür Ihr Seminar ist eine neue Anmeldung eingegangen.\n\n- Seminar: **{seminar_titel}** ({seminar_nummer})\n- Ort: {seminar_ort}\n- Start: {seminar_startdatum}\n\n- Teilnehmer*in: **{name}**, {betrieb}, PLZ {plz}\n- E-Mail: {email}",
+				// Keine Anrede mit {ansprechpartner}: Empfänger ist eine Stelle,
+				// keine Person – und das Feld kann leer sein.
+				'body'    => "für das Seminar ist eine neue Anmeldung eingegangen.\n\n- Seminar: **{seminar_titel}** ({seminar_nummer})\n- Ort: {seminar_ort}\n- Start: {seminar_startdatum}\n\n- Teilnehmer*in: **{name}**, {betrieb}, PLZ {plz}\n- E-Mail: {email}",
 				'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 				'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
 			),
@@ -353,6 +355,13 @@ class BI_Mailer {
 			$body     = self::replace( $trigger['body'] ?? '', $ctx );
 			$reply_to = self::replace( $trigger['reply_to'] ?? '', $ctx );
 
+			// KEINE KOPIE IM TEST. Ein Probeversand geht an die eingetragene
+			// Testadresse – die Kopie ginge aber an den echten Verteiler und
+			// damit an Menschen, die gerade nichts von einem Test erfahren
+			// sollen. Der Testhinweis im Text nennt stattdessen, wer sie
+			// bekommen hätte.
+			$cc = $route_to ? '' : self::replace( $trigger['cc'] ?? '', $ctx );
+
 			// Wöchentliche Zusammenfassung: nur einreihen. Der Soforttest ($force_to)
 			// umgeht die Warteschlange, damit der Admin sofort ein Ergebnis sieht.
 			if ( '' === $force_to && 'weekly' === self::schedule_of( $trigger ) ) {
@@ -362,6 +371,7 @@ class BI_Mailer {
 					'to'             => $to,
 					'from'           => $trigger['from'] ?? '',
 					'reply_to'       => $reply_to,
+					'cc'             => $cc,
 					'subject'        => $subject,
 					'body'           => $body,
 					'digest_subject' => $trigger['digest_subject'] ?? '',
@@ -374,15 +384,19 @@ class BI_Mailer {
 			}
 
 			if ( $route_to ) {
+				$kopie   = self::replace( $trigger['cc'] ?? '', $ctx );
 				$subject = '[TEST] ' . $subject;
-				$body    = self::test_hint( 'diese Mail wäre an „' . ( $orig ?: 'kein Empfänger ermittelt' ) . '“ gegangen' ) . $body;
+				$body    = self::test_hint(
+					'diese Mail wäre an „' . ( $orig ?: 'kein Empfänger ermittelt' ) . '“ gegangen'
+					. ( '' !== trim( $kopie ) ? ', mit Kopie an „' . $kopie . '“' : '' )
+				) . $body;
 			}
 
 			// PDF-Anhänge nur beim Sofortversand: In der Wochenzusammenfassung
 			// stecken mehrere Seminare in einer Mail, ein Anhang wäre dort nicht zuzuordnen.
 			$attachments = self::build_attachments( $trigger, $submission );
 
-			$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '', $reply_to, $attachments );
+			$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '', $reply_to, $attachments, $cc );
 
 			if ( $attachments && class_exists( 'BI_PDF' ) ) {
 				BI_PDF::cleanup( $attachments ); // temporäre Dateien sofort wieder entfernen
@@ -392,6 +406,145 @@ class BI_Mailer {
 				$sent++;
 			} else {
 				error_log( '[BI-Mailer] Versand an ' . $to . ' fehlgeschlagen (Benachrichtigung: ' . ( $trigger['name'] ?? '?' ) . ')' );
+			}
+		}
+		return $sent;
+	}
+
+	/**
+	 * Benachrichtigungen zu einer Reihenanmeldung versenden.
+	 *
+	 * ========================================================================
+	 *  EINE MAIL JE EMPFÄNGER, NICHT EINE JE TEIL
+	 * ========================================================================
+	 *  Eine Reihenanmeldung ist in der Datenbank eine Zeile je Teil. Würde für
+	 *  jede Zeile dispatch() laufen, bekäme die angemeldete Person vier
+	 *  Bestätigungen für eine Anmeldung und die Geschäftsstelle vier gleiche
+	 *  Meldungen – die Zerlegung, die intern richtig ist, schlüge nach außen
+	 *  als Wiederholung durch.
+	 *
+	 *  Deshalb wird je Benachrichtigung erst der Empfänger ermittelt – und zwar
+	 *  je Teil, denn er kann sich unterscheiden – und dann nach Adresse
+	 *  gruppiert. Jede Adresse bekommt eine Mail, die genau die Teile nennt,
+	 *  die sie etwas angehen: Die Teilnehmerin sieht alle vier, das
+	 *  Bildungszentrum Lohr nur die beiden, die bei ihm stattfinden.
+	 *
+	 *  Umfasst eine Gruppe mehrere Teile, stehen die {seminar_*}-Platzhalter für
+	 *  die Reihe statt für ein einzelnes Seminar (siehe build_context_gruppe).
+	 *  Bei genau einem Teil ist das Ergebnis Zeichen für Zeichen dasselbe wie
+	 *  bei einer Einzelanmeldung – bestehende Vorlagen ändern ihr Verhalten
+	 *  also nur dort, wo sie es müssen.
+	 *
+	 * @param array  $submissions Zeilen einer Sammelanmeldung (BI_Registration::sammlung()).
+	 * @param string $force_to    Wie bei dispatch(): Soforttest an genau diese Adresse.
+	 * @return int Anzahl sofort versendeter Mails.
+	 */
+	public static function dispatch_reihe( $submissions, $force_to = '' ) {
+		$submissions = array_values( array_filter( (array) $submissions ) );
+		if ( ! $submissions ) {
+			return 0;
+		}
+		// Eine einzelne Zeile ist keine Sammlung – dann greift der normale Weg.
+		if ( 1 === count( $submissions ) ) {
+			return self::dispatch( $submissions[0], $force_to );
+		}
+
+		$test     = self::get_test();
+		$route_to = '';
+		if ( $force_to && is_email( $force_to ) ) {
+			$route_to = $force_to;
+		} elseif ( ! empty( $test['enabled'] ) && is_email( $test['address'] ) ) {
+			$route_to = $test['address'];
+		}
+
+		// Kontext je Teil einmal bauen: Jeder kostet mehrere Meta-Abfragen und einen
+		// PLZ-Nachschlag, und er wird für jede Benachrichtigung erneut gebraucht.
+		$ctx_je_teil = array();
+		foreach ( $submissions as $i => $sub ) {
+			$ctx_je_teil[ $i ] = self::build_context( $sub );
+		}
+
+		$sent = 0;
+		foreach ( self::get_triggers() as $trigger ) {
+			if ( empty( $trigger['active'] ) ) {
+				continue;
+			}
+
+			// Empfänger je Teil bestimmen und nach Adresse bündeln. Die Bedingung
+			// wird ebenfalls je Teil geprüft: Eine Vorlage nur für Online-Seminare
+			// darf nicht mitkommen, weil ein anderer Teil in Präsenz läuft.
+			$buendel = array();
+			foreach ( $submissions as $i => $sub ) {
+				if ( '' === $force_to && ! self::condition_met( $trigger, $sub ) ) {
+					continue;
+				}
+				$to = self::resolve_recipient( $trigger, $sub, $ctx_je_teil[ $i ] );
+				if ( ! $to || ! is_email( $to ) ) {
+					continue;
+				}
+				$buendel[ strtolower( $to ) ][] = $sub;
+			}
+
+			foreach ( $buendel as $gruppe ) {
+				$ctx  = self::build_context_gruppe( $gruppe );
+				$orig = self::resolve_recipient( $trigger, $gruppe[0], $ctx );
+				$to   = $route_to ? $route_to : $orig;
+				if ( ! $to || ! is_email( $to ) ) {
+					continue;
+				}
+
+				$subject  = self::replace( $trigger['subject'] ?? '', $ctx );
+				$body     = self::replace( $trigger['body'] ?? '', $ctx );
+				$reply_to = self::replace( $trigger['reply_to'] ?? '', $ctx );
+				// Keine Kopie im Test – Begründung beim Einzelversand weiter oben.
+				$cc       = $route_to ? '' : self::replace( $trigger['cc'] ?? '', $ctx );
+
+				if ( '' === $force_to && 'weekly' === self::schedule_of( $trigger ) ) {
+					self::queue_add( array(
+						'group'          => self::trigger_key( $trigger ),
+						'trigger'        => $trigger['name'] ?? '',
+						'to'             => $to,
+						'from'           => $trigger['from'] ?? '',
+						'reply_to'       => $reply_to,
+						'cc'             => $cc,
+						'subject'        => $subject,
+						'body'           => $body,
+						'digest_subject' => $trigger['digest_subject'] ?? '',
+						'digest_intro'   => $trigger['digest_intro'] ?? '',
+						'created'        => current_time( 'mysql' ),
+						'test'           => $route_to ? 1 : 0,
+						'orig'           => $orig,
+					) );
+					continue;
+				}
+
+				if ( $route_to ) {
+					$kopie   = self::replace( $trigger['cc'] ?? '', $ctx );
+					$subject = '[TEST] ' . $subject;
+					$body    = self::test_hint(
+						'diese Mail wäre an „' . ( $orig ?: 'kein Empfänger ermittelt' ) . '“ gegangen'
+						. ( '' !== trim( $kopie ) ? ', mit Kopie an „' . $kopie . '“' : '' )
+					) . $body;
+				}
+
+				// Anhänge je Teil dieser Gruppe: Seminardetails und Beschlussvorlage
+				// gelten immer für genau ein Seminar.
+				$attachments = array();
+				foreach ( $gruppe as $sub ) {
+					$attachments = array_merge( $attachments, self::build_attachments( $trigger, $sub ) );
+				}
+
+				$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '', $reply_to, $attachments, $cc );
+
+				if ( $attachments && class_exists( 'BI_PDF' ) ) {
+					BI_PDF::cleanup( $attachments );
+				}
+
+				if ( $ok ) {
+					$sent++;
+				} else {
+					error_log( '[BI-Mailer] Versand an ' . $to . ' fehlgeschlagen (Benachrichtigung: ' . ( $trigger['name'] ?? '?' ) . ')' );
+				}
 			}
 		}
 		return $sent;
@@ -446,10 +599,14 @@ class BI_Mailer {
 				return $ctx['{geschaeftsstelle_email}'];
 			case 'teilnehmer':
 				return $submission['email'];
+			// Beide Typen meinen dasselbe: das zuständige Bildungszentrum.
+			// „ansprechpartner" ist der Altbestand – gespeicherte Trigger werden
+			// beim Aktualisieren umgeschrieben (siehe bi_migrate_bz_email), aber
+			// ein übersehener soll nicht ins Leere laufen, sondern weiter dorthin
+			// zustellen, wo er es immer tat.
 			case 'bildungszentrum':
-				return self::bildungszentrum_email( $submission['seminar_id'] );
 			case 'ansprechpartner':
-				return get_post_meta( $submission['seminar_id'], '_bi_ansprechpartner_email', true );
+				return self::bildungszentrum_email( $submission['seminar_id'] );
 			case 'custom':
 			default:
 				return self::replace( $trigger['recipient'] ?? '', $ctx );
@@ -488,7 +645,25 @@ class BI_Mailer {
 		return $want === $have;
 	}
 
-	private static function bildungszentrum_email( $seminar_id ) {
+	/**
+	 * Die Zustelladresse eines Seminars.
+	 *
+	 * ZWEI QUELLEN, EINE RANGFOLGE:
+	 *   1. `_bi_bz_email` am Seminar – die Ausnahme schlägt die Regel. Ein
+	 *      einzelnes Seminar darf eine abweichende Anmeldestelle haben.
+	 *   2. Term-Meta `email` am Begriff des zuständigen Bildungszentrums –
+	 *      die Regel. An einer Stelle gepflegt, gilt für alle seine Seminare.
+	 *
+	 * DIE ADRESSE DER ANSPRECHPERSON KOMMT HIER NICHT VOR. Sie stand bis
+	 * 1.115.0 im selben Feld und war deshalb faktisch der Empfänger; seit der
+	 * Trennung ist sie eine reine Kontaktangabe für die Detailseite. Wer sie
+	 * hier wieder einhängt, schickt Anmeldungen in ein persönliches Postfach.
+	 */
+	public static function bildungszentrum_email( $seminar_id ) {
+		$eigen = trim( (string) get_post_meta( $seminar_id, '_bi_bz_email', true ) );
+		if ( $eigen && is_email( $eigen ) ) {
+			return $eigen;
+		}
 		$terms = wp_get_object_terms( $seminar_id, BI_TAX_ORT );
 		if ( is_array( $terms ) && $terms ) {
 			$mail = get_term_meta( $terms[0]->term_id, 'email', true );
@@ -601,7 +776,24 @@ class BI_Mailer {
 				}
 			}
 
-			if ( self::send( $to, $subject, $body, $first['from'] ?? '', implode( ', ', $reply_to ) ) ) {
+			// DIE KOPIE WIRD NICHT ZUSAMMENGEFASST, sondern die des ersten
+			// Eintrags genommen. Bei den Antwortadressen ist das Sammeln richtig
+			// – eine Antwort soll alle enthaltenen Personen erreichen. Bei der
+			// Kopie wäre es ein Datenleck: Steht dort ein Platzhalter wie
+			// {email}, bekäme jede angemeldete Person die Zusammenfassung samt
+			// den Adressen aller anderen zu sehen. Eine Kopie ist als fester
+			// Mitleser gedacht (Archiv, Postfach), und der ist über alle
+			// Einträge einer Gruppe derselbe.
+			$cc = '';
+			foreach ( $items as $it ) {
+				$c = trim( (string) ( $it['cc'] ?? '' ) );
+				if ( '' !== $c ) {
+					$cc = $c;
+					break;
+				}
+			}
+
+			if ( self::send( $to, $subject, $body, $first['from'] ?? '', implode( ', ', $reply_to ), array(), $cc ) ) {
 				$sent++;
 			} else {
 				error_log( '[BI-Mailer] Wochenzusammenfassung an ' . $to . ' fehlgeschlagen (Benachrichtigung: ' . ( $first['trigger'] ?? '?' ) . ')' );
@@ -740,7 +932,9 @@ class BI_Mailer {
 	/** ---------- Platzhalter ---------- */
 
 	public static function placeholders() {
-		return array(
+		// Eigene Felder aus der Datenpflege kommen hinten dran; ein Kern-Platzhalter
+		// wird dabei nie überschrieben (siehe BI_Felder::platzhalter_labels()).
+		$kern = array(
 			'{anrede}'               => 'Anrede',
 			'{titel}'                => 'Titel',
 			'{vorname}'              => 'Vorname',
@@ -774,17 +968,40 @@ class BI_Mailer {
 			'{seminar_anreisedatum}' => 'Anreisedatum',
 			'{seminar_anreiseuhrzeit}' => 'Anreiseuhrzeit',
 			'{seminar_themen}'       => 'Themen im Seminar',
-			'{seminar_ort}'          => 'Bildungszentrum / Ort (Online: Veranstalter*in)',
+			'{seminar_ort}'          => 'Zuständiges Bildungszentrum (Online: Veranstalter*in)',
+			'{seminar_seminarort}'   => 'Seminarort (tatsächlicher Veranstaltungsort)',
+			'{seminar_kosten}'       => 'Kosten / Hinweis (Freitext)',
+			'{seminar_kostenaufstellung}' => 'Aufstellung der Kostenposten (mehrzeilig, ab Programm 2027)',
+			'{seminar_gesamtkosten}' => 'Summe der Kostenposten (ab Programm 2027)',
+			'{seminar_kinderbetreuung}' => 'Kinderbetreuung („wird angeboten" oder leer)',
 			'{seminar_form}'         => 'Seminarform (Präsenz / Online)',
 			'{seminar_untertitel}'   => 'Untertitel (nur Online-Seminare)',
 			'{seminar_referenten}'   => 'Referent*innen (nur Online-Seminare)',
 			'{seminar_plattform}'    => 'Webinar-Tool (nur Online-Seminare)',
 			'{seminar_online_link}'  => 'Öffentlicher Online-Link (nur Online-Seminare)',
 			'{seminar_anmeldelink}'  => 'Externer Anmeldelink (nur Teams-Webinare)',
-			'{ansprechpartner}'      => 'Ansprechpartner des Seminars',
-			'{ansprechpartner_email}' => 'E-Mail des Ansprechpartners',
+			'{ansprechpartner}'         => 'Name der Ansprechperson',
+			'{ansprechpartner_telefon}' => 'Telefon der Ansprechperson (leer, wenn nicht gepflegt)',
+			'{bildungszentrum_email}'   => 'E-Mail des zuständigen Bildungszentrums – die Zustelladresse',
+			// Alt-Name derselben Adresse. Er steht in Vorlagen, die es seit
+			// Jahren gibt, und wird deshalb nicht abgeschafft – aber als das
+			// beschriftet, was er liefert. Neue Vorlagen nehmen den Namen oben.
+			'{ansprechpartner_email}'   => 'dasselbe wie {bildungszentrum_email} (alter Name)',
+			// Ausbildungsreihen. Bei einer Anmeldung zu einem einzelnen Seminar
+			// bleiben sie leer – bis auf {termine}, das dann die eine Zeile trägt.
+			'{reihe_titel}'          => 'Titel der Ausbildungsreihe (nur bei Reihenanmeldung)',
+			'{reihe_gruppe}'         => 'Feste Gruppe, z. B. „Reihe 1" (nur bei Reihenanmeldung)',
+			'{reihe_teile}'          => 'Anzahl der Teile in dieser Mail (nur bei Reihenanmeldung)',
+			'{teil}'                 => 'Nummer des Teils (nur bei Reihenanmeldung)',
+			'{termine}'              => 'Alle Termine dieser Anmeldung als Liste (Titel, Zeitraum, Ort, Nummer)',
 			'{datum}'                => 'Heutiges Datum',
 		);
+		// Erst die eigenen Seminarfelder, dann die eigenen Anmeldefelder. Beide
+		// treten hinter den Kern zurück: Ein selbst angelegtes Feld darf einen
+		// Kern-Platzhalter nie überschreiben, sonst stünde in {email} plötzlich
+		// etwas anderes als die Mailadresse der anmeldenden Person.
+		$mit_seminar = array_merge( $kern, BI_Felder::platzhalter_labels( $kern ) );
+		return array_merge( $mit_seminar, BI_Anmeldefelder::platzhalter_labels( $mit_seminar ) );
 	}
 
 	/**
@@ -793,7 +1010,7 @@ class BI_Mailer {
 	 */
 	public static function email_placeholders() {
 		$all  = self::placeholders();
-		$keys = array( '{email}', '{betrieb_email}', '{geschaeftsstelle_email}', '{ansprechpartner_email}' );
+		$keys = array( '{email}', '{betrieb_email}', '{geschaeftsstelle_email}', '{bildungszentrum_email}', '{ansprechpartner_email}' );
 		$out  = array();
 		foreach ( $keys as $key ) {
 			if ( isset( $all[ $key ] ) ) {
@@ -801,6 +1018,27 @@ class BI_Mailer {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Kostenposten als mehrzeilige Liste für den Platzhalter
+	 * {seminar_kostenaufstellung} – je Zeile „- Posten: Betrag", zuletzt die
+	 * Summe. Leer, solange keine aufgeschlüsselten Kosten gepflegt sind.
+	 */
+	private static function kostenaufstellung( $seminar_id ) {
+		$posten = BI_CPT::kosten_posten( $seminar_id );
+		if ( ! $posten ) {
+			return '';
+		}
+		$zeilen = array();
+		foreach ( $posten as $p ) {
+			$zeilen[] = '- ' . $p['label'] . ': ' . BI_CPT::money_format( $p['betrag'] );
+		}
+		$gesamt = BI_CPT::gesamtkosten( $seminar_id );
+		if ( null !== $gesamt ) {
+			$zeilen[] = '- Gesamtkosten: ' . BI_CPT::money_format( $gesamt );
+		}
+		return implode( "\n", $zeilen );
 	}
 
 	private static function build_context( $submission ) {
@@ -814,7 +1052,7 @@ class BI_Mailer {
 
 		$d = ( isset( $submission['data'] ) && is_array( $submission['data'] ) ) ? $submission['data'] : array();
 
-		return array(
+		$ctx = array(
 			'{anrede}'                 => $d['anrede'] ?? '',
 			'{titel}'                  => $d['titel'] ?? '',
 			'{vorname}'                => $submission['vorname'],
@@ -849,6 +1087,11 @@ class BI_Mailer {
 			'{seminar_anreiseuhrzeit}' => get_post_meta( $sid, '_bi_anreiseuhrzeit', true ),
 			'{seminar_themen}'         => get_post_meta( $sid, '_bi_themen', true ),
 			'{seminar_ort}'            => ( is_array( $ort ) && $ort ) ? $ort[0] : '',
+			'{seminar_seminarort}'     => get_post_meta( $sid, '_bi_seminarort', true ),
+			'{seminar_kosten}'         => get_post_meta( $sid, '_bi_kosten', true ),
+			'{seminar_kostenaufstellung}' => self::kostenaufstellung( $sid ),
+			'{seminar_gesamtkosten}'   => ( null !== BI_CPT::gesamtkosten( $sid ) ) ? BI_CPT::money_format( BI_CPT::gesamtkosten( $sid ) ) : '',
+			'{seminar_kinderbetreuung}' => BI_CPT::meta_bool( $sid, '_bi_kinderbetreuung' ) ? 'wird angeboten' : '',
 			// Online-Seminare: zusätzliche Angaben. Bei Präsenz-Seminaren bleiben die
 			// Platzhalter leer, damit dieselbe Vorlage für beide Formen taugt.
 			'{seminar_form}'           => $is_online ? 'Online-Seminar' : 'Präsenz-Seminar',
@@ -857,10 +1100,118 @@ class BI_Mailer {
 			'{seminar_plattform}'      => $is_online ? BI_Online::tool_label( $sid ) : '',
 			'{seminar_online_link}'    => $is_online ? BI_Online::online_link( $sid ) : '',
 			'{seminar_anmeldelink}'    => $is_online ? BI_Online::anmeldelink( $sid ) : '',
-			'{ansprechpartner}'        => get_post_meta( $sid, '_bi_ansprechpartner', true ),
-			'{ansprechpartner_email}'  => get_post_meta( $sid, '_bi_ansprechpartner_email', true ),
+			'{ansprechpartner}'         => get_post_meta( $sid, '_bi_ansprechpartner', true ),
+			'{ansprechpartner_telefon}' => get_post_meta( $sid, '_bi_ansprechpartner_telefon', true ),
+			// Beide Namen liefern die ZUSTELLADRESSE, nicht die der Ansprechperson.
+			// {ansprechpartner_email} steht in bestehenden Vorlagen und muss
+			// weiter das treffen, was er immer traf – vor der Trennung war das
+			// dasselbe Feld.
+			'{bildungszentrum_email}'   => self::bildungszentrum_email( $sid ),
+			'{ansprechpartner_email}'   => self::bildungszentrum_email( $sid ),
 			'{datum}'                  => date_i18n( 'd.m.Y' ),
 		);
+
+		// Reihen-Platzhalter. Bei einer Einzelanmeldung bleiben sie leer, damit
+		// dieselbe Vorlage für beides taugt; {termine} trägt dann die eine Zeile.
+		$rid = (int) ( $submission['reihe_id'] ?? 0 );
+		$ctx['{reihe_titel}']  = $rid ? get_the_title( $rid ) : '';
+		$ctx['{reihe_gruppe}'] = ( $rid && ! empty( $submission['durchgang'] ) ) ? 'Reihe ' . (int) $submission['durchgang'] : '';
+		$ctx['{reihe_teile}']  = '';
+		$ctx['{teil}']         = ! empty( $submission['teil'] ) ? (string) (int) $submission['teil'] : '';
+		$ctx['{termine}']      = self::terminliste( array( $submission ) );
+
+		// Eigene Felder mit gesetztem Mail-Schalter. Gilt ein Feld nur für die
+		// jeweils andere Seminarform, bleibt der Platzhalter leer statt stehen
+		// zu bleiben – dieselbe Vorlage taugt so für beide Formen.
+		$ctx = array_merge( $ctx, BI_Felder::platzhalter_werte( $sid, $ctx ) );
+
+		// Eigene Anmeldefelder. Fragt das benutzte Formular eines davon nicht ab,
+		// bleibt der Platzhalter leer statt stehen zu bleiben – dieselbe Vorlage
+		// taugt so für alle Formulare.
+		return array_merge( $ctx, BI_Anmeldefelder::platzhalter_werte( $d, $ctx ) );
+	}
+
+	/**
+	 * Kontext für mehrere Teile einer Reihenanmeldung, die an dieselbe Adresse
+	 * gehen.
+	 *
+	 * Grundlage ist der Kontext des ersten Teils – die Angaben zur Person sind in
+	 * allen Zeilen dieselben. Überschrieben werden nur die Platzhalter, die sich
+	 * auf „das Seminar" beziehen: Für eine Empfängerin, die mehrere Teile auf
+	 * einmal gebucht bekommt, IST der Gegenstand der Anmeldung die Reihe.
+	 *
+	 * Bei genau einem Teil bleibt alles, wie es war – das ist der Normalfall für
+	 * ein einzelnes Bildungszentrum.
+	 */
+	private static function build_context_gruppe( $submissions ) {
+		$ctx = self::build_context( $submissions[0] );
+		$rid = (int) ( $submissions[0]['reihe_id'] ?? 0 );
+
+		$ctx['{termine}']     = self::terminliste( $submissions );
+		$ctx['{reihe_teile}'] = (string) count( $submissions );
+
+		if ( count( $submissions ) < 2 ) {
+			return $ctx;
+		}
+
+		$nummern = array();
+		$orte    = array();
+		$starts  = array();
+		foreach ( $submissions as $s ) {
+			$sid = (int) $s['seminar_id'];
+			$nr  = trim( (string) $s['seminar_nummer'] );
+			if ( '' !== $nr ) {
+				$nummern[] = $nr;
+			}
+			$ort = wp_get_object_terms( $sid, BI_TAX_ORT, array( 'fields' => 'names' ) );
+			if ( is_array( $ort ) && $ort && ! in_array( $ort[0], $orte, true ) ) {
+				$orte[] = $ort[0];
+			}
+			$start = get_post_meta( $sid, '_bi_startdatum', true );
+			if ( $start ) {
+				$starts[] = $start;
+			}
+		}
+		sort( $starts );
+
+		$ctx['{seminar_titel}']      = $rid ? get_the_title( $rid ) : $ctx['{seminar_titel}'];
+		$ctx['{seminar_nummer}']     = implode( ', ', $nummern );
+		$ctx['{seminar_ort}']        = implode( ', ', $orte );
+		$ctx['{seminar_startdatum}'] = $starts ? date_i18n( 'd.m.Y', strtotime( $starts[0] ) ) : '';
+		$ctx['{seminar_enddatum}']   = '';
+
+		// Angaben, die nur für ein einzelnes Seminar gelten, wären hier eine
+		// Behauptung über alle Teile – lieber leer als falsch.
+		foreach ( array( '{seminar_anreisedatum}', '{seminar_anreiseuhrzeit}', '{seminar_startuhrzeit}',
+			'{seminar_enduhrzeit}', '{seminar_themen}', '{seminar_kostenaufstellung}',
+			'{seminar_gesamtkosten}', '{seminar_kosten}' ) as $key ) {
+			$ctx[ $key ] = '';
+		}
+
+		return $ctx;
+	}
+
+	/**
+	 * Die Termine einer Anmeldung als Liste für den Mailtext – eine Zeile je
+	 * Teil, mit Nummer, Zeitraum und Ort.
+	 */
+	private static function terminliste( $submissions ) {
+		$zeilen = array();
+		foreach ( $submissions as $s ) {
+			$sid  = (int) $s['seminar_id'];
+			$ort  = wp_get_object_terms( $sid, BI_TAX_ORT, array( 'fields' => 'names' ) );
+			$teil = ! empty( $s['teil'] ) ? 'Teil ' . (int) $s['teil'] . ': ' : '';
+
+			$teile = array_filter( array(
+				trim( (string) $s['seminar_termin'] ),
+				( is_array( $ort ) && $ort ) ? $ort[0] : '',
+				trim( (string) $s['seminar_nummer'] ) ? 'Nr. ' . trim( (string) $s['seminar_nummer'] ) : '',
+			) );
+
+			$zeilen[] = '- ' . $teil . '**' . trim( (string) $s['seminar_titel'] ) . '**'
+				. ( $teile ? ' – ' . implode( ', ', $teile ) : '' );
+		}
+		return implode( "\n", $zeilen );
 	}
 
 	private static function replace( $text, $ctx ) {
@@ -931,8 +1282,9 @@ class BI_Mailer {
 	 * @param string   $from        Absender-Header oder ''.
 	 * @param string   $reply_to    Antwortadresse(n), bereits gerendert, oder ''.
 	 * @param string[] $attachments Dateipfade für Anhänge (werden hier nicht gelöscht).
+	 * @param string   $cc          Kopie an, bereits gerendert, oder ''.
 	 */
-	private static function send( $to, $subject, $text, $from = '', $reply_to = '', $attachments = array() ) {
+	private static function send( $to, $subject, $text, $from = '', $reply_to = '', $attachments = array(), $cc = '' ) {
 		$headers = array();
 
 		$from_clean = self::clean_address_header( $from );
@@ -951,6 +1303,17 @@ class BI_Mailer {
 			$headers[] = 'Reply-To: ' . $reply_clean;
 		} elseif ( '' !== trim( (string) $reply_to ) ) {
 			error_log( '[BI-Mailer] Antwortadresse verworfen (keine gültige E-Mail): ' . $reply_to );
+		}
+
+		// Kopie an: dieselbe Behandlung wie beim Empfänger. Bleibt nach dem
+		// Einsetzen der Platzhalter keine gültige Adresse übrig, wird der Header
+		// weggelassen – die Mail geht trotzdem an den Hauptempfänger. Ein
+		// leerlaufender Platzhalter darf keine Benachrichtigung verhindern.
+		$cc_clean = self::clean_address_header( $cc );
+		if ( '' !== $cc_clean ) {
+			$headers[] = 'Cc: ' . $cc_clean;
+		} elseif ( '' !== trim( (string) $cc ) ) {
+			error_log( '[BI-Mailer] Kopie-Adresse verworfen (keine gültige E-Mail): ' . $cc );
 		}
 
 		$plain = self::markup_to_plain( $text );
@@ -1145,7 +1508,7 @@ class BI_Mailer {
 	/** ---------- Admin-Seite ---------- */
 
 	/**
-	 * Router der Seite „Mail-Benachrichtigungen".
+	 * Router der Seite „Benachrichtigungen".
 	 *
 	 * Ohne action die Übersicht (Hero + Listentabelle), mit action=edit|new die
 	 * Bearbeiten-Maske einer einzelnen Benachrichtigung.
@@ -1188,7 +1551,7 @@ class BI_Mailer {
 		$table->prepare_items();
 		?>
 		<div class="wrap">
-			<h1 class="wp-heading-inline">Mail-Benachrichtigungen</h1>
+			<h1 class="wp-heading-inline">Benachrichtigungen</h1>
 			<a href="<?php echo esc_url( self::page_url( array( 'action' => 'new' ) ) ); ?>" class="page-title-action">Neu hinzufügen</a>
 			<hr class="wp-header-end">
 
@@ -1287,8 +1650,7 @@ class BI_Mailer {
 								<?php foreach ( array(
 									'geschaeftsstelle' => 'Zuständige Geschäftsstelle (per PLZ)',
 									'teilnehmer'       => 'Teilnehmer (Bestätigung)',
-									'bildungszentrum'  => 'Bildungszentrum (Seminarort)',
-									'ansprechpartner'  => 'Ansprechpartner des Seminars',
+									'bildungszentrum'  => 'Zuständiges Bildungszentrum',
 									'custom'           => 'Feste/eigene Adresse',
 								) as $val => $lbl ) : ?>
 									<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $t['type'], $val ); ?>><?php echo esc_html( $lbl ); ?></option>
@@ -1302,7 +1664,7 @@ class BI_Mailer {
 						<td>
 							<input type="text" id="bi_recipient" class="regular-text" name="recipient" value="<?php echo esc_attr( $t['recipient'] ); ?>" placeholder="z. B. anmeldung@example.de">
 							<p class="description">Eine fest hinterlegte E-Mail-Adresse, an die diese Benachrichtigung immer geht (z. B. ein zentrales
-								Postfach oder Archiv). Platzhalter sind erlaubt – z. B. <code>{ansprechpartner_email}</code> oder <code>{betrieb_email}</code>.</p>
+								Postfach oder Archiv). Platzhalter sind erlaubt – z. B. <code>{bildungszentrum_email}</code> oder <code>{betrieb_email}</code>.</p>
 						</td>
 					</tr>
 					<tr>
@@ -1321,6 +1683,24 @@ class BI_Mailer {
 								Ergibt der Platzhalter keine gültige Adresse, wird der Header weggelassen – die Mail geht trotzdem raus.
 								In der <strong>Wochenzusammenfassung</strong> werden die Antwortadressen aller gesammelten Anmeldungen
 								zusammengefasst.</p>
+						</td>
+					</tr>
+					<tr>
+						<th><label for="bi_cc">Kopie an (Cc)</label></th>
+						<td>
+							<?php echo self::placeholder_field( 'cc', $t['cc'] ?? '', 'bi_cc', 'z. B. archiv@example.de', self::email_placeholders() ); // phpcs:ignore – intern escaped ?>
+							<p class="description">Wer diese Benachrichtigung zusätzlich bekommt – etwa ein Archiv oder ein
+								zweites Postfach. <strong>Leer lassen</strong>, wenn niemand mitlesen soll.
+								Erlaubt sind feste Adressen, die Platzhalter aus der Liste und die Form
+								<code>Name &lt;mail@domain.de&gt;</code>; mehrere Adressen mit Komma trennen.
+								Ergibt der Platzhalter keine gültige Adresse, entfällt die Kopie – die Mail geht trotzdem raus.<br>
+								<strong>Eine Kopie ist sichtbar.</strong> Alle Empfänger sehen, wer sonst noch mitliest, und die
+								Adresse im Cc steht in jeder Mail. Für stille Mitleser ist das der falsche Weg – dafür gibt es
+								Bcc, das dieses Feld bewusst nicht ist.<br>
+								Beim <strong>Probeversand</strong> wird keine Kopie verschickt; der Hinweis in der Testmail nennt
+								stattdessen, wer sie bekommen hätte.
+								In der <strong>Wochenzusammenfassung</strong> geht genau eine Kopie an die Adresse der Gruppe –
+								anders als die Antwortadressen werden die Kopien nicht zusammengefasst.</p>
 						</td>
 					</tr>
 					<tr>
@@ -1536,6 +1916,7 @@ class BI_Mailer {
 			'active' => 0, 'name' => '', 'type' => 'custom', 'recipient' => '',
 			'from' => get_bloginfo( 'name' ) . ' <' . get_option( 'admin_email' ) . '>',
 			'reply_to' => '',
+			'cc' => '',
 			'subject' => '', 'body' => '', 'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 			'cond_form' => '', // leer = beide Seminarformen
 			'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
@@ -1547,8 +1928,9 @@ class BI_Mailer {
 		return array(
 			'geschaeftsstelle' => 'Geschäftsstelle',
 			'teilnehmer'       => 'Teilnehmer',
-			'bildungszentrum'  => 'Bildungszentrum',
-			'ansprechpartner'  => 'Ansprechpartner',
+			'bildungszentrum'  => 'Zuständiges Bildungszentrum',
+			// Altbestand: gespeicherte Trigger, die noch nicht umgeschrieben sind.
+			'ansprechpartner'  => 'Zuständiges Bildungszentrum',
 			'custom'           => 'Feste Adresse',
 		);
 	}
@@ -1694,7 +2076,7 @@ class BI_Mailer {
 
 	/** Eine Benachrichtigung speichern (Bearbeiten-Maske) */
 	public static function save_trigger() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		$id = (int) ( $_POST['id'] ?? 0 );
@@ -1710,6 +2092,9 @@ class BI_Mailer {
 			'recipient'      => sanitize_text_field( $row['recipient'] ?? '' ),
 			'from'           => self::sanitize_address_field( $row['from'] ?? '' ),
 			'reply_to'       => self::sanitize_address_field( $row['reply_to'] ?? '' ),
+			// Altbestand kennt das Feld nicht – ?? '' macht daraus einen leeren
+			// Wert, und leer heißt „keine Kopie".
+			'cc'             => self::sanitize_address_field( $row['cc'] ?? '' ),
 			'subject'        => sanitize_text_field( $row['subject'] ?? '' ),
 			'body'           => sanitize_textarea_field( $row['body'] ?? '' ),
 			'cond_tax'       => sanitize_text_field( $row['cond_tax'] ?? '' ),
@@ -1740,7 +2125,7 @@ class BI_Mailer {
 
 	/** Darstellung (HTML-Fassung an/aus) – eigene Karte im Hero */
 	public static function save_format() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_save_format' );
@@ -1764,7 +2149,7 @@ class BI_Mailer {
 	 * Redirect möglich (und ein erneutes Absenden beim Neuladen ausgeschlossen).
 	 */
 	public static function handle_actions() {
-		if ( ! is_admin() || ! self::is_page() || ! current_user_can( 'manage_options' ) ) {
+		if ( ! is_admin() || ! self::is_page() || ! current_user_can( BI_CAP ) ) {
 			return;
 		}
 
@@ -1907,7 +2292,7 @@ class BI_Mailer {
 	}
 
 	public static function save_schedule() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_save_schedule' );
@@ -2009,7 +2394,7 @@ class BI_Mailer {
 	}
 
 	public static function save_test() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_save_test' );
@@ -2081,7 +2466,7 @@ class BI_Mailer {
 	}
 
 	/**
-	 * Zurück zur Seite „Mail-Benachrichtigungen" mit Erfolgsmeldung.
+	 * Zurück zur Seite „Benachrichtigungen" mit Erfolgsmeldung.
 	 *
 	 * @param string $msg  Meldung.
 	 * @param array  $args Zusätzliche Parameter, z. B. zurück in die Bearbeiten-Maske.

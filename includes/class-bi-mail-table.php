@@ -1,6 +1,6 @@
 <?php
 /**
- * Listentabelle der Mail-Benachrichtigungen.
+ * Listentabelle der Benachrichtigungen.
  *
  * Eine WP_List_Table wie bei Beiträgen oder Seiten: jede Benachrichtigung ist eine
  * eigene Zeile mit Zeilenaktionen (Bearbeiten, Duplizieren, Aktivieren/Deaktivieren,
@@ -159,6 +159,14 @@ class BI_Mail_Table extends WP_List_Table {
 			$out .= ( $item['recipient'] ?? '' ) !== ''
 				? '<br><span class="bi-muted">' . esc_html( $item['recipient'] ) . '</span>'
 				: '<br><span class="bi-warn">keine Adresse hinterlegt</span>';
+		}
+
+		// Eine Kopie geht an Menschen, die in der Empfängerspalte nicht stehen.
+		// Wer die Liste überfliegt, soll sehen, dass hier jemand mitliest –
+		// sonst fällt eine vergessene Archivadresse erst auf, wenn sich jemand
+		// über Post wundert, die er nicht bestellt hat.
+		if ( ( $item['cc'] ?? '' ) !== '' ) {
+			$out .= '<br><span class="bi-muted">Cc: ' . esc_html( $item['cc'] ) . '</span>';
 		}
 		return $out;
 	}

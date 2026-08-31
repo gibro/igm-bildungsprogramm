@@ -1,7 +1,10 @@
 <?php
 /**
  * Single-Template für den Beitragstyp bi_seminar (Seminar-Detailansicht).
- * Bleibt im Theme-Rahmen (Header/Footer) und rendert die Detail-Ausgabe.
+ *
+ * Bleibt im Theme-Rahmen (Header/Footer). Anders als früher steckt hier keine
+ * Breitenbegrenzung mehr: Kennzahlenband und Trennstrich laufen über die volle
+ * Breite, die Inhaltsspalten begrenzen sich selbst (.igm-breite, 1180px).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -10,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 get_header();
 ?>
-<main id="primary" class="bi-detail-main" style="max-width:1180px;margin:40px auto;padding:0 20px;">
+<main id="primary" class="bi-seite-main">
 	<?php
 	while ( have_posts() ) {
 		the_post();

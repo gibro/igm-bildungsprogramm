@@ -1,5 +1,6 @@
 /* ============================================================
-   BI Seminarsuche – Marketing-Kacheln [bi_kacheln] / [bi_kachel]
+   BI Seminarsuche – Marketing: Kacheln [bi_kacheln] / [bi_kachel]
+   und Listenansicht [bi_liste]
    Akzentfarbe über --bi-accent überschreibbar (wie Filterleiste).
    ============================================================ */
 
@@ -40,6 +41,11 @@
   box-sizing: border-box;
   width: 100%;   /* füllt die umgebende Box (z. B. Elementor-Spalte) */
   height: 100%;
+  /* Die Kachel misst SICH, nicht das Fenster: In einem vierspaltigen Gitter ist
+     sie schmal, obwohl das Fenster breit ist – eine Media-Query sähe davon
+     nichts. Dieselbe Technik wie bei den Terminlisten der Detailseite. */
+  container-type: inline-size;
+  container-name: bi-kachel;
   overflow: hidden;
   border: 1px solid var(--bi-border);
   border-radius: var(--bi-radius);
@@ -77,20 +83,88 @@
   padding: 20px 22px 22px;
   flex: 1 1 auto;
 }
+/* WARUM max-width HIER STEHT: Der Kachelkörper ist eine Flex-Spalte mit
+   align-items:flex-start – seine Kinder sind damit nur so breit wie ihr Inhalt.
+   Ein langes Kompositum („Betriebsverfassungsrecht") machte die Überschrift
+   also BREITER als die Kachel, und das overflow:hidden der Kachel schnitt es
+   ab, statt es umbrechen zu lassen. Genau das sah aus wie ein fehlender
+   Zeilenumbruch und war in Wahrheit ein fehlendes max-width. */
+.bi-kachel-titel,
+.bi-kachel-text,
+.bi-kachel-meta { max-width: 100%; }
+
 .bi-kachel-titel {
   margin: 0;
   font-size: 21px;
   line-height: 1.25;
   font-weight: 800;
   color: inherit;
+  /* Erst trennen (braucht das lang-Attribut der Seite, WordPress setzt es),
+     dann als Notbremse mitten im Wort brechen. break-word greift nur, wenn das
+     Wort sonst überliefe – kurze Wörter bleiben unangetastet. */
+  -webkit-hyphens: auto;
+  hyphens: auto;
+  overflow-wrap: break-word;
 }
 .bi-kachel-text {
   font-size: 15px;
   line-height: 1.55;
   color: var(--bi-muted);
+  -webkit-hyphens: auto;
+  hyphens: auto;
+  overflow-wrap: break-word;
 }
-.bi-kachel-btn {
+
+/* Wird die Kachel schmal, wird die Überschrift ein paar Punkt kleiner. Trennen
+   und Brechen fangen den Überlauf zwar ab, aber ein einzelnes Wort, das über
+   drei Zeilen zerfällt, ist keine Überschrift mehr – zwei Stufen reichen, und
+   im Normalfall (breite Kachel) ändert sich nichts. */
+@container bi-kachel (max-width: 320px) {
+  .bi-kachel-titel { font-size: 19px; }
+}
+@container bi-kachel (max-width: 250px) {
+  .bi-kachel-titel { font-size: 17px; }
+  .bi-kachel-body { padding: 16px 16px 18px; }
+}
+/* Kennzahlen einer Ausbildungsreihe: „4 Teile · 2 Gruppen · ab 03/2026".
+   Steht zwischen Text und Button, weil es eine Angabe ist und keine Aussage –
+   wer schon weiß, dass er die Reihe will, liest hier nur noch nach.
+
+   AUSGERICHTET WIRD SIE AM BUTTON, NICHT AN DER ÜBERSCHRIFT: Das margin-top:auto
+   sitzt an der Zeile statt am Button, damit beide zusammen nach unten wandern.
+   Vorher hing die Zeile am Text – und weil Teaser unterschiedlich lang sind,
+   stand sie in jeder Kachel eines Gitters auf einer anderen Höhe, während die
+   Buttons darunter sauber in einer Reihe lagen. */
+.bi-kachel-meta {
   margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bi-muted);
+}
+.bi-kachel-meta > span + span::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--bi-border);
+}
+.bi-kachel-overlay .bi-kachel-meta { color: rgba(255, 255, 255, .82); }
+.bi-kachel-overlay .bi-kachel-meta > span + span::before { color: rgba(255, 255, 255, .5); }
+
+/* Hinweis, wenn eine Reihen-Übersicht leer bliebe – nur eingeloggt sichtbar */
+.bi-kachel-hinweis {
+  margin: 16px 0;
+  padding: 10px 14px;
+  border-left: 4px solid var(--bi-accent, #e2001a);
+  background: #fbfbfc;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.bi-kachel-btn {
+  margin-top: auto;   /* ohne Kennzahlen schiebt sich der Button selbst nach unten */
   display: inline-block;
   background: var(--bi-accent);
   color: #fff !important; /* gegen Theme-Linkfarben */
@@ -103,6 +177,9 @@
   transition: background .15s;
   white-space: nowrap;
 }
+/* Stehen Kennzahlen davor, hat DIE das auto schon erledigt – ein zweites hier
+   risse die beiden wieder auseinander. */
+.bi-kachel-meta + .bi-kachel-btn { margin-top: 0; }
 .bi-kachel:hover .bi-kachel-btn { background: var(--bi-accent-dark); }
 
 /* ---------------- Layout "overlay": Text über dem Bild ---------------- */
@@ -117,6 +194,13 @@
   padding-top: 72px;
   background: linear-gradient(to top, rgba(0, 0, 0, .78) 0%, rgba(0, 0, 0, .45) 55%, rgba(0, 0, 0, 0) 100%);
 }
+/* OHNE BUTTON RUTSCHT DER TEXT ANS UNTERE ENDE. Er stand dort immer schon –
+   nur nicht von sich aus: Der Kachelkörper füllt die ganze Kachel, und was ihn
+   unten hielt, war der Button mit seinem margin-top:auto. Fällt der weg, bliebe
+   der Text oben kleben und darunter stünde leere dunkle Fläche. Der Körper hört
+   deshalb auf mitzuwachsen; das justify-content:flex-end der Kachel setzt ihn
+   dann selbst nach unten. Mit Button bleibt alles, wie es war. */
+.bi-kachel-overlay.bi-kachel-ohne-btn .bi-kachel-body { flex: 0 0 auto; }
 .bi-kachel-overlay .bi-kachel-titel { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
 .bi-kachel-overlay .bi-kachel-text { color: rgba(255, 255, 255, .88); }
 .bi-kachel-overlay:hover, .bi-kachel-overlay:focus-visible { color: #fff; }
@@ -139,3 +223,77 @@
   pointer-events: auto;
 }
 .bi-kachel-count-0 { background: var(--bi-accent, #e2001a); }
+
+
+/* ============================================================
+   Listenansicht [bi_liste]
+
+   Die Trefferzeilen selbst kommen unverändert aus der Ergebnisliste und
+   werden von assets/css/frontend.css gestaltet – deshalb trägt der Kasten
+   auch deren Klasse .bi-results: Dort stehen die Farbvariablen, die die
+   Zeilen brauchen. Ein zweiter Satz derselben Werte hier liefe früher oder
+   später auseinander. Hier steht nur, was um die Zeilen herum gehört.
+   ============================================================ */
+
+/* Der Abstand nach oben gehört auf einer Marketing-Seite der Box, in der die
+   Liste steht – nicht der Liste. Unter der Suche ist das anders, deshalb
+   überschreibt diese Regel den margin-top von .bi-results. */
+.bi-liste.bi-results { margin-top: 0; }
+
+.bi-liste-titel {
+  margin: 0 0 6px;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 800;
+  color: var(--bi-text, #1d2327);
+  overflow-wrap: break-word;
+}
+.bi-liste-text {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--bi-muted, #6b7280);
+}
+
+/* Der Link unter der Liste ist kein roter Vollton-Button: Die Zeilen darüber
+   sind die Hauptsache, und ein Block in Signalfarbe zöge den Blick vom letzten
+   Termin weg. Dieselbe Zurückhaltung wie beim Weiter-Link einer Zeile. */
+.bi-liste-mehr {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 18px;
+  border: 1px solid var(--bi-border, #e3e5e8);
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--bi-text, #1d2327) !important;   /* gegen die Linkfarbe des Themes */
+  background: #fff;
+  transition: border-color .15s, color .15s;
+}
+.bi-liste-mehr::after { content: "›"; font-size: 18px; line-height: 1; color: var(--bi-accent, #e2001a); }
+.bi-liste-mehr:hover,
+.bi-liste-mehr:focus-visible {
+  border-color: var(--bi-accent, #e2001a);
+  color: var(--bi-accent-dark, #b80016) !important;
+  text-decoration: none;
+}
+
+.bi-liste-leer {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px dashed var(--bi-border, #e3e5e8);
+  border-radius: 12px;
+  color: var(--bi-muted, #6b7280);
+  font-size: 15px;
+}
+
+/* Der Redaktions-Hinweis der Kachel klebt oben rechts IN der Kachel. Über einer
+   Liste gibt es kein „in" – er steht deshalb als eigene Zeile darüber. */
+.bi-liste-count {
+  position: static;
+  display: inline-block;
+  margin-bottom: 10px;
+}

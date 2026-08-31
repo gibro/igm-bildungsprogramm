@@ -4,12 +4,19 @@
  *
  *   Bildungsprogramm (Hauptmenüpunkt -> Übersicht / Mini-Dashboard, Startseite des Plugins)
  *   ├─ Übersicht           (Mini-Dashboard mit Kennzahlen + Einrichtungs-Anleitung)
- *   ├─ Seminare            (CPT – via show_in_menu)
+ *   ├─ Seminare            (CPT – via show_in_menu; enthält auch die Online-Seminare)
+ *   ├─ Ausbildungsreihen   (CPT – via show_in_menu)
  *   ├─ Anmeldungen
- *   ├─ Mail-Benachrichtigungen
- *   ├─ Kampagnen             (Newsletter-Links + Auswertung Klick → Anmeldung)
- *   ├─ Marketing-Kacheln    (Kachel-Builder, hängt sich in class-bi-kacheln.php ein)
- *   └─ Einstellungen        (Tabs: Anmeldung & Regeln · Seminar-Import · PLZ-Import — immer zuletzt)
+ *   ├─ Benachrichtigungen  (Mail-Trigger)
+ *   ├─ Kampagnen           (Newsletter-Links + Auswertung Klick → Anmeldung)
+ *   ├─ Marketing           (Builder für Kacheln und Listen, hängt sich in class-bi-kacheln.php ein)
+ *   ├─ Datenpflege         (Arbeitsmenge filtern, CSV-/JSON-Export, Paket-Import)
+ *   └─ Einstellungen       (Tabs: Anmeldung & Regeln · Such-Filterleiste · Importe …)
+ *
+ * Die Reihenfolge steht in MENU_ORDER und wird nachträglich hergestellt: Die
+ * beiden Beitragstypen hängt WordPress selbst ein (show_in_menu), und die
+ * Kacheln registrieren sich aus ihrer eigenen Klasse. Ohne das Nachsortieren
+ * richtet sich die Reihenfolge danach, wer zufällig zuerst dran war.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -17,6 +24,45 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class BI_Admin {
+
+	/**
+	 * Gewünschte Reihenfolge der Untermenüpunkte (Menü-Slugs).
+	 *
+	 * Punkte, die hier nicht stehen, landen hinter den aufgeführten und vor den
+	 * Einstellungen – ein neu registrierter Punkt verschwindet also nicht, er
+	 * sortiert sich nur nicht von selbst an die gewünschte Stelle.
+	 */
+	const MENU_ORDER = array(
+		'bi-seminarsuche',                 // Übersicht (teilt den Slug mit dem Hauptpunkt)
+		'edit.php?post_type=bi_seminar',   // Seminare (Präsenz + Online in einer Liste)
+		'edit.php?post_type=bi_reihe',     // Ausbildungsreihen
+		'bi-anmeldungen',
+		'bi-formulare',                    // Anmeldeformulare (Felder, Seiten, Zuordnung)
+		'bi-mail-trigger',                 // Benachrichtigungen
+		'bi-kampagnen',
+		'bi-kacheln',                      // Marketing (Kacheln + Listen; Slug aus der Zeit der Kacheln)
+		'bi-datenpflege',
+		'bi-einstellungen',                // immer zuletzt
+	);
+
+	/**
+	 * Link in die Seminarliste, wahlweise auf eine Seminarform eingegrenzt.
+	 *
+	 * Seit Präsenz- und Online-Seminare gemeinsam unter „Seminare" stehen,
+	 * führen alle Hinweise dorthin – nicht mehr in die eigene Online-Liste.
+	 * Sonst landete man auf einem Bildschirm, zu dem das Menü keinen Punkt
+	 * mehr hat, und wüsste nicht, wo man ist.
+	 *
+	 * @param string $form  '' (beide), 'praesenz' oder 'online'.
+	 * @param array  $extra Weitere Query-Argumente, z. B. bi_missing_start.
+	 */
+	public static function seminarliste_url( $form = '', $extra = array() ) {
+		$args = array( 'post_type' => BI_CPT );
+		if ( '' !== $form ) {
+			$args['bi_form'] = $form;
+		}
+		return add_query_arg( array_merge( $args, $extra ), admin_url( 'edit.php' ) );
+	}
 
 	public static function init() {
 		add_action( 'admin_menu', array( __CLASS__, 'menu' ) );
@@ -28,7 +74,7 @@ class BI_Admin {
 		add_menu_page(
 			'Bildungsprogramm',
 			'Bildungsprogramm',
-			'manage_options',
+			BI_CAP,
 			'bi-seminarsuche',
 			array( __CLASS__, 'render_overview' ), // Startseite = Mini-Dashboard
 			'dashicons-search',
@@ -36,20 +82,26 @@ class BI_Admin {
 		);
 
 		// Untermenü „Übersicht" (gleicher Slug wie Hauptpunkt -> Landeseite des Plugins)
-		add_submenu_page( 'bi-seminarsuche', 'Übersicht', 'Übersicht', 'manage_options', 'bi-seminarsuche', array( __CLASS__, 'render_overview' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Übersicht', 'Übersicht', BI_CAP, 'bi-seminarsuche', array( __CLASS__, 'render_overview' ) );
 
 		// CPT „Seminare" hängt über show_in_menu='bi-seminarsuche' automatisch hier ein.
 
-		add_submenu_page( 'bi-seminarsuche', 'Anmeldungen', 'Anmeldungen', 'manage_options', 'bi-anmeldungen', array( 'BI_Registration', 'render_page' ) );
-		add_submenu_page( 'bi-seminarsuche', 'Mail-Benachrichtigungen', 'Mail-Benachrichtigungen', 'manage_options', 'bi-mail-trigger', array( 'BI_Mailer', 'render_page' ) );
-		add_submenu_page( 'bi-seminarsuche', 'Kampagnen', 'Kampagnen', 'manage_options', 'bi-kampagnen', array( 'BI_Tracking', 'render_page' ) );
-		add_submenu_page( 'bi-seminarsuche', 'Einstellungen', 'Einstellungen', 'manage_options', 'bi-einstellungen', array( 'BI_Settings', 'render_page' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Anmeldungen', 'Anmeldungen', BI_CAP, 'bi-anmeldungen', array( 'BI_Registration', 'render_page' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Anmeldeformulare', 'Anmeldeformulare', BI_CAP, BI_Formulare::PAGE, array( 'BI_Formulare', 'render_page' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Benachrichtigungen', 'Benachrichtigungen', BI_CAP, 'bi-mail-trigger', array( 'BI_Mailer', 'render_page' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Kampagnen', 'Kampagnen', BI_CAP, 'bi-kampagnen', array( 'BI_Tracking', 'render_page' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Datenpflege', 'Datenpflege', BI_CAP, BI_Datenpflege::PAGE, array( 'BI_Datenpflege', 'render_page' ) );
+		add_submenu_page( 'bi-seminarsuche', 'Einstellungen', 'Einstellungen', BI_CAP, 'bi-einstellungen', array( 'BI_Settings', 'render_page' ) );
 	}
 
 	/**
-	 * Sorgt dafür, dass „Übersicht" das erste und „Einstellungen" das letzte Untermenü ist.
-	 * Das CPT „Seminare" wird von WordPress per show_in_menu eingehängt und stünde sonst vorn;
-	 * später registrierte Punkte (z. B. „Marketing-Kacheln") landen sonst hinter den Einstellungen.
+	 * Stellt die Reihenfolge aus MENU_ORDER her.
+	 *
+	 * Nötig, weil die Punkte aus drei Quellen kommen: hier registrierte Seiten,
+	 * von WordPress per show_in_menu eingehängte Beitragstypen und Seiten, die
+	 * sich aus ihrer eigenen Klasse anmelden (Marketing). Wer nicht in
+	 * der Liste steht, wird nicht verworfen, sondern einsortiert – vor die
+	 * Einstellungen, die immer zuletzt stehen sollen.
 	 */
 	public static function reorder_submenu() {
 		global $submenu;
@@ -57,24 +109,32 @@ class BI_Admin {
 			return;
 		}
 
-		$items         = $submenu['bi-seminarsuche'];
-		$uebersicht    = array();
-		$einstellungen = array();
-		$rest          = array();
+		$order    = self::MENU_ORDER;
+		$sortiert = array_fill_keys( $order, array() ); // Plätze in der gewünschten Reihenfolge
+		$unbekannt = array();
 
-		foreach ( $items as $item ) {
-			// $item[2] = menu_slug; die Übersicht teilt sich den Slug mit dem Hauptpunkt.
-			if ( isset( $item[2] ) && 'bi-seminarsuche' === $item[2] ) {
-				$uebersicht[] = $item;
-			} elseif ( isset( $item[2] ) && 'bi-einstellungen' === $item[2] ) {
-				$einstellungen[] = $item;
+		foreach ( $submenu['bi-seminarsuche'] as $item ) {
+			$slug = $item[2] ?? '';
+			if ( isset( $sortiert[ $slug ] ) ) {
+				$sortiert[ $slug ][] = $item;
 			} else {
-				$rest[] = $item;
+				$unbekannt[] = $item;
+			}
+		}
+
+		// Unbekannte Punkte vor die Einstellungen hängen, damit die zuletzt stehen.
+		$vorne  = array();
+		$hinten = array();
+		foreach ( $order as $slug ) {
+			if ( 'bi-einstellungen' === $slug ) {
+				$hinten = array_merge( $hinten, $sortiert[ $slug ] );
+			} else {
+				$vorne = array_merge( $vorne, $sortiert[ $slug ] );
 			}
 		}
 
 		// Neu indexieren, damit WordPress die Reihenfolge übernimmt.
-		$submenu['bi-seminarsuche'] = array_values( array_merge( $uebersicht, $rest, $einstellungen ) );
+		$submenu['bi-seminarsuche'] = array_values( array_merge( $vorne, $unbekannt, $hinten ) );
 	}
 
 	/* ===================================================================
@@ -191,10 +251,13 @@ class BI_Admin {
 					'meta_query'     => array(
 						'relation' => 'AND',
 						array( 'key' => '_bi_startdatum', 'value' => $today, 'compare' => '>=', 'type' => 'DATE' ),
+						// Gezählt wird die ZUSTELLADRESSE. Die der Ansprechperson darf
+						// fehlen, ohne dass eine Mail ausbleibt – seit die beiden
+						// Rollen getrennte Felder haben (1.116.0).
 						array(
 							'relation' => 'OR',
-							array( 'key' => '_bi_ansprechpartner_email', 'compare' => 'NOT EXISTS' ),
-							array( 'key' => '_bi_ansprechpartner_email', 'value' => '', 'compare' => '=' ),
+							array( 'key' => '_bi_bz_email', 'compare' => 'NOT EXISTS' ),
+							array( 'key' => '_bi_bz_email', 'value' => '', 'compare' => '=' ),
 						),
 					),
 				) );
@@ -203,9 +266,9 @@ class BI_Admin {
 					continue;
 				}
 				$wort  = ( BI_ONLINE === $pt ) ? 'Online-Seminar' : 'Seminar';
-				$feld  = ( BI_ONLINE === $pt ) ? 'Anmelde-E-Mail' : 'Ansprechpartner-E-Mail';
+				$feld  = ( BI_ONLINE === $pt ) ? 'Anmelde-E-Mail' : 'E-Mail des Bildungszentrums';
 				$hinweise[] = sprintf(
-					'<strong>%s ohne %s</strong> – der Trigger „Benachrichtigung an Ansprechpartner" kann dort nicht versendet werden. <a href="%s">Prüfen</a>',
+					'<strong>%s ohne %s</strong> – dort greift nur noch die Adresse am Begriff des Bildungszentrums; fehlt auch die, findet die Benachrichtigung keinen Empfänger. <a href="%s">Prüfen</a>',
 					1 === $ohne_ap ? '1 kommendes ' . $wort : $ohne_ap . ' kommende ' . $wort . 'e',
 					$feld,
 					esc_url( admin_url( 'edit.php?post_type=' . $pt . '&bi_missing_ap=1' ) )
@@ -220,35 +283,21 @@ class BI_Admin {
 			$hinweise[] = sprintf(
 				'<strong>%s als Teams-Webinar ohne Anmeldelink</strong> – dort greift statt der externen Anmeldeseite das interne Formular. <a href="%s">Online-Seminare prüfen</a>',
 				1 === count( $ohne_link ) ? '1 kommendes Online-Seminar' : count( $ohne_link ) . ' kommende Online-Seminare',
-				esc_url( admin_url( 'edit.php?post_type=' . BI_ONLINE . '&bi_missing_link=1' ) )
+				esc_url( self::seminarliste_url( 'online', array( 'bi_missing_link' => 1 ) ) )
 			);
 		}
 
-		// (3) Veröffentlichte Seminare ohne Startdatum – je Beitragstyp getrennt,
-		//     damit der Link direkt in die passende Liste führt.
-		foreach ( bi_seminar_post_types() as $pt ) {
-			$q_ohne_datum = new WP_Query( array(
-				'post_type'      => $pt,
-				'post_status'    => 'publish',
-				'fields'         => 'ids',
-				'posts_per_page' => 1,
-				'meta_query'     => array(
-					'relation' => 'OR',
-					array( 'key' => '_bi_startdatum', 'compare' => 'NOT EXISTS' ),
-					array( 'key' => '_bi_startdatum', 'value' => '', 'compare' => '=' ),
-				),
-			) );
-			$ohne_datum = (int) $q_ohne_datum->found_posts;
-			if ( ! $ohne_datum ) {
-				continue;
-			}
-			$wort = ( BI_ONLINE === $pt ) ? 'Online-Seminar' : 'Seminar';
-			$hinweise[] = sprintf(
-				'<strong>%s ohne Startdatum</strong> – nicht buchbar und nicht im Datumsfilter sichtbar. <a href="%s">Prüfen</a>',
-				1 === $ohne_datum ? '1 veröffentlichtes ' . $wort : $ohne_datum . ' veröffentlichte ' . $wort . 'e',
-				esc_url( admin_url( 'edit.php?post_type=' . $pt . '&bi_missing_start=1' ) )
-			);
-		}
+		/*
+		 * Fehlende Startdaten standen früher hier. Sie stehen jetzt in der
+		 * Tabelle „Datenqualität" weiter unten – zusammen mit den neun anderen
+		 * Lücken, mit Anteil am Bestand und mit einem Weg zur Massenbearbeitung.
+		 * Zweimal dieselbe Zahl auf einer Seite ist keine doppelte Warnung,
+		 * sondern eine, der man nicht mehr ansieht, wo sie herkommt.
+		 *
+		 * Was hier bleibt, ist die andere Sorte Meldung: Dinge, die JETZT etwas
+		 * blockieren (Test-Modus, abgebrochener Ampel-Lauf, Webinare ohne
+		 * Anmeldelink) – nicht die Bestandsaufnahme.
+		 */
 
 		// ---- Letzte 5 Anmeldungen --------------------------------------
 		$letzte = $wpdb->get_results(
@@ -281,13 +330,13 @@ class BI_Admin {
 				self::card(
 					number_format_i18n( $seminars_pub ),
 					'Präsenz-Seminare (veröffentlicht)',
-					admin_url( 'edit.php?post_type=' . BI_CPT ),
+					self::seminarliste_url( 'praesenz' ),
 					sprintf( 'davon %s kommend', number_format_i18n( $seminars_kommend ) )
 				);
 				self::card(
 					number_format_i18n( $online_pub ),
 					'Online-Seminare (veröffentlicht)',
-					admin_url( 'edit.php?post_type=' . BI_ONLINE ),
+					self::seminarliste_url( 'online' ),
 					sprintf( 'davon %s kommend', number_format_i18n( $online_kommend ) )
 				);
 				self::card(
@@ -309,6 +358,88 @@ class BI_Admin {
 					</ul>
 				</div>
 			<?php endif; ?>
+
+			<?php
+			// ---- Datenqualität ----
+			// Die Hinweis-Box oben nennt die paar Fälle, die JETZT etwas
+			// blockieren. Diese Tabelle ist das andere: eine Bestandsaufnahme
+			// über alle veröffentlichten Seminare, mit der sich nach einem
+			// Import prüfen lässt, ob der Jahrgang vollständig gepflegt ist.
+			$form_wahl = isset( $_GET['bi_q_form'] ) ? sanitize_key( wp_unslash( $_GET['bi_q_form'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$form_wahl = in_array( $form_wahl, array( 'praesenz', 'online' ), true ) ? $form_wahl : '';
+			$qualitaet = BI_CPT::datenqualitaet( $form_wahl );
+			$offen     = array_values( array_filter( $qualitaet, function ( $p ) {
+				return $p['anzahl'] > 0;
+			} ) );
+			$gesamt    = ( 'online' === $form_wahl ) ? $online_pub : ( ( 'praesenz' === $form_wahl ) ? $seminars_pub : $seminars_pub + $online_pub );
+			?>
+			<div class="card" style="max-width:100%;margin:0 0 20px">
+				<h2 style="margin-top:0">
+					Datenqualität
+					<span style="font-weight:400;color:#646970;font-size:13px">
+						– <?php echo esc_html( number_format_i18n( $gesamt ) ); ?> veröffentlichte Seminare geprüft
+					</span>
+				</h2>
+
+				<p style="margin:0 0 12px">
+					<?php foreach ( array( '' => 'Beide Formen', 'praesenz' => 'Nur Präsenz', 'online' => 'Nur Online' ) as $wert => $label ) : ?>
+						<?php $aktiv = ( $wert === $form_wahl ); ?>
+						<a href="<?php echo esc_url( add_query_arg( 'bi_q_form', $wert, admin_url( 'admin.php?page=bi-seminarsuche' ) ) ); ?>"
+						   class="button button-small<?php echo $aktiv ? ' button-primary' : ''; ?>"
+						   style="margin-right:4px"><?php echo esc_html( $label ); ?></a>
+					<?php endforeach; ?>
+				</p>
+
+				<?php if ( ! $offen ) : ?>
+					<p style="color:#008a20;margin:0"><strong>Keine Lücke gefunden.</strong>
+					   Alle veröffentlichten Seminare tragen die Angaben, von denen Suche, Detailseite
+					   und Anmeldung leben.</p>
+				<?php else : ?>
+					<?php
+					/*
+					 * Feste Spaltenbreiten: Ohne sie richtet sich die Tabelle nach
+					 * dem längsten Wort. „Ansprechpartner-E-Mail fehlt" zieht dann
+					 * die erste Spalte auf, und die Wirkung – der Satz, der die
+					 * Zeile überhaupt erst erklärt – bricht auf sechs Zeilen um.
+					 */
+					?>
+					<table class="widefat striped" style="table-layout:fixed">
+						<thead><tr>
+							<th style="width:210px">Was fehlt</th>
+							<th style="width:110px">Betroffen</th>
+							<th>Wirkung</th>
+							<th style="width:150px">Im Batch pflegbar?</th>
+							<th style="width:160px"></th>
+						</tr></thead>
+						<tbody>
+						<?php foreach ( $offen as $p ) : ?>
+							<?php $anteil = $gesamt ? round( $p['anzahl'] / $gesamt * 100 ) : 0; ?>
+							<tr>
+								<td><strong><?php echo esc_html( $p['was'] ); ?></strong></td>
+								<td>
+									<strong style="color:<?php echo $anteil >= 10 ? '#b32d2e' : '#996800'; ?>">
+										<?php echo esc_html( number_format_i18n( $p['anzahl'] ) ); ?></strong>
+									<span style="color:#646970;font-size:12px"><?php echo esc_html( $anteil . ' %' ); ?></span>
+								</td>
+								<td style="color:#50575e"><?php echo esc_html( $p['wirkung'] ); ?></td>
+								<td style="color:#50575e"><?php echo $p['batch']
+									? 'Ja – markieren, <em>Bearbeiten</em>'
+									: '<span style="color:#8c8f94">Nein – je Termin verschieden</span>'; ?></td>
+								<td><a class="button button-small" href="<?php echo esc_url( $p['url'] ); ?>">Anzeigen &amp; bearbeiten</a></td>
+							</tr>
+						<?php endforeach; ?>
+						</tbody>
+					</table>
+					<p class="description" style="margin-top:10px">
+						Jede Zeile führt in die gefilterte Seminarliste – dort markieren und mit der Massenaktion
+						<strong>Bearbeiten</strong> füllen. <strong>Beschreibung und Themen</strong> lassen sich dabei
+						für höchstens <?php echo esc_html( number_format_i18n( BI_CPT::BULK_TEXT_MAX ) ); ?> markierte
+						Seminare setzen: Ein Fließtext gilt für einen Seminarinhalt, und der überschriebene Text wäre
+						nicht wiederherstellbar. Startdatum und Seminarnummer sind je Termin verschieden und stehen
+						deshalb gar nicht in der Maske – die gehören in die Quelldatei.
+					</p>
+				<?php endif; ?>
+			</div>
 
 			<?php // ---- Zwei Listen nebeneinander ---- ?>
 			<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-bottom:20px">
@@ -382,7 +513,7 @@ class BI_Admin {
 							beide Seminarformen. Für Teams-<em>Webinare</em> den <em>Anmeldelink</em> setzen – dann führt der
 							Buchungs-Button auf die Anmeldeseite des Webinars statt ins eigene Formular.</li>
 						<li><strong>Bildungszentren-Mails</strong> → unter „Seminare → Bildungszentrum" je Term eine E-Mail eintragen (für den Trigger „Bildungszentrum").</li>
-						<li><strong>Mail-Benachrichtigungen</strong> prüfen/anpassen → gleichnamiger Menüpunkt.
+						<li><strong>Benachrichtigungen</strong> prüfen/anpassen → gleichnamiger Menüpunkt.
 							Dort je Benachrichtigung auch die <em>Antwortadresse</em> und die <em>PDF-Anhänge</em>
 							(Seminardetails, Beschlussvorlage nach § 37 Abs. 6 BetrVG) einstellen.</li>
 						<li><strong>PDF-Anhänge</strong> vorbereiten → <em>Einstellungen → Tab „PDF-Anhänge"</em>:
@@ -392,13 +523,28 @@ class BI_Admin {
 							<code>[bi_seminarsuche anmeldung_url="/anmeldung"]</code>.</li>
 						<li><strong>Anmelde-Seite</strong> anlegen mit Shortcode <code>[bi_anmeldung]</code>
 							(das Seminar kommt automatisch per <code>?seminar=ID</code> aus der Suche).</li>
+						<li>Optional: <strong>Seite für die Ausbildungsreihen</strong> mit <code>[bi_reihen]</code>.
+							Der Beitragstyp hat keine automatische Archivseite – ohne diesen Schritt sind Reihen nur
+							über ihre Einzelseiten und über Links aus der Suche erreichbar.</li>
 					</ol>
 					<h3>Shortcodes</h3>
 					<table class="widefat striped" style="max-width:780px">
 						<tbody>
+							<tr><th colspan="2" style="text-align:left">Suche und Anmeldung</th></tr>
 							<tr><td><code>[bi_seminarsuche]</code></td><td>Such-/Filterleiste mit Ergebnisliste – Präsenz- und Online-Seminare gemeinsam, getrennt über den Filter-Chip „Seminarform". Attribute: <code>anmeldung_url</code>, <code>per_page</code>, <code>programm</code> (auf ein Programmjahr beschränken, z.&nbsp;B. <code>programm="2026"</code>), <code>form</code> (<code>praesenz</code> oder <code>online</code> – blendet den Chip aus und zeigt nur diese Form).</td></tr>
 							<tr><td><code>[bi_suchmaske]</code></td><td>Nur die Suchmaske ohne Ergebnisliste – z.&nbsp;B. für Startseite oder Sidebar. Die Filter wirken hier nicht sofort; der Button „Suche starten" springt mit der Auswahl auf die Seminarübersicht. Attribute: <code>ziel_url</code> (Standard: Einstellung „Seminarübersicht"), <code>button</code>, <code>titel</code>, <code>kicker</code>, <code>hinweis</code>, <code>programm</code>.</td></tr>
-							<tr><td><code>[bi_anmeldung]</code></td><td>Anmeldeformular. Attribut: <code>seminar="ID"</code> für festes Seminar.</td></tr>
+							<tr><td><code>[bi_anmeldung]</code></td><td>Anmeldeformular. Attribut: <code>seminar="ID"</code> für festes Seminar. Welche Seiten und Felder es zeigt, steht unter <em>Anmeldeformulare</em>.</td></tr>
+
+							<tr><th colspan="2" style="text-align:left">Ausbildungsreihen</th></tr>
+							<tr><td><code>[bi_reihen]</code></td><td><strong>Übersicht aller Reihen</strong> im Gewand der Detailseiten: Bild mit „N&nbsp;Teile"-Label, Titel, Auszug, Fußzeile mit Gruppen, frühestem Start und Orten. Entwürfe bleiben draußen. Attribute: <code>titel</code> (leer = ohne Überschrift), <code>overline</code>, <code>subline</code>, <code>anzahl</code>.<br><span style="color:#646970">Einen automatischen Archiv-Link gibt es nicht – dieser Shortcode gehört auf eine eigene Seite.</span></td></tr>
+							<tr><td><code>[bi_kachel_reihen]</code></td><td>Dieselben Reihen als <strong>Kacheln</strong> – für eine Startseite, wo sie neben anderen Kacheln stehen. Ohne Angabe alle ausgeschriebenen, sonst die handverlesenen in ihrer Reihenfolge. Attribute: <code>reihen="12|34"</code>, <code>spalten</code> (2/3/4), <code>anzahl</code>, <code>sortierung="titel"</code>, <code>layout</code>, <code>ratio</code>, <code>ueberschrift</code>, <code>button</code> (<code>button=""</code> = ohne Button), <code>meta="nein"</code>.</td></tr>
+
+							<tr><th colspan="2" style="text-align:left">Marketing <span style="font-weight:400;color:#646970">– zusammengestellt unter <em>Marketing</em></span></th></tr>
+							<tr><td><code>[bi_kachel]</code></td><td>Eine Kachel: Bild, Überschrift, Text, wahlweise Button. Ziel wahlweise die Suche mit vorbelegten Filtern (<code>q</code>, <code>form</code>, <code>ort</code>, <code>thema</code>, <code>ziel</code>, <code>frei</code>, <code>von</code>, <code>bis</code>, <code>nr</code> – mehrere Werte mit <code>|</code>), eine feste <code>url</code> oder eine Ausbildungsreihe (<code>reihe="ID oder Slug"</code>). Gestaltung: <code>layout</code> (1/2), <code>bild</code>, <code>ratio</code>, <code>fokus</code>, <code>titel</code>, <code>text</code>, <code>button</code> (<code>button=""</code> lässt den roten Button weg), <code>ueberschrift</code>.</td></tr>
+							<tr><td><code>[bi_liste]</code></td><td><strong>Dieselbe gefilterte Auswahl als Liste</strong> statt als Kachel: die nächsten Termine als Trefferzeilen – Zeile für Zeile dieselben wie unter der Suchbox, ohne Bild. Filter-Attribute wie bei <code>[bi_kachel]</code>, dazu <code>anzahl</code> (Zeilen, Standard 5), <code>titel</code>, <code>text</code>, <code>ueberschrift</code>, <code>button</code> (Link unter der Liste; <code>%d</code> darin wird zur Gesamtzahl, <code>button=""</code> lässt ihn weg), <code>leer</code>, <code>programm</code> (hier ein echter Filter), <code>suche_url</code>.</td></tr>
+							<tr><td><code>[bi_kachel gespeichert="…"]</code><br><code>[bi_liste gespeichert="…"]</code></td><td><strong>Verweis auf eine gespeicherte Kachel oder Liste.</strong> Die Gestaltung bleibt im Reiter <em>Gespeichert</em> – wer sie dort ändert, ändert sie überall zugleich. Beide Shortcodes verstehen jeden Schlüssel: Was herauskommt, entscheidet die gespeicherte Darstellung. Weitere Attribute übersteuern die gespeicherte Fassung im Einzelfall.</td></tr>
+							<tr><td><code>[bi_kachel_vorlagen]</code></td><td>Alle Themenfelder mit hinterlegtem Bild als fertiges Gitter (Reiter <em>Kachel-Vorlagen</em>). Attribute: <code>spalten</code>, <code>ratio</code>, <code>button</code>.</td></tr>
+							<tr><td><code>[bi_kacheln spalten="3"]…[/bi_kacheln]</code></td><td>Gitter-Behälter, wenn mehrere <code>[bi_kachel]</code> ohne Page-Builder nebeneinander stehen sollen. Mobil bricht es von selbst um.</td></tr>
 						</tbody>
 					</table>
 				</div>

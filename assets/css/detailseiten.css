@@ -1,0 +1,967 @@
+/* ============================================================
+   Seminardetail und Ausbildungsreihe im IG Metall Design
+   ------------------------------------------------------------
+   Gilt für drei Ausgaben:
+     .igm-seite--seminar   Detailseite eines Seminars/Termins
+     .igm-seite--reihe     Seite einer Ausbildungsreihe
+     .igm-seite--reihen    Kachelübersicht aller Reihen
+
+   TOKENS: Die Farb- und Schriftwerte kommen aus dem Design-System, sobald es
+   auf der Seite liegt (--igm-rot, --font-head …). Der zweite Wert in jedem
+   var() ist der Wert aus dem Design-Handoff und springt ein, wenn das System
+   fehlt – etwa in einer Vorschau oder unter einem anderen Theme. Deshalb
+   eigene Namen (--bi-*): --igm-rot: var(--igm-rot) wäre ein Kreis.
+
+   ECKEN: Das Corporate Design kennt keine abgerundeten Ecken. Weil viele
+   Themes border-radius auf Buttons, Bilder und Eingabefelder legen, wird er
+   hier für die eigenen Bauteile ausdrücklich auf 0 gesetzt.
+   ============================================================ */
+
+.igm-seite {
+	--bi-rot:        var(--igm-rot, #e3051b);
+	--bi-rot-dark:   var(--igm-rot-dark, #b80416);
+	--bi-rot-tint:   var(--igm-rot-tint, #fce6e8);
+	--bi-anthrazit:  var(--igm-anthrazit, #3c3c3c);
+	--bi-grau:       var(--igm-grau, #646464);
+	--bi-lichtgrau:  var(--igm-lichtgrau, #dadada);
+	--bi-grau-tint:  var(--igm-grau-tint, #f2f2f2);
+	--bi-blau:       var(--igm-blau, #2f80ab);
+	--bi-blau-tint:  #e9f2f7;
+	--bi-gelb:       var(--igm-gelb, #eab500);
+	--bi-gelb-tint:  var(--igm-gelb-tint, #fdf4d6);
+	--bi-gruen:      var(--igm-gruen, #5b9945);
+	--bi-gruen-tint: #ecf3e8;
+
+	/* „Avenir Next Condensed" steht in der Reihe, weil iOS und iPadOS weder
+	   Arial Narrow noch Roboto Condensed mitbringen: Dort fiel der Stapel bis
+	   hierher auf das breite Arial durch, und alles, was auf eine schmale
+	   Schrift gerechnet ist – allen voran die 108px-Labelspalte der
+	   Seminardetails –, lief über. Avenir Next Condensed gibt es auf jedem
+	   Apple-Gerät und es ist so schmal wie Arial Narrow. */
+	--bi-head: var(--font-head, "Meta Head IGM Cond", "Arial Narrow", "Roboto Condensed", "Avenir Next Condensed", Arial, sans-serif);
+	--bi-body: var(--font-body, "Meta IGM", Calibri, "Segoe UI", system-ui, -apple-system, sans-serif);
+
+	--bi-breite: 1180px;
+	--bi-rand: 28px;
+
+	font-family: var(--bi-body);
+	font-size: 17px;
+	line-height: 1.55;
+	color: var(--bi-anthrazit);
+	background: #fff;
+	text-wrap: pretty;
+}
+
+/* Der Rahmen der Seite kommt vom Template; hier nur die eigenen Bauteile. */
+.bi-seite-main { margin: 0; padding: 0; max-width: none; }
+
+.igm-seite *,
+.igm-seite *::before,
+.igm-seite *::after { box-sizing: border-box; }
+
+.igm-seite img { max-width: 100%; border-radius: 0; }
+.igm-seite a { color: var(--bi-rot); text-decoration: none; }
+.igm-seite a:hover { color: var(--bi-rot-dark); text-decoration: underline; }
+
+.igm-breite {
+	max-width: var(--bi-breite);
+	margin: 0 auto;
+	padding-left: var(--bi-rand);
+	padding-right: var(--bi-rand);
+}
+
+/* Nur für Screenreader – eigene Klasse, damit die Ausgabe nicht davon abhängt,
+   ob das Theme .screen-reader-text mitbringt. */
+.igm-seite .igm-visually-hidden {
+	position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+	overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+.igm-icon { flex: 0 0 auto; display: block; }
+
+/* ---------------- Kopfbereich ---------------- */
+
+.igm-brotkrumen {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+	font-size: 14px; color: var(--bi-grau); margin: 0 0 22px;
+}
+.igm-brotkrumen a { color: var(--bi-grau); }
+.igm-brotkrumen a:hover { color: var(--bi-rot); }
+.igm-brotkrumen__trenner { color: var(--bi-lichtgrau); }
+
+/* „Zurück zur Suche": Textlink mit Pfeil, kein Knopf – er führt weg vom
+   Inhalt und darf dem Buchen-Button keine Aufmerksamkeit abnehmen. Die
+   Trefferfläche ist trotzdem hoch genug für einen Daumen. */
+.igm-zurueck {
+	display: inline-flex; align-items: center; gap: 8px;
+	padding: 6px 0; min-height: 34px; text-decoration: none; font-weight: 500;
+}
+.igm-zurueck .igm-icon { transition: transform .15s ease; }
+.igm-zurueck:hover .igm-icon { transform: translateX(-3px); }
+.igm-zurueck span { text-decoration: underline; text-underline-offset: 3px; }
+
+.igm-hero {
+	display: flex; flex-wrap: wrap; gap: 44px; align-items: flex-end;
+	padding-top: 30px; padding-bottom: 38px;
+}
+.igm-hero__text { flex: 1 1 520px; min-width: 0; }
+.igm-hero__overline {
+	font-family: var(--bi-head); font-weight: 300; letter-spacing: .03em;
+	text-transform: uppercase; font-size: 17px; color: var(--bi-grau); margin: 0 0 8px;
+}
+.igm-hero__titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: clamp(30px, 4.6vw, 54px); line-height: 1.02;
+	color: var(--bi-rot); margin: 0 0 18px; hyphens: auto;
+}
+.igm-hero__untertitel {
+	font-family: var(--bi-head); font-weight: 300; text-transform: none;
+	font-size: 21px; line-height: 1.25; color: var(--bi-grau); margin: -8px 0 18px;
+}
+.igm-hero__badges { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/*
+ * Das Bild ist so hoch wie es ist – nicht so hoch wie die Textspalte daneben.
+ *
+ * Vorher war der Kasten `align-self: stretch` und wuchs mit der Überschrift mit,
+ * während das Bild darin bei `max-height: 300px` stehenblieb. Bei einer langen
+ * Überschrift („Ausbildungsreihe mit TÜV Rheinland zertifizierter Qualifikation
+ * – Berater*in für das betriebliche Eingliederungsmanagement (BEM)") war der
+ * Kasten 398px hoch, das Bild 300px – und das Dreieck, das am UNTEREN RAND DES
+ * KASTENS klebt, schwebte 24px unter dem Bild in der weißen Fläche.
+ *
+ * Feste Höhe statt Streckung: Der Kasten ist damit immer genau so hoch wie das
+ * Bild, das Dreieck sitzt in dessen Ecke, und alle Detailseiten zeigen ihr Bild
+ * gleich hoch. Der Preis ist gering: Wo die Textspalte kürzer als 300px bleibt,
+ * schrumpfte das Bild früher mit – jetzt bestimmt es die Höhe der Zeile.
+ */
+.igm-hero__bild { flex: 1 1 340px; position: relative; align-self: flex-end; }
+.igm-hero__bild img { width: 100%; height: 300px; object-fit: cover; display: block; }
+/* Designelement „Dreieck“ des Systems: rote Spitze nach rechts, unten links im Bild.
+   Bezugspunkt ist der Kasten – deshalb muss der so hoch sein wie das Bild (siehe oben). */
+.igm-hero__dreieck {
+	position: absolute; left: 0; bottom: 0; width: 80px; height: 74px;
+	background: var(--bi-rot); clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.igm-badge {
+	display: inline-flex; align-items: center;
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; line-height: 1.2;
+	padding: 6px 12px; border: 1px solid var(--bi-lichtgrau); color: var(--bi-grau);
+	background: #fff; border-radius: 0;
+}
+.igm-badge--rot { border-color: var(--bi-rot); color: var(--bi-rot); }
+.igm-badge--rot-voll { border-color: var(--bi-rot); background: var(--bi-rot); color: #fff; }
+.igm-badge a { color: inherit; }
+.igm-badge a:hover { color: inherit; text-decoration: underline; }
+
+.igm-trennstrich { border-top: 4px solid var(--bi-rot); }
+
+/* ---------------- Kennzahlenband ---------------- */
+
+.igm-fakten { background: var(--bi-grau-tint); }
+/* Die Angaben stehen mittig im Band – auch dann, wenn eine Zeile nicht voll
+   wird. Mit dem früheren Raster (auto-fit, 1fr) klebte die letzte Angabe allein
+   am linken Rand, sobald vier Angaben auf drei Spalten trafen; das sah nach
+   Fehler aus, nicht nach Umbruch. Flex statt Grid, weil `justify-content` auf
+   1fr-Spalten wirkungslos bleibt: Die Spalten schlucken den Platz, den es zu
+   verteilen gälte. */
+/* EINZEILIG: Die Angaben stehen nebeneinander in EINER Reihe, nie umgebrochen.
+   Ein Umbruch ließ zuletzt die vierte Angabe allein in einer zweiten Zeile
+   stehen – das las sich wie ein Nachtrag, nicht wie ein Teil des Bandes.
+   Wird es eng, schrumpfen die Angaben stattdessen und ihr Wert bricht innerhalb
+   der Spalte um. Nur auf dem Handy ist eine Reihe nicht zu halten; dort stapelt
+   die Regel weiter unten sie linksbündig untereinander. */
+.igm-fakten__inner {
+	display: flex; flex-wrap: nowrap; justify-content: center;
+	gap: 24px 44px; padding-top: 24px; padding-bottom: 24px;
+	/* `margin: 0 auto`, NICHT `margin: 0`: Das Element trägt zugleich
+	   .igm-breite, und weil diese Regel weiter unten im Stylesheet steht,
+	   gewinnt sie bei gleicher Spezifität. Ein `margin: 0` hätte dort das
+	   automatische Zentrieren ausgeknipst – das Band säße dann links am Rand
+	   statt in der Mitte, und je breiter der Bildschirm, desto deutlicher. */
+	margin: 0 auto;
+}
+/* `min-width: 0` ist die Bedingung fürs Schrumpfen: Ohne sie steht ein
+   Flex-Element mindestens so breit wie sein längstes Wort, und die Reihe liefe
+   aus dem Band heraus, statt enger zu werden. */
+.igm-fakten__item { display: flex; gap: 13px; align-items: flex-start; flex: 0 1 auto; min-width: 0; }
+/* Der Textkasten ist selbst ein Flex-Element und stünde ohne `min-width: 0`
+   mindestens so breit wie sein längstes Wort – die Reihe liefe dann aus dem
+   Band heraus, statt enger zu werden. */
+.igm-fakten__item > div { min-width: 0; }
+.igm-fakten__item .igm-icon { color: var(--bi-rot); margin-top: 2px; }
+.igm-fakten__label {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; color: var(--bi-grau);
+}
+/* Deutsche Komposita sind länger als jede Spalte: „Schwerbehindertenvertretung"
+   passt in keine Vierteilung. Erst wird sauber getrennt, und nur wo das
+   Wörterbuch nicht weiterweiß, hart umgebrochen. */
+.igm-fakten__wert {
+	margin: 2px 0 0; font-weight: 700;
+	hyphens: auto; overflow-wrap: break-word;
+}
+
+/* ---------------- Zweispaltiges Grundgerüst ---------------- */
+
+.igm-layout {
+	display: flex; flex-wrap: wrap; gap: 52px; align-items: flex-start;
+	padding-top: 46px; padding-bottom: 90px;
+}
+.igm-layout__main { flex: 1 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 42px; }
+.igm-layout__side { flex: 1 1 320px; position: sticky; top: 20px; display: flex; flex-direction: column; gap: 18px; }
+
+.igm-lead { font-size: 20px; line-height: 1.5; margin: 0; max-width: 62ch; }
+
+.igm-fliesstext { max-width: 66ch; font-size: 17px; line-height: 1.6; }
+.igm-fliesstext > *:first-child { margin-top: 0; }
+.igm-fliesstext > *:last-child { margin-bottom: 0; }
+.igm-fliesstext p { margin: 0 0 1em; }
+.igm-fliesstext > p:first-of-type { font-size: 20px; line-height: 1.5; }
+.igm-fliesstext ul, .igm-fliesstext ol { margin: 0 0 1em; padding-left: 1.3em; }
+.igm-fliesstext li { margin: 0 0 .4em; }
+
+/* Abschnittsüberschrift: Titel, kurzer roter Strich, optionale Unterzeile. */
+.igm-abschnitt__overline {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; color: var(--bi-grau); margin: 0 0 6px;
+}
+.igm-abschnitt__titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: clamp(26px, 3vw, 36px); line-height: 1.05;
+	color: var(--bi-rot); margin: 0;
+}
+.igm-abschnitt__strich { width: 64px; border-top: 4px solid var(--bi-rot); margin: 14px 0 0; }
+.igm-abschnitt__subline { margin: 14px 0 0; font-size: 17px; color: var(--bi-grau); max-width: 62ch; }
+.igm-abschnitt__inhalt { margin-top: 26px; }
+
+/* Aufzählung mit ▸-Marke (BulletList des Design-Systems) */
+.igm-liste { margin: 0; padding: 0; list-style: none; }
+.igm-liste li {
+	position: relative; margin: 0 0 12px; padding-left: 22px;
+	font-size: 17px; line-height: 1.5;
+}
+.igm-liste li::before {
+	content: ""; position: absolute; left: 0; top: .55em;
+	width: 8px; height: 10px; background: var(--bi-rot);
+	clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.igm-liste li:last-child { margin-bottom: 0; }
+.igm-liste--blau li::before { background: var(--bi-blau); }
+
+/* Themenfeld aus der Datenpflege: mal HTML-Liste, mal Fließtext – beides
+   bekommt dieselbe ▸-Marke wie .igm-liste. */
+.igm-themen { max-width: 66ch; font-size: 17px; line-height: 1.5; }
+.igm-themen ul, .igm-themen ol { margin: 0; padding: 0; list-style: none; }
+.igm-themen li { position: relative; margin: 0 0 12px; padding-left: 22px; }
+.igm-themen li::before {
+	content: ""; position: absolute; left: 0; top: .55em;
+	width: 8px; height: 10px; background: var(--bi-rot);
+	clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.igm-themen li:last-child { margin-bottom: 0; }
+.igm-themen p { margin: 0 0 .8em; }
+.igm-themen > *:last-child { margin-bottom: 0; }
+
+/* Infobox */
+.igm-infobox { border: 1px solid var(--bi-blau); border-left-width: 4px; padding: 20px 24px; }
+.igm-infobox__titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 17px; line-height: 1.2; color: var(--bi-blau); margin: 0 0 14px;
+}
+
+/* ---------------- Terminzeilen ---------------- */
+
+/* Die Liste misst sich selbst (container-type): Wie viel Platz eine Terminzeile
+   hat, hängt nicht am Fenster, sondern an der Hauptspalte – die ist neben der
+   Sidebar nur rund 656px breit, auch auf einem 1600px-Bildschirm. Eine
+   Fensterabfrage (@media) sieht das nicht und ließ die vier Spalten in einen
+   Platz laufen, in dem für den Ortsnamen 96px übrig blieben. */
+.igm-termine {
+	display: flex; flex-direction: column; gap: 6px;
+	container-type: inline-size; container-name: bi-termine;
+}
+
+/* Feste Spaltenbreiten, keine auto-Spalten: Jede Zeile ist ein eigenes Grid,
+   „auto" würde also je Zeile anders ausfallen und die Spalten gegeneinander
+   verschieben. */
+.igm-termin {
+	display: grid; align-items: center;
+	border: 1px solid var(--bi-lichtgrau); background: #fff;
+	padding: 11px 18px; color: var(--bi-anthrazit); border-radius: 0;
+}
+.igm-termin__datum { font-weight: 700; font-size: 16px; white-space: nowrap; }
+.igm-termin__ort { font-size: 15px; min-width: 0; }
+.igm-termin__zusatz { font-size: 13px; color: var(--bi-grau); line-height: 1.2; }
+
+/* ---- Zeile mit Buchung: Seminarort · Zeitraum · Verfügbarkeit · Button ----
+   Getrennt werden die Spalten durch Weißraum (20px) und durch die gemeinsame
+   Oberkante, nicht durch Striche – so hält es das Design-System durchgehend.
+   Beides zusammen ist nötig: Weißraum allein reichte nicht, sobald der Ortsname
+   umbrach. */
+/* Der Zeitraum bekommt `auto` und bleibt damit einzeilig – er ist der Anker,
+   an dem man die Zeilen vergleicht. Ort, Verfügbarkeit und Button haben eine
+   Obergrenze und brechen darin um; der Ort nimmt den Rest. So bleibt der
+   Abstand zwischen den Spalten erhalten, statt dass eine Spalte die andere
+   erdrückt. */
+.igm-termin--link {
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 124px) minmax(0, 140px);
+	column-gap: 20px; row-gap: 8px;
+	/* OBEN statt mittig ausrichten. „Bildungszentrum Sprockhövel" braucht zwei
+	   Zeilen; mittig gesetzt rutschte das Datum dann GENAU zwischen die beiden
+	   Ortszeilen, und die Spalten lasen sich als ein Textblock. Oben bündig
+	   beginnen alle vier Angaben auf derselben Höhe – daran erkennt das Auge
+	   die Spalte, ganz ohne Trennlinie. */
+	align-items: start;
+}
+/* Der Button ist höher als eine Textzeile und säße oben bündig einen Hauch zu
+   hoch – die Grundlinie seiner Schrift soll auf der des Datums liegen. */
+.igm-termin--link .igm-termin__aktion { margin-top: -4px; }
+.igm-termin--link .igm-termin__aus { margin-top: 1px; }
+
+/* Ohne eine einzige abgeglichene Verfügbarkeit entfällt die Spalte. */
+.igm-termine--ohne-ampel .igm-termin--link {
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 140px);
+}
+.igm-termine--ohne-ampel .igm-termin__ampel { display: none; }
+
+/* Zu eng für vier Spalten: Der Ortsname zerbräche in Einzelwörter, und die
+   Zeile wäre höher als drei gestapelte Angaben. Ab hier also Karte statt
+   Tabelle – Zeitraum und Ort links, Verfügbarkeit und Aktion rechts daneben.
+   Die Schwelle ist die Breite, ab der 1fr dem Ort noch rund 150px lässt. */
+@container bi-termine (max-width: 620px) {
+	.igm-termin--link,
+	.igm-termine--ohne-ampel .igm-termin--link {
+		grid-template-columns: minmax(0, 1fr) auto;
+		column-gap: 16px; row-gap: 4px;
+	}
+	.igm-termin--link .igm-termin__datum { grid-column: 1; }
+	.igm-termin--link .igm-termin__ort   { grid-column: 1; }
+	/* Verfügbarkeit und Aktion stehen rechts, über beide Textzeilen hinweg. */
+	.igm-termin--link .igm-termin__ampel {
+		grid-column: 2; grid-row: 1; justify-self: end; max-width: none;
+	}
+	.igm-termine--ohne-ampel .igm-termin__ampel { display: none; }
+	.igm-termin--link .igm-termin__aktion {
+		grid-column: 2; grid-row: 2; justify-self: end; margin-top: 2px;
+	}
+	.igm-termine--ohne-ampel .igm-termin--link .igm-termin__aktion { grid-row: 1 / span 2; align-self: center; }
+}
+
+a.igm-termin__datum { color: var(--bi-anthrazit); text-decoration: none; }
+a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
+
+/* Nicht buchbarer Termin: ausgegraut, ohne Ampel, ohne Button. Er bleibt in der
+   Liste – er beantwortet weiter „gibt es das Seminar und wann?" –, tritt aber
+   hinter die buchbaren zurück. Den grauen Grund legt `.igm-termin--aus` weiter
+   unten fest (dieselbe Marke nutzt die Reihenseite für ihre Wahlzeilen); hier
+   stehen nur die Farben der verlinkten Zeile. Das Datum bleibt anklickbar und
+   deshalb lesbar – gedämpft über die Textfarbe, nicht über `opacity`. */
+.igm-termin--aus .igm-termin__ort,
+.igm-termin--aus a.igm-termin__datum { color: var(--bi-grau); }
+.igm-termin--aus a.igm-termin__datum:hover { color: var(--bi-rot); }
+/* Der Grund steht dort, wo sonst der Button wäre – als Text, nicht als Knopf:
+   Ein ausgegrauter Button sieht aus wie ein Fehler und lädt zum Klicken ein. */
+.igm-termin__aus {
+	display: inline-block; font-size: 14px; line-height: 1.2; color: var(--bi-grau);
+	font-weight: 700; text-align: right;
+}
+/* „Warteliste möglich" füllt die Spalte auf den Pixel genau aus. Ein längeres
+   Label aus der Quelle soll umbrechen statt in den Button zu laufen. */
+.igm-termin__ampel { min-width: 0; }
+.igm-termin__ampel .igm-ampel { max-width: 100%; }
+.igm-termin__ampel .igm-ampel__text { min-width: 0; }
+.igm-termin__aktion { justify-self: end; min-width: 0; }
+/* Der Button steht hier neben anderen Angaben, nicht allein in einer Sidebar:
+   kleiner, und sein Text darf umbrechen. „Zur Geschäftsstellensuche" braucht
+   einzeilig 255px – mehr, als die ganze Zeile für Ort und Datum übrig hat. */
+.igm-termin__aktion .igm-btn-buchen {
+	display: inline-block; width: auto; white-space: normal;
+	font-size: 14px; line-height: 1.15; padding: 9px 14px; text-align: center;
+	/* „Geschäftsstellensuche" ist EIN Wort von 170px. Ohne Trennung wäre das
+	   die Mindestbreite der Spalte, und sie schöbe sich über die Verfügbarkeit. */
+	hyphens: auto; overflow-wrap: break-word;
+}
+
+/* Zeile als Auswahl (feste Gruppen): Radio-Verhalten je Teil.
+   Eigenes Raster, weil hier der Auswahlpunkt vornsteht und kein Button hinten.
+   Die Breiten sind so bemessen, dass „Bildungszentrum Sprockhövel" – der
+   längste Ortsname im Bestand – einzeilig bleibt. */
+/* Vier Spalten: Auswahlpunkt, Zeitraum, Ort, Zusatz („Ausgebucht",
+   „Kinderbetreuung"). Die Seminarnummer stand hier einmal dazwischen und ist
+   weg – sie beantwortet bei der Terminwahl keine Frage und nahm dem Ortsnamen
+   den Platz, den er zum Umbrechen braucht (siehe BI_Reihen::wahl_zeile).
+   `align-items: start` wie bei den verlinkten Zeilen: Bricht der Ortsname um,
+   sollen alle Angaben oben auf derselben Höhe beginnen, statt sich ineinander
+   zu schieben. */
+.igm-termin--wahl {
+	grid-template-columns: 14px minmax(0, 132px) minmax(0, 1fr) minmax(0, 116px);
+	column-gap: 20px; row-gap: 6px;
+	align-items: start;
+	cursor: pointer; border-width: 2px; padding: 10px 15px;
+}
+/* Der Auswahlpunkt sitzt auf der Höhe der ersten Textzeile, nicht auf deren Oberkante. */
+.igm-termin--wahl .igm-termin__radio { margin-top: 3px; }
+
+/* Zu eng für drei Textspalten: Zeitraum, Ort und Zusatz stapeln sich rechts vom
+   Auswahlpunkt. Ohne diese Schwelle schoben sich die Spalten ineinander, sobald
+   der Kasten schmaler wurde als ihre Mindestbreiten zusammen – unabhängig
+   davon, wie breit das Fenster ist. */
+@container bi-plan (max-width: 520px) {
+	.igm-termin--wahl {
+		grid-template-columns: 16px minmax(0, 1fr);
+		grid-auto-rows: auto; gap: 4px 12px; padding: 12px 14px;
+	}
+	.igm-termin--wahl .igm-termin__datum,
+	.igm-termin--wahl .igm-termin__ort,
+	.igm-termin--wahl .igm-termin__zusatz { grid-column: 2; }
+}
+.igm-termin--wahl:hover { border-color: var(--bi-rot); background: var(--bi-rot-tint); }
+.igm-termin--wahl.is-gewaehlt { border-color: var(--bi-rot); background: var(--bi-rot-tint); }
+/* Ausgebucht: sichtbar, aber nicht wählbar – der Termin gehört zur Abfolge und
+   verschwiegen zu werden wäre irreführend. */
+.igm-termin--aus { cursor: default; color: var(--bi-grau); background: var(--bi-grau-tint); }
+.igm-termin--aus:hover { border-color: var(--bi-lichtgrau); background: var(--bi-grau-tint); }
+.igm-termin--aus .igm-termin__radio { border-color: var(--bi-lichtgrau); cursor: default; }
+
+.igm-termin__radio {
+	appearance: none; -webkit-appearance: none; margin: 0;
+	width: 14px; height: 14px; flex: 0 0 auto;
+	border: 2px solid var(--bi-grau); border-radius: 50%; background: #fff; cursor: pointer;
+}
+.igm-termin__radio:checked { border-color: var(--bi-rot); background: var(--bi-rot); box-shadow: inset 0 0 0 2px #fff; }
+.igm-termin__radio:focus-visible { outline: 2px solid var(--bi-rot); outline-offset: 3px; }
+
+.igm-termine__hinweis { margin: 0 0 10px; font-size: 14px; color: var(--bi-grau); }
+.igm-termine__leer { font-size: 15px; color: var(--bi-grau); }
+.igm-termine__stand { margin: 10px 0 0; font-size: 13px; color: var(--bi-grau); }
+
+/* ---------------- Sidebar-Boxen ---------------- */
+
+.igm-box { border: 1px solid var(--bi-lichtgrau); padding: 20px 22px; background: #fff; }
+.igm-box--akzent { border-top: 4px solid var(--bi-rot); padding: 22px; }
+.igm-box__titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 21px; line-height: 1.1;
+	color: var(--bi-anthrazit); margin: 0 0 16px;
+}
+.igm-box--klein .igm-box__titel { font-size: 16px; margin-bottom: 12px; }
+.igm-box__text { margin: 0 0 14px; font-size: 15px; color: var(--bi-grau); }
+
+/* Verfügbarkeits-Ampel oben in der Box */
+.igm-ampelbox { padding: 12px 14px; margin-bottom: 18px; background: var(--bi-grau-tint); }
+.igm-ampelbox--green  { background: var(--bi-gruen-tint); }
+.igm-ampelbox--orange { background: var(--bi-gelb-tint); }
+.igm-ampelbox--red    { background: var(--bi-rot-tint); }
+.igm-ampelbox .igm-ampel { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 16px; }
+.igm-ampelbox .igm-ampel__punkt { width: 12px; height: 12px; border-radius: 0; flex: 0 0 auto; background: var(--bi-grau); }
+.igm-ampelbox.igm-ampelbox--green  .igm-ampel__punkt { background: var(--bi-gruen); }
+.igm-ampelbox.igm-ampelbox--orange .igm-ampel__punkt { background: var(--bi-gelb); }
+.igm-ampelbox.igm-ampelbox--red    .igm-ampel__punkt { background: var(--bi-rot); }
+.igm-ampelbox .igm-ampel__stand { display: block; font-size: 13px; font-weight: 400; color: var(--bi-grau); margin-top: 3px; }
+
+/* Ampel außerhalb der Box (Terminzeilen) */
+.igm-ampel { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; line-height: 1.3; color: var(--bi-anthrazit); }
+.igm-ampel__punkt { flex: 0 0 auto; width: 10px; height: 10px; background: var(--bi-grau); }
+.igm-ampel--green  .igm-ampel__punkt { background: var(--bi-gruen); }
+.igm-ampel--orange .igm-ampel__punkt { background: var(--bi-gelb); }
+.igm-ampel--red    .igm-ampel__punkt { background: var(--bi-rot); }
+.igm-ampel__stand { color: var(--bi-grau); font-size: 12px; }
+
+/* Definitionsliste */
+.igm-daten { margin: 0; display: flex; flex-direction: column; }
+.igm-daten__zeile {
+	/* 116px statt 108: „KINDERBETREUUNG" braucht selbst in der schmalen Schrift
+	   115px und drängte sich bisher in den Abstand hinein. Der Abstand gibt die
+	   8px her, die Wertespalte verliert nur 6. */
+	display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 10px;
+	padding: 9px 0; border-bottom: 1px solid var(--bi-lichtgrau);
+}
+.igm-daten__zeile:last-child { border-bottom: 0; }
+.igm-daten dt {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; color: var(--bi-grau); padding-top: 3px;
+	/* SICHERUNG GEGEN EINE ZU SCHMALE SPALTE: Die Breite oben ist auf eine
+	   schmale Schrift gerechnet. Steht keine zur Verfügung, wird
+	   „SEMINARNUMMER" statt 103px rund 124px breit – und weil ein einzelnes
+	   Wort ohne Trennstelle von sich aus nicht umbricht, lief es waagerecht
+	   weiter und schob sich über den Wert daneben. Genau so sah es auf dem iPad
+	   aus: „SEMINARNUMMERB00027196".
+
+	   hyphens:auto gibt dem Wort die Trennstelle (die Liste trägt lang="de"),
+	   break-word bleibt der Notnagel für Zeichenketten, für die der Browser
+	   keine Silbengrenze kennt. Ein Label, das nicht passt, bricht dann um –
+	   statt sich über den Wert zu legen. Passt es, ändert sich nichts. */
+	min-width: 0;
+	hyphens: auto; -webkit-hyphens: auto;
+	overflow-wrap: break-word;
+}
+/* Lange Zusammensetzungen mit Trennstrich umbrechen, nicht mitten im Wort.
+   In der 320px-Sidebar bleiben der Wertespalte rund 150px – „Schwerbehinderten­-
+   vertretung" passt da nie in eine Zeile. Mit `overflow-wrap: anywhere` stand
+   dort „Schwerbehindertenve / rtretung": gebrochen an der Stelle, an der der
+   Platz endete, ohne Strich und ohne Silbengrenze.
+   `hyphens: auto` überlässt den Punkt der Silbentrennung des Browsers – dazu
+   muss die Sprache am Element hängen, deshalb das lang="de" in BI_Detail.
+   `break-word` bleibt als Notnagel für Zeichenketten ohne Trennstelle (lange
+   Aktenzeichen etwa) – dann lieber gebrochen als aus dem Kasten gelaufen. */
+.igm-daten dd {
+	margin: 0; font-size: 16px;
+	hyphens: auto; -webkit-hyphens: auto;
+	overflow-wrap: break-word;
+}
+.igm-daten dd a { color: var(--bi-rot); }
+
+/* Fließende Variante ohne feste Labelspalte (Angaben zur Reihe) */
+.igm-daten--block .igm-daten__zeile { display: block; padding: 14px 0; }
+.igm-daten--block dd { margin-top: 3px; }
+
+/* Kostenaufstellung */
+.igm-kosten { margin: 18px 0 0; }
+.igm-kosten__titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; color: var(--bi-grau); margin: 0 0 8px;
+}
+.igm-kosten table { width: 100%; border-collapse: collapse; font-size: 15px; background: none; margin: 0; }
+.igm-kosten td { padding: 5px 0; border: 0; border-bottom: 1px solid var(--bi-lichtgrau); background: none; }
+.igm-kosten td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
+.igm-kosten tr:last-child td { border-bottom: 0; }
+.igm-kosten__gesamt td { border-top: 1px solid var(--bi-anthrazit); font-weight: 700; padding-top: 8px; }
+.igm-kosten__hinweis,
+.igm-kosten__text { margin: 8px 0 0; color: var(--bi-grau); font-size: 14px; font-weight: 400; }
+/* Steuerhinweis am Posten („zzgl. USt.", „USt.-frei") – klein und grau neben
+   der Bezeichnung, wie im Design-Handoff. */
+.igm-kosten__ust { color: var(--bi-grau); font-size: 13px; font-weight: 400; }
+
+/* Download-Box („Seminardetails als PDF") */
+.igm-box--download .igm-box__text { margin-bottom: 16px; font-size: 14px; }
+.igm-btn--download {
+	display: flex; align-items: center; justify-content: center; gap: 10px;
+	font-size: 16px; padding: 12px 18px;
+}
+.igm-btn--download .igm-icon { flex: 0 0 auto; }
+
+/* Kontaktzeilen */
+.igm-kontakt { display: flex; flex-direction: column; gap: 9px; font-size: 15px; }
+.igm-kontakt a,
+.igm-kontakt__name { display: flex; align-items: center; gap: 10px; }
+.igm-kontakt__name { color: var(--bi-anthrazit); }
+.igm-kontakt .igm-icon { color: var(--bi-rot); }
+
+/* ---------------- Buttons ---------------- */
+
+.igm-btn-buchen,
+.igm-btn {
+	display: block; width: 100%; text-align: center; box-sizing: border-box;
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase; letter-spacing: .03em;
+	font-size: 18px; line-height: 1.2; padding: 15px 22px;
+	background: var(--bi-rot); color: #fff !important; border: 2px solid var(--bi-rot);
+	border-radius: 0; text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s;
+}
+.igm-btn-buchen:hover,
+.igm-btn:hover { background: var(--bi-rot-dark); border-color: var(--bi-rot-dark); color: #fff !important; text-decoration: none; }
+.igm-btn-buchen:focus-visible,
+.igm-btn:focus-visible { outline: 2px solid var(--bi-anthrazit); outline-offset: 3px; }
+
+.igm-btn--sek,
+.igm-btn-buchen--alt {
+	background: #fff; color: var(--bi-anthrazit) !important; border-color: var(--bi-anthrazit);
+}
+.igm-btn--sek:hover,
+.igm-btn-buchen--alt:hover { background: var(--bi-anthrazit); color: #fff !important; border-color: var(--bi-anthrazit); }
+
+.igm-btn--aus,
+.igm-btn-buchen--disabled {
+	background: var(--bi-grau-tint); color: var(--bi-grau) !important; border-color: var(--bi-lichtgrau);
+	cursor: not-allowed;
+}
+.igm-btn--aus:hover,
+.igm-btn-buchen--disabled:hover { background: var(--bi-grau-tint); color: var(--bi-grau) !important; border-color: var(--bi-lichtgrau); }
+
+.igm-btn--auto { display: inline-block; width: auto; font-size: 16px; padding: 11px 20px; }
+
+/* ---------------- Störer ----------------
+   Das runde Element des Design-Systems – die EINZIGE Ausnahme von der Regel
+   „keine abgerundeten Ecken". Er steht dort, wo sonst der Buchen-Button wäre,
+   wenn für ein Seminar gar keine Anmeldung vorgesehen ist. Ein ausgegrauter
+   Button hätte dort wie ein Fehler ausgesehen; der Störer sagt, dass es so
+   gemeint ist. Die leichte Drehung ist die Handschrift des Systems. */
+.igm-stoerer-block { margin-top: 20px; text-align: center; }
+.igm-stoerer {
+	display: inline-flex; align-items: center; justify-content: center; text-align: center;
+	width: 150px; height: 150px; padding: 14px; box-sizing: border-box;
+	border-radius: 50%; background: var(--bi-rot); color: #fff;
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 19px; line-height: 1.08;
+	transform: rotate(-8deg); hyphens: auto; overflow-wrap: break-word;
+}
+.igm-stoerer-block .igm-buchen-hinweis { margin-top: 16px; text-align: left; }
+
+@media (prefers-reduced-motion: reduce) {
+	.igm-stoerer { transform: none; }
+}
+
+.igm-buchen-hinweis { margin: 12px 0 0; font-size: 14px; color: var(--bi-grau); }
+.igm-buchen-hinweis strong { color: var(--bi-anthrazit); }
+.igm-box .igm-btn-buchen { margin-top: 20px; }
+
+/* Geschäftsstellen-Anfrage (PLZ-Suche + mailto) */
+.igm-gs-anfrage { margin-top: 18px; }
+.igm-gs-anfrage__label { display: block; margin-top: 14px; font-size: 13px; font-weight: 700; color: var(--bi-anthrazit); }
+.igm-gs-anfrage__form { display: flex; gap: 8px; margin-top: 6px; }
+.igm-gs-anfrage__plz {
+	width: 96px; box-sizing: border-box; padding: 10px 12px; font-size: 15px; font-family: var(--bi-body);
+	border: 1px solid var(--bi-lichtgrau); border-radius: 0; outline: none; background: #fff; color: var(--bi-anthrazit);
+}
+.igm-gs-anfrage__plz:focus { border-color: var(--bi-rot); box-shadow: 0 0 0 2px var(--bi-rot-tint); }
+.igm-gs-anfrage__find {
+	flex: 1; background: #fff; border: 1px solid var(--bi-anthrazit); border-radius: 0;
+	font-family: var(--bi-body); font-size: 14px; font-weight: 700; padding: 10px 12px; cursor: pointer; transition: .15s;
+	/* WARUM !important: Das Theme färbt <button> weiß ein und setzt sich dabei
+	   gegen eine einfache Klasse durch. Auf weißem Grund hieß das: weiße
+	   Schrift auf weißem Knopf – die Beschriftung war erst beim Überfahren zu
+	   lesen, wenn der Grund dunkel wird. Jeder andere Button dieser Datei
+	   (.igm-btn, .igm-btn--sek, …) hält seine Farbe schon so fest; dieser hier
+	   war der einzige, der es nicht tat. */
+	color: var(--bi-anthrazit) !important;
+}
+.igm-gs-anfrage__find:hover { background: var(--bi-anthrazit); color: #fff !important; }
+/* Die Geschwister (.igm-btn, .igm-chip, .igm-teil__kopf) zeigen den Tastaturfokus
+   alle sichtbar an – dieser Knopf verließ sich als einziger auf den Browser. */
+.igm-gs-anfrage__find:focus-visible { outline: 2px solid var(--bi-rot); outline-offset: 2px; }
+.igm-gs-anfrage__result { margin-top: 14px; }
+.igm-gs-anfrage__gs { margin: 0; font-size: 14px; color: var(--bi-anthrazit); }
+.igm-gs-anfrage__error { margin: 0; font-size: 13.5px; color: var(--bi-rot); }
+.igm-gs-anfrage__result .igm-btn-buchen { margin-top: 12px; }
+.igm-gs-anfrage__fallback { display: inline-block; margin-top: 12px; font-size: 13px; color: var(--bi-grau); }
+.igm-gs-anfrage__fallback:hover { color: var(--bi-rot); }
+
+/* ---------- Dialog „Deine Daten für die Anfrage" ----------
+   Ein echtes <dialog>: Abdunkeln, Escape und der Fokus im Dialog kommen vom
+   Browser. Zu gestalten bleibt der Kasten selbst – und das Zurücksetzen dessen,
+   was Themes gern an <dialog> hängen (Rundungen, eigene Breiten).
+
+   DIE FARBWERTE ERBT ER: Der Dialog steht im Markup weiter innerhalb von
+   .igm-seite, auch wenn showModal() ihn optisch nach vorn holt. Die --bi-*
+   kommen also an. Die Rückfallwerte in var() sind trotzdem gesetzt, weil das
+   Bauteil auch außerhalb einer Detailseite eingesetzt werden kann. */
+.igm-gs-modal {
+	width: min(560px, calc(100vw - 32px));
+	max-height: calc(100vh - 48px);
+	box-sizing: border-box;
+	padding: 0;
+	border: 2px solid var(--bi-anthrazit, #3c3c3c);
+	border-radius: 0;
+	background: #fff;
+	color: var(--bi-anthrazit, #3c3c3c);
+}
+.igm-gs-modal::backdrop { background: rgba(0, 0, 0, .55); }
+.igm-gs-modal__form { padding: 24px 26px 22px; }
+.igm-gs-modal__titel {
+	margin: 0 0 8px;
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase; letter-spacing: .02em;
+	font-size: 22px; line-height: 1.15; color: var(--bi-anthrazit, #3c3c3c);
+}
+.igm-gs-modal__intro { margin: 0 0 18px; font-size: 14px; line-height: 1.5; color: var(--bi-grau, #646464); }
+
+/* Zwei Spalten, sobald Platz ist: Sieben Felder untereinander sind auf einem
+   Laptop eine Liste, die scrollt, bevor der Absenden-Knopf zu sehen ist – und
+   ein Knopf, den man nicht sieht, wird nicht gedrückt. */
+.igm-gs-modal__felder { display: grid; gap: 14px 16px; }
+@media (min-width: 480px) {
+	.igm-gs-modal__felder { grid-template-columns: 1fr 1fr; }
+	/* Anschrift und Betriebsname sind lang – sie bekommen die ganze Zeile.
+	   Welche das sind, sagt PHP (gs_felder), nicht die Zählung: Ein Feld mehr in
+	   der Liste verschöbe sonst still die Breiten. */
+	.igm-gs-modal__feld--breit { grid-column: 1 / -1; }
+}
+.igm-gs-modal__feld { margin: 0; }
+.igm-gs-modal__feld label {
+	display: block; margin-bottom: 4px;
+	font-size: 13px; font-weight: 700; color: var(--bi-anthrazit, #3c3c3c);
+}
+.igm-gs-modal__pflicht { color: var(--bi-rot, #e3051b); }
+.igm-gs-modal__optional { font-weight: 400; color: var(--bi-grau, #646464); }
+.igm-gs-modal__feld input {
+	width: 100%; box-sizing: border-box; padding: 10px 12px;
+	font-family: var(--bi-body); font-size: 15px;
+	border: 1px solid var(--bi-lichtgrau, #dadada); border-radius: 0;
+	background: #fff; color: var(--bi-anthrazit, #3c3c3c); outline: none;
+}
+.igm-gs-modal__feld input:focus {
+	border-color: var(--bi-rot, #e3051b);
+	box-shadow: 0 0 0 2px var(--bi-rot-tint, #fce6e8);
+}
+/* Der Browser markiert Pflichtfelder nach dem ersten Absendeversuch selbst –
+   :invalid allein färbte sie schon rot, bevor jemand etwas tippen konnte. */
+.igm-gs-modal__feld input:user-invalid { border-color: var(--bi-rot, #e3051b); }
+
+.igm-gs-modal__hinweis { margin: 16px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--bi-grau, #646464); }
+.igm-gs-modal__aktionen { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+/* ============================================================
+   Ausbildungsreihe – Inhalte der Reihe (Akkordeon)
+   ============================================================ */
+
+.igm-teile { display: flex; flex-direction: column; gap: 12px; }
+.igm-teil { border: 1px solid var(--bi-lichtgrau); background: #fff; }
+
+.igm-teil__kopf {
+	display: flex; align-items: stretch; gap: 18px; width: 100%;
+	padding: 0 18px 0 0; margin: 0; border: 0; background: none;
+	font: inherit; color: inherit; text-align: left; cursor: pointer;
+	/* Der Kopf ist ein <button>, und die Zurücksetzung des Themes gibt jedem
+	   Button white-space:nowrap. Weil white-space vererbt wird, lief der
+	   Teil-Titel darin auf eine einzige Zeile – bei „Teil 1: Zusammenhalt
+	   stärken – gegen fremdenfeindliche und diskriminierende Positionen" auf
+	   1057px in einer 522px breiten Spalte. Der Überlauf schob die ganze
+	   Hauptspalte auf. Dieselbe Zurücksetzung musste schon die Filterleiste
+	   überstimmen (filterleiste.css). */
+	white-space: normal;
+}
+.igm-teil__kopf:hover { background: var(--bi-grau-tint); }
+.igm-teil__kopf:focus-visible { outline: 2px solid var(--bi-rot); outline-offset: -2px; }
+.igm-teil__nr {
+	flex: 0 0 auto; width: 64px; background: var(--bi-rot); color: #fff;
+	display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px 0;
+}
+.igm-teil__nr-wort { font-family: var(--bi-head); font-weight: 300; letter-spacing: .03em; font-size: 12px; text-transform: uppercase; }
+.igm-teil__nr-zahl { font-family: var(--bi-head); font-weight: 900; font-size: 28px; line-height: 1; }
+.igm-teil__titel {
+	flex: 1; min-width: 0; margin: 0; padding: 14px 0; align-self: center;
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 21px; line-height: 1.1; color: var(--bi-anthrazit);
+}
+.igm-teil__zeichen {
+	flex: 0 0 auto; align-self: center;
+	font-family: var(--bi-head); font-weight: 300; font-size: 30px; line-height: 1; color: var(--bi-rot);
+}
+.igm-teil__inhalt { padding: 4px 24px 26px 82px; }
+.igm-teil__inhalt[hidden] { display: none; }
+.igm-teil__themen-titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 15px; margin: 0 0 12px; color: var(--bi-rot);
+}
+.igm-teil__termine { margin-top: 20px; }
+
+/* ============================================================
+   Ausbildungsreihe – Termine der festen Gruppen
+   ============================================================ */
+
+.igm-gruppen { display: flex; flex-direction: column; gap: 22px; }
+.igm-gruppe { border: 1px solid var(--bi-lichtgrau); border-top: 4px solid var(--bi-rot); background: #fff; }
+
+.igm-gruppe__kopf { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; padding: 16px 22px 14px; }
+.igm-gruppe__name {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 22px; margin: 0; color: var(--bi-anthrazit);
+}
+.igm-gruppe__zeitraum { font-size: 15px; color: var(--bi-grau); flex: 1; }
+
+.igm-gruppe__orte {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+	padding: 0 22px 16px; border-bottom: 1px solid var(--bi-lichtgrau);
+}
+.igm-gruppe__orte-label {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; color: var(--bi-grau); margin-right: 4px;
+}
+.igm-chip {
+	font-family: var(--bi-body); font-size: 14px; font-weight: 400; line-height: 1.3;
+	padding: 6px 12px; cursor: pointer; border-radius: 0;
+	background: #fff; border: 1px solid var(--bi-lichtgrau);
+	/* Derselbe Grund wie beim Knopf der PLZ-Suche: ein <button> mit hellem Grund,
+	   dessen Textfarbe das Theme sonst auf Weiß zieht. Hier ist es noch nicht
+	   aufgefallen, weil die Chips seltener zu sehen sind – kaputt wäre es
+	   genauso. */
+	color: var(--bi-anthrazit) !important;
+}
+.igm-chip:hover { border-color: var(--bi-rot); background: var(--bi-rot-tint); }
+.igm-chip.is-aktiv { font-weight: 700; background: var(--bi-anthrazit); color: #fff !important; border-color: var(--bi-anthrazit); }
+.igm-chip:focus-visible { outline: 2px solid var(--bi-rot); outline-offset: 2px; }
+
+/* Der Plan misst sich selbst: Wie viel Platz eine Wahlzeile hat, hängt an
+   diesem Kasten, nicht am Fenster (vgl. .igm-termine weiter oben). */
+.igm-gruppe__plan { padding: 22px 22px 0; container-type: inline-size; container-name: bi-plan; }
+.igm-schritt { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 20px; }
+.igm-schritt__spur { display: flex; flex-direction: column; align-items: center; }
+.igm-schritt__marke {
+	width: 40px; height: 40px; flex: 0 0 auto; background: var(--bi-rot); color: #fff;
+	display: flex; align-items: center; justify-content: center;
+	font-family: var(--bi-head); font-weight: 900; font-size: 22px; line-height: 1;
+}
+.igm-schritt__linie { flex: 1; width: 2px; background: var(--bi-lichtgrau); margin: 6px 0; }
+.igm-schritt__inhalt { padding-bottom: 26px; min-width: 0; }
+.igm-schritt__titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 17px; line-height: 1.1; color: var(--bi-anthrazit);
+	margin: 9px 0 12px;
+}
+.igm-schritt__titel a { color: inherit; }
+.igm-schritt__titel a:hover { color: var(--bi-rot); text-decoration: none; }
+
+.igm-gruppe__fuss {
+	display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+	gap: 14px; padding: 18px 22px; background: var(--bi-grau-tint);
+}
+.igm-gruppe__stand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.igm-fortschritt {
+	font-family: var(--bi-head); font-weight: 900; font-size: 16px; letter-spacing: .03em;
+	padding: 5px 10px; background: var(--bi-anthrazit); color: #fff; white-space: nowrap;
+}
+.igm-fortschritt.is-komplett { background: var(--bi-gruen); }
+.igm-gruppe__status { font-size: 15px; color: var(--bi-grau); }
+.igm-gruppe__fuss .igm-btn { width: auto; flex: 0 0 auto; font-size: 16px; padding: 11px 20px; }
+.igm-gruppe__fuss .igm-btn:disabled {
+	background: var(--bi-grau-tint); color: var(--bi-grau) !important;
+	border-color: var(--bi-lichtgrau); cursor: not-allowed;
+}
+
+/* „Keine Anmeldung" im Fuß einer Gruppe: derselbe Störer wie am Seminar, nur
+   kleiner und neben statt über dem Hinweis. Der Fuß ist eine Leiste, kein
+   Kasten – ein 150px-Kreis mit zentriertem Text darunter sprengte sie. */
+.igm-gruppe__fuss--keine { justify-content: flex-start; }
+.igm-gruppe__fuss--keine .igm-stoerer-block {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+	margin-top: 0; text-align: left;
+}
+.igm-gruppe__fuss--keine .igm-stoerer {
+	flex: 0 0 auto; width: 108px; height: 108px; padding: 10px; font-size: 15px;
+}
+.igm-gruppe__fuss--keine .igm-stoerer-block .igm-buchen-hinweis {
+	margin-top: 0; max-width: 46ch; text-align: left;
+}
+
+/* Geschäftsstellen-Anfrage einer Gruppe: klappt unter dem Fuß auf, sobald alle
+   Teile gewählt sind. Grau hinterlegt wie der Fuß, damit beides als ein Block
+   gelesen wird. */
+.igm-gruppe__gs {
+	padding: 0 22px 22px; background: var(--bi-grau-tint);
+	border-top: 1px solid var(--bi-lichtgrau);
+}
+.igm-gruppe__gs[hidden] { display: none; }
+.igm-gruppe__gs .igm-gs-anfrage { margin-top: 18px; max-width: 560px; }
+.igm-gruppe__gs .igm-buchen-hinweis { margin-top: 0; }
+.igm-gruppe__gs .igm-gs-anfrage__form { max-width: 420px; }
+/* „Anfrage senden" ist hier eine Aktion neben anderen, nicht der einzige
+   Handlungsaufruf einer Sidebar – deshalb auf Textbreite statt über den
+   ganzen Block. */
+.igm-gruppe__gs .igm-btn-buchen { display: inline-block; width: auto; font-size: 16px; padding: 11px 20px; }
+
+/* ============================================================
+   Übersicht aller Reihen (Kacheln)
+   ============================================================ */
+
+/* Kein eigenes max-width: Das Element trägt .igm-breite, und eine engere
+   Breite verschöbe es samt Überschrift zur Mitte – die Kacheln darunter blieben
+   am Rand stehen. Die Zeilenlänge des Fließtexts begrenzt die Unterzeile selbst
+   (.igm-abschnitt__subline, 62ch). */
+.igm-seite--reihen .igm-kopf { padding-top: 40px; }
+.igm-reihen { display: flex; flex-wrap: wrap; gap: 26px; padding-top: 34px; padding-bottom: 90px; }
+.igm-reihen__kachel {
+	flex: 1 1 320px; max-width: 560px; border: 1px solid var(--bi-lichtgrau);
+	display: flex; flex-direction: column; background: #fff;
+}
+.igm-reihen__kachel:hover { border-color: var(--bi-rot); }
+.igm-reihen__bild { position: relative; }
+.igm-reihen__bild img { width: 100%; height: 168px; object-fit: cover; display: block; }
+.igm-reihen__label {
+	position: absolute; left: 0; top: 0; background: var(--bi-rot); color: #fff;
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; padding: 6px 12px;
+}
+.igm-reihen__body { padding: 20px 22px 24px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.igm-reihen__titel {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 22px; line-height: 1.08; margin: 0;
+}
+.igm-reihen__titel a { color: var(--bi-anthrazit); }
+.igm-reihen__kachel:hover .igm-reihen__titel a { color: var(--bi-rot); text-decoration: none; }
+.igm-reihen__teaser { margin: 0; font-size: 15px; color: var(--bi-grau); flex: 1; }
+.igm-reihen__meta {
+	display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 14px;
+	border-top: 1px solid var(--bi-lichtgrau); padding-top: 12px; color: var(--bi-grau);
+}
+.igm-reihen__meta strong { font-weight: 700; color: var(--bi-anthrazit); }
+.igm-reihen__komplett {
+	font-family: var(--bi-head); font-weight: 900; text-transform: uppercase;
+	letter-spacing: .03em; font-size: 13px; color: var(--bi-rot);
+}
+.igm-reihen__leer { padding: 40px 0 90px; color: var(--bi-grau); }
+
+/* ============================================================
+   Schmale Schirme
+   ============================================================ */
+
+@media (max-width: 980px) {
+	.igm-layout { gap: 40px; padding-bottom: 60px; }
+	.igm-layout__side { position: static; }
+}
+
+@media (max-width: 760px) {
+	.igm-seite { --bi-rand: 18px; font-size: 16px; }
+	.igm-hero { gap: 26px; padding-bottom: 28px; }
+	.igm-hero__bild { order: -1; }
+	.igm-hero__bild img { height: 200px; }
+	.igm-lead, .igm-fliesstext > p:first-of-type { font-size: 18px; }
+
+	/* Auf dem Handy linksbündig: Steht je Angabe eine eigene Zeile, ergäbe eine
+	   Zentrierung je Zeile eine ausgefranste linke Kante – jedes Piktogramm
+	   begänne woanders. Untereinander fluchtende Zeilen sind hier das Ruhigere.
+	   Zentriert bleibt das Band erst wieder, wenn mehrere Angaben
+	   nebeneinanderpassen (ab 760px). */
+	.igm-fakten__inner { flex-wrap: wrap; justify-content: flex-start; gap: 18px; }
+	.igm-fakten__item { flex: 1 1 100%; }
+
+	/* Die Terminzeile regelt ihre Umbrüche selbst – über die Breite der LISTE
+	   (@container bi-termine weiter oben), nicht über die des Fensters. Hier
+	   bleibt nur, was am Fenster hängt: mehr Luft nach innen, weil der
+	   Seitenrand auf dem Handy schmaler ist. */
+	.igm-termin--link { padding: 14px; }
+
+	/* Rückfallebene, wortgleich zur Container-Abfrage: Ein Browser ohne
+	   @container (vor Chrome 105 / Safari 16) bekäme sonst bei 375px vier
+	   Spalten nebeneinander. Auf dem Handy ist das Fenster so breit wie die
+	   Liste, deshalb führt der Umweg über das Fenster hier zum selben Ergebnis. */
+	.igm-termin--link,
+	.igm-termine--ohne-ampel .igm-termin--link {
+		grid-template-columns: minmax(0, 1fr) auto;
+		column-gap: 16px; row-gap: 4px;
+	}
+	.igm-termin--link .igm-termin__datum { grid-column: 1; }
+	.igm-termin--link .igm-termin__ort   { grid-column: 1; }
+	.igm-termin--link .igm-termin__ampel {
+		grid-column: 2; grid-row: 1; justify-self: end; max-width: none;
+	}
+	.igm-termin--link .igm-termin__aktion {
+		grid-column: 2; grid-row: 2; justify-self: end; margin-top: 2px;
+	}
+	.igm-termine--ohne-ampel .igm-termin--link .igm-termin__aktion { grid-row: 1 / span 2; align-self: center; }
+
+	.igm-termin--wahl {
+		grid-template-columns: 16px minmax(0, 1fr);
+		grid-auto-rows: auto; gap: 4px 12px; padding: 12px 14px;
+	}
+	.igm-termin--wahl .igm-termin__datum,
+	.igm-termin--wahl .igm-termin__ort,
+	.igm-termin--wahl .igm-termin__zusatz { grid-column: 2; }
+
+	.igm-teil__inhalt { padding: 4px 18px 22px 18px; }
+	.igm-teil__titel { font-size: 18px; }
+	.igm-gruppe__plan { padding: 18px 14px 0; }
+	.igm-schritt { grid-template-columns: 32px minmax(0, 1fr); gap: 14px; }
+	.igm-schritt__marke { width: 32px; height: 32px; font-size: 18px; }
+	.igm-gruppe__fuss .igm-btn { width: 100%; }
+	.igm-daten__zeile { grid-template-columns: 1fr; gap: 2px; }
+}
+
+@media print {
+	.igm-layout__side { position: static; }
+	.igm-btn, .igm-btn-buchen, .igm-gs-anfrage, .igm-gruppe__orte { display: none !important; }
+	/* Auf Papier ist der Download gegenstandslos – ohne Button bliebe sonst eine
+	   Box mit Überschrift und Erklärung ohne Knopf stehen. */
+	.igm-box--download { display: none !important; }
+	.igm-teil__inhalt[hidden] { display: block !important; }
+}

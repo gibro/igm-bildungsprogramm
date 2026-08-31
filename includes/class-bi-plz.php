@@ -126,7 +126,7 @@ class BI_PLZ {
 	/** ---------- Import verarbeiten ---------- */
 
 	public static function handle_import() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_import_plz' );

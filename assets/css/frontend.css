@@ -1,5 +1,10 @@
 /* ============================================================
    BI Seminarsuche – Ergebnisliste + Anmeldeformular
+
+   Die Gestaltung der Detailseiten (Seminar, Ausbildungsreihe, Reihen-
+   übersicht) steht seit 1.63.0 in assets/css/detailseiten.css und folgt dort
+   dem IG Metall Design System. Hier bleibt, was zur Ergebnisliste und zum
+   Anmeldeformular gehört.
    ============================================================ */
 
 .bi-results { --bi-accent: #e2001a; --bi-border: #e3e5e8; --bi-muted: #6b7280; margin-top: 26px; }
@@ -13,12 +18,16 @@
 }
 .bi-row::before { content: ""; position: absolute; left: 0; top: 16px; bottom: 16px; width: 4px; background: var(--bi-accent); border-radius: 2px; }
 .bi-row { padding-left: 22px; }
+/* Nicht buchbar (ausgebucht oder keine Anmeldung vorgesehen): Der Treffer
+   bleibt stehen und tritt zurück. Der rote Balken links weicht Grau – er ist
+   die Aufforderung, und die gibt es hier nicht. Den Grund nennt der Chip
+   neben dem Titel. */
 .bi-row-ausgebucht { opacity: .7; }
+.bi-row-ausgebucht::before { background: var(--bi-lichtgrau, #d8d8d8); }
 
 .bi-row-date { flex: 0 0 96px; text-align: left; line-height: 1.15; }
 .bi-row-monthyear { display: block; font-size: 13px; color: var(--bi-muted); text-transform: capitalize; }
 .bi-row-day { display: block; font-size: 34px; font-weight: 800; color: #1d2327; letter-spacing: -.02em; }
-.bi-row-time { display: block; font-size: 13px; color: var(--bi-muted); }
 
 .bi-row-body { flex: 1 1 auto; min-width: 0; }
 .bi-row-title { margin: 0 0 6px; font-size: 20px; line-height: 1.25; font-weight: 800; }
@@ -31,182 +40,80 @@
 .bi-row-sub { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--bi-muted); }
 .bi-row-sub strong { font-weight: 600; }
 
-.bi-row-action { flex: 0 0 auto; }
+/* Unten rechts, nicht auf halber Höhe. Der Link ist der Abschluss der Zeile –
+   mittig gesetzt schwebte er neben dem Titel und band den Blick dorthin, wo
+   gerade nichts steht. Unten bündig liest sich die Zeile in einem Zug: Datum,
+   Titel, Angaben, und am Ende der Weg dorthin. */
+.bi-row-action { flex: 0 0 auto; align-self: flex-end; }
+
+/* Weiter-Link einer Trefferzeile: Text plus roter Pfeil im Kreis – kein roter
+   Block. Die Zeile hat nur ein Ziel, und ein Vollton-Button daneben zog mehr
+   Aufmerksamkeit auf sich als der Seminartitel selbst. Rot bleibt dem Pfeil und
+   damit der Handlung vorbehalten. */
 .bi-btn-details {
-  display: inline-block; text-decoration: none; background: var(--bi-accent); color: #fff;
-  font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 14px;
-  padding: 12px 22px; border-radius: 4px; transition: .15s; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 10px;
+  background: none; border: 0; border-radius: 0; padding: 4px 0;
+  font-size: 14.5px; font-weight: 400; text-transform: none; letter-spacing: 0;
+  line-height: 1.3; text-decoration: none; white-space: nowrap;
+  color: #3c3c3c !important;   /* gegen die Linkfarbe des Themes */
+  /* Ausdrücklich die Hand: Themes setzen auf Buttons und button-artige Links
+     gern `cursor: default`, und die Regel gewinnt gegen den Standard des
+     Browsers. Ein Link, der sich nicht als Link anfühlt, wird nicht geklickt. */
+  cursor: pointer;
+  transition: color .15s;
 }
-.bi-btn-details:hover { background: #b80016; color: #fff; }
-/* Textfarbe in den Buttons immer weiß erzwingen (gegen Theme-Linkfarben) */
-.bi-btn-details,
-.igm-btn-buchen {
-  color: #fff !important;
+.bi-btn-details * { cursor: pointer; }
+.bi-btn-details__pfeil {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 28px; height: 28px; border: 1.5px solid var(--bi-accent); border-radius: 50%;
+  color: var(--bi-accent); transition: background-color .15s, color .15s;
 }
+.bi-btn-details svg { display: block; }
+.bi-btn-details:hover { color: var(--bi-accent) !important; text-decoration: none; }
+.bi-btn-details:hover .bi-btn-details__pfeil { background: var(--bi-accent); color: #fff; }
+.bi-btn-details:focus-visible { outline: 2px solid var(--bi-accent); outline-offset: 3px; }
+
+/* Ausgegraute Zeile: Auch der Weiter-Link tritt zurück – dort steht ohnehin nur
+   „Details", und ein roter Kreis wäre ein Versprechen, das die Seite nicht hält. */
+.bi-row-ausgebucht .bi-btn-details__pfeil { border-color: #b9bcc1; color: #6b7280; }
+.bi-row-ausgebucht .bi-btn-details:hover .bi-btn-details__pfeil { background: #6b7280; color: #fff; }
 
 .bi-noresults { text-align: center; padding: 40px; color: var(--bi-muted); font-size: 16px; }
+
+/* Hinweis, wenn statt der Eingabe eine Korrektur gesucht wurde. Steht ÜBER der
+   Liste und nennt beides – eine Suche, die heimlich etwas anderes sucht, als man
+   eingetippt hat, verwirrt mehr, als sie hilft. */
+.bi-korrektur {
+  margin: 0 0 16px; padding: 12px 14px; font-size: 15px; line-height: 1.45;
+  background: #fbf6e6; border-left: 4px solid #dba617; color: #4b4b4b;
+}
+.bi-korrektur strong { color: #1d2327; }
 
 .bi-pagination { display: flex; justify-content: center; gap: 6px; margin-top: 28px; }
 .bi-pagination .page-numbers { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; height: 38px; padding: 0 10px; border: 1px solid var(--bi-border); border-radius: 8px; text-decoration: none; color: #374151; }
 .bi-pagination .page-numbers.current { background: var(--bi-accent); color: #fff; border-color: var(--bi-accent); }
 .bi-pagination .page-numbers:hover:not(.current) { border-color: var(--bi-accent); }
 
-/* ---------------- Seminar-Detailansicht (igm-detail) ---------------- */
+/* ---------------- Verfügbarkeits-Ampel ----------------
+   Ausgabe von BI_Ampel::badge(). Auf den Detailseiten übernimmt
+   detailseiten.css die Gestaltung; diese Regeln greifen, wo die Ampel sonst
+   noch auftaucht. Die Aussage hängt nie allein an der Farbe: rechts vom Punkt
+   steht immer das Textlabel, davor für Screenreader unsichtbar das Wort
+   „Verfügbarkeit". */
 
-.igm-detail { --bi-accent: #e2001a; --bi-border: #e3e5e8; --bi-muted: #6b7280; }
-.igm-detail__layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px; align-items: start; }
-.igm-detail__main { min-width: 0; }
-.igm-detail__title { font-size: 32px; line-height: 1.15; font-weight: 800; margin: 0 0 18px; }
-/* Untertitel (nur Online-Seminare) – sitzt direkt unter der Überschrift */
-.igm-detail__subtitle { font-size: 19px; line-height: 1.4; font-weight: 600; color: var(--bi-muted); margin: -12px 0 18px; }
-.igm-detail__desc { font-size: 16px; line-height: 1.7; color: #1d2327; }
-.igm-detail__desc p { margin: 0 0 1em; }
-.igm-detail__section-title { font-size: 22px; font-weight: 700; margin: 1.8em 0 .6em; padding-bottom: .3em; border-bottom: 2px solid var(--bi-accent); }
-.igm-detail__topics { font-size: 16px; line-height: 1.7; }
-.igm-detail__topics p { margin: 0 0 .8em; }
-.igm-detail__topics ul,
-.igm-detail__topics ol { margin: 0 0 .8em; padding-left: 1.3em; }
-.igm-detail__topics li { margin: 0 0 .4em; }
-.igm-detail__topics ul li { list-style: disc; }
-.igm-detail__topics ol li { list-style: decimal; }
+.igm-ampel { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; line-height: 1.3; color: #1d2327; }
+.igm-ampel__punkt { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: #9ca3af; }
+.igm-ampel--green  .igm-ampel__punkt { background: #0ab51f; }
+.igm-ampel--orange .igm-ampel__punkt { background: #f29200; }
+.igm-ampel--red    .igm-ampel__punkt { background: #e3051b; }
+.igm-ampel__text { min-width: 0; }
+.igm-ampel__stand { display: block; margin-top: 3px; font-size: 12px; color: #6b7280; }
 
-/* Weitere Termine (Tabelle)
-   Durchgängig !important: viele Themes bringen eigene table/th/td-Styles mit
-   (Zebrastreifen, Rahmen, Hintergründe, Schriftgrößen, display:block für
-   Responsive-Tabellen) und überschreiben sonst diese Definitionen.
-   CSS-Variablen mit Fallback, falls die Tabelle außerhalb von .igm-detail steht. */
-.igm-weitere-termine { margin: 0 !important; }
-
-.igm-termin-table {
-  display: table !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  margin: 0 !important;
-  border: 0 !important;
-  border-collapse: collapse !important;
-  border-spacing: 0 !important;
-  table-layout: auto !important;
-  background: none !important;
-  box-shadow: none !important;
-  font-size: 16px !important;
-  line-height: 1.5 !important;
-  color: #1d2327 !important;
-}
-.igm-termin-table thead { display: table-header-group !important; background: none !important; border: 0 !important; }
-.igm-termin-table tbody { display: table-row-group !important; background: none !important; border: 0 !important; }
-.igm-termin-table tr    { display: table-row !important; background: none !important; border: 0 !important; }
-/* Zebrastreifen und Zeilen-Hover des Themes abschalten */
-.igm-termin-table tbody tr:nth-child(even),
-.igm-termin-table tbody tr:nth-child(odd),
-.igm-termin-table tbody tr:hover { background: none !important; background-color: transparent !important; }
-
-.igm-termin-table th {
-  display: table-cell !important;
-  text-align: left !important;
-  font-size: 12.5px !important;
-  font-weight: 700 !important;
-  text-transform: uppercase !important;
-  letter-spacing: .03em !important;
-  color: var(--bi-muted, #6b7280) !important;
-  background: none !important;
-  padding: 10px 16px 10px 0 !important;
-  border: 0 !important;
-  border-bottom: 2px solid var(--bi-border, #e3e5e8) !important;
-  vertical-align: bottom !important;
-  width: auto !important;
-}
-.igm-termin-table td {
-  display: table-cell !important;
-  padding: 14px 16px 14px 0 !important;
-  border: 0 !important;
-  border-bottom: 1px solid var(--bi-border, #e3e5e8) !important;
-  background: none !important;
-  vertical-align: middle !important;
-  font-size: 16px !important;
-  line-height: 1.5 !important;
-  color: #1d2327 !important;
-  width: auto !important;
-}
-.igm-termin-table th:last-child,
-.igm-termin-table td:last-child { padding-right: 0 !important; }
-.igm-termin-table td::before { content: none !important; }   /* Mobile-Label nur unter 640px */
-.igm-termin-table__ort { color: #1d2327 !important; }
-.igm-termin-table__zeitraum { white-space: nowrap !important; }
-.igm-termin-table__zeitraum a {
-  font-weight: 700 !important; color: #1d2327 !important;
-  text-decoration: none !important; background: none !important; box-shadow: none !important;
-}
-.igm-termin-table__zeitraum a:hover { color: var(--bi-accent, #e2001a) !important; text-decoration: none !important; }
-.igm-termin-table__action { text-align: right !important; }
-.igm-termin-table .igm-btn-buchen {
-  display: inline-block !important; width: auto !important; margin-top: 0 !important;
-  padding: 10px 18px !important; font-size: 15px !important; white-space: nowrap !important;
-}
-
-/* Sidebar */
-.igm-detail__sidebar { position: sticky; top: 24px; }
-.igm-sidebar-box { background: #f7f8fa; border: 1px solid var(--bi-border); border-radius: 12px; padding: 22px 24px; }
-.igm-sidebar-box__headline { margin: 0 0 14px; font-size: 18px; font-weight: 800; }
-.igm-sidebar-row { font-size: 15px; line-height: 1.5; padding: 8px 0; border-bottom: 1px solid var(--bi-border); color: #1d2327; }
-.igm-sidebar-row:last-of-type { border-bottom: 0; }
-.igm-sidebar-row strong { display: block; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--bi-muted); font-weight: 700; margin-bottom: 2px; }
-.igm-sidebar-row a { color: var(--bi-accent); }
-
-.igm-btn-buchen {
-  display: block; text-align: center; margin-top: 18px; text-decoration: none;
-  background: #5a9c5a; color: #fff; font-weight: 700; font-size: 16px;
-  padding: 14px 20px; border-radius: 4px; transition: .15s; border: 0;
-}
-.igm-btn-buchen:hover { background: #4a8a4d; color: #fff; }
-.igm-btn-buchen--alt { background: #374151; }
-.igm-btn-buchen--alt:hover { background: #1f2937; }
-.igm-btn-buchen--disabled { background: #e5e7eb; cursor: not-allowed; }
-.igm-btn-buchen--disabled:hover { background: #e5e7eb; }
-.igm-buchen-hinweis { margin-top: 18px; font-size: 14px; color: #374151; }
-
-/* Geschäftsstellen-Anfrage (PLZ-Suche + mailto) */
-.igm-gs-anfrage__label { display: block; margin-top: 14px; font-size: 13px; font-weight: 600; color: #374151; }
-.igm-gs-anfrage__form { display: flex; gap: 8px; margin-top: 6px; }
-.igm-gs-anfrage__plz {
-  width: 90px; box-sizing: border-box; padding: 10px 12px; font-size: 15px;
-  border: 1px solid var(--bi-border); border-radius: 4px; outline: none;
-}
-.igm-gs-anfrage__plz:focus { border-color: var(--bi-accent); box-shadow: 0 0 0 3px rgba(226, 0, 26, .12); }
-.igm-gs-anfrage__find {
-  flex: 1; background: #374151; color: #fff; border: 0; border-radius: 4px;
-  font-size: 14px; font-weight: 700; padding: 10px 12px; cursor: pointer; transition: .15s;
-}
-.igm-gs-anfrage__find:hover { background: #1f2937; }
-.igm-gs-anfrage__result { margin-top: 14px; }
-.igm-gs-anfrage__gs { margin: 0; font-size: 14px; color: #1d2327; }
-.igm-gs-anfrage__error { margin: 0; font-size: 13.5px; color: #b32d2e; }
-.igm-gs-anfrage__result .igm-btn-buchen { margin-top: 12px; }
-.igm-gs-anfrage__fallback { display: inline-block; margin-top: 12px; font-size: 13px; color: var(--bi-muted); }
-.igm-gs-anfrage__fallback:hover { color: var(--bi-accent); }
-
-@media (max-width: 880px) {
-  .igm-detail__layout { grid-template-columns: 1fr; gap: 28px; }
-  .igm-detail__sidebar { position: static; }
-  .igm-detail__title { font-size: 26px; }
-}
-
-@media (max-width: 640px) {
-  /* Karten-Layout statt Tabelle – ebenfalls !important, sonst greifen Theme-Regeln */
-  .igm-termin-table thead {
-    position: absolute !important; left: -9999px !important;
-    width: 1px !important; height: 1px !important; overflow: hidden !important;
-  }
-  .igm-termin-table,
-  .igm-termin-table tbody,
-  .igm-termin-table tr,
-  .igm-termin-table td { display: block !important; width: 100% !important; }
-  .igm-termin-table tr { padding: 14px 0 !important; border-bottom: 1px solid var(--bi-border, #e3e5e8) !important; }
-  .igm-termin-table td { padding: 2px 0 !important; border-bottom: 0 !important; }
-  .igm-termin-table td[data-label]::before {
-    content: attr(data-label) ": " !important; font-size: 12.5px !important; font-weight: 700 !important;
-    text-transform: uppercase !important; letter-spacing: .03em !important; color: var(--bi-muted, #6b7280) !important;
-  }
-  .igm-termin-table__action { text-align: left !important; padding-top: 10px !important; }
+/* Nur für Screenreader – eigene Klasse, damit die Ausgabe nicht davon abhängt,
+   ob das Theme .screen-reader-text mitbringt. */
+.igm-visually-hidden {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
 
 /* ---------------- Anmeldeformular ---------------- */
@@ -266,12 +173,39 @@
 .bi-form-error { background: #fde8e8; border: 1px solid #f3b2b2; color: #b32d2e; padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; }
 
 @media (max-width: 640px) {
-  .bi-row { flex-wrap: wrap; gap: 8px 18px; }
-  .bi-row-date { flex-basis: auto; display: flex; align-items: baseline; gap: 8px; }
+  /* Schmaler Schirm: Die Zeile wird zur Karte. Datum oben, darunter Titel und
+     Ort über die volle Breite – und die Angabenzeile (Programm · Dauer · Nr.)
+     teilt sich die letzte Zeile mit dem Weiter-Link.
+
+     WARUM GRID UND NICHT UMBRUCH: Als Flex-Umbruch landete der Link auf einer
+     EIGENEN Zeile unter den Angaben. Das kostet eine Zeile je Treffer und löst
+     ihn von dem, was er abschließt. Mit `display: contents` am Textblock werden
+     Titel, Ort und Angaben zu Rasterzellen der Zeile – dann kann der Link neben
+     der letzten davon stehen, ohne dem Titel Breite wegzunehmen. */
+  .bi-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start; gap: 6px 18px;
+  }
+  .bi-row-date {
+    grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px;
+  }
   .bi-row-day { font-size: 22px; }
-  .bi-row-monthyear, .bi-row-time { font-size: 12.5px; }
-  .bi-row-body { flex-basis: 100%; order: 3; }
-  .bi-row-action { margin-left: auto; }
+  .bi-row-monthyear { font-size: 12.5px; }
+  .bi-row-body { display: contents; }
+  .bi-row-title, .bi-row-ort { grid-column: 1 / -1; }
+  .bi-row-sub { grid-column: 1; }
+  /* Unten bündig zur Angabenzeile, rechts. `justify-self` fängt den Fall ab,
+     dass die Angabenzeile fehlt – dann steht der Link allein, aber rechts. */
+  .bi-row-action { grid-column: 2; align-self: end; justify-self: end; }
+}
+
+/* Handy: Für zwei Spalten reicht es nicht mehr. „Details und Anmeldung" ist
+   rund 190px breit – daneben blieben der Angabenzeile knapp 160px, und sie
+   zerfiele in drei Zeilen. Dann lieber eine Zeile mehr für den Link,
+   rechtsbündig. */
+@media (max-width: 450px) {
+  .bi-row-sub { grid-column: 1 / -1; }
+  .bi-row-action { grid-column: 1 / -1; justify-self: end; }
 }
 
 @media (max-width: 600px) {

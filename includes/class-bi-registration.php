@@ -8,7 +8,7 @@
  *
  * Geschäftsstellen-Ermittlung läuft im Hintergrund über die BETRIEBLICHE PLZ (Feld betrieb_plz):
  * diese wird in die Spalte `plz` geschrieben und über BI_PLZ::lookup() der zuständigen GS zugeordnet
- * (Mail-Benachrichtigung Typ „Geschäftsstelle").
+ * (Benachrichtigung Typ „Geschäftsstelle").
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -27,7 +27,11 @@ class BI_Registration {
 	}
 
 	public static function register_assets() {
-		wp_register_style( 'bi-archivo', 'https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&display=swap', array(), null );
+		// Archivo lokal ausliefern statt über fonts.googleapis.com: der CDN-Abruf
+		// überträgt die IP-Adresse an Google – auf der Anmeldeseite, auf der
+		// personenbezogene Daten erhoben werden, datenschutzrechtlich nicht haltbar
+		// (LG München I, 3 O 17493/20). Dateien: assets/fonts/archivo-*.woff2.
+		wp_register_style( 'bi-archivo', BI_URL . 'assets/css/archivo.css', array(), BI_VERSION );
 		wp_register_style( 'bi-anmeldung', BI_URL . 'assets/css/anmeldung.css', array( 'bi-archivo' ), BI_VERSION );
 		wp_register_script( 'bi-anmeldung', BI_URL . 'assets/js/anmeldung.js', array(), BI_VERSION, true );
 	}
@@ -93,6 +97,10 @@ class BI_Registration {
 			seminar_titel VARCHAR(255) NOT NULL DEFAULT '',
 			seminar_nummer VARCHAR(60) NOT NULL DEFAULT '',
 			seminar_termin VARCHAR(60) NOT NULL DEFAULT '',
+			reihe_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			durchgang SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+			teil SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+			sammel_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			vorname VARCHAR(190) NOT NULL DEFAULT '',
 			nachname VARCHAR(190) NOT NULL DEFAULT '',
 			email VARCHAR(190) NOT NULL DEFAULT '',
@@ -107,15 +115,60 @@ class BI_Registration {
 			KEY seminar_id (seminar_id),
 			KEY post_type (post_type),
 			KEY created (created),
-			KEY kampagne (kampagne)
+			KEY kampagne (kampagne),
+			KEY sammel_id (sammel_id),
+			KEY reihe_id (reihe_id)
 		) $charset;";
 		dbDelta( $sql );
 	}
 
+	/* ===================================================================
+	 *  Anmeldung zu einer Ausbildungsreihe
+	 * ===================================================================
+	 *
+	 *  EINE ZEILE JE TEIL, ZUSAMMENGEHALTEN VON `sammel_id`.
+	 *
+	 *  Die naheliegende Alternative – eine Zeile mit einer Liste von Seminaren –
+	 *  wäre an jeder Auswertung gescheitert: Mail-Platzhalter, PDF-Anhang,
+	 *  Geschäftsstellen-Zuordnung, Export und Kampagnen-Auswertung gehen alle von
+	 *  genau einem Seminar je Anmeldung aus. Fachlich stimmt die Zerlegung
+	 *  ohnehin besser: Teil 1 in Lohr und Teil 2 in Berlin sind zwei Buchungen in
+	 *  zwei Bildungszentren, die auch getrennt bestätigt und storniert werden.
+	 *
+	 *  Zusammengehalten werden sie über `sammel_id` – die id der ersten Zeile.
+	 *  `reihe_id`, `durchgang` und `teil` machen die Zeile für sich lesbar, ohne
+	 *  dass jemand die Zuordnung über das Seminar nachschlagen muss.
+	 *
+	 *  Beim Versand werden die Zeilen wieder zusammengefasst: BI_Mailer::
+	 *  dispatch_reihe() schickt je Empfängeradresse EINE Mail. Sonst bekäme die
+	 *  angemeldete Person vier Bestätigungen für eine Anmeldung.
+	 */
+
+	/** Zeilen einer Sammelanmeldung, nach Teil sortiert. */
+	public static function sammlung( $sammel_id ) {
+		global $wpdb;
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			'SELECT * FROM ' . self::table() . ' WHERE sammel_id = %d ORDER BY teil ASC, id ASC',
+			(int) $sammel_id
+		), ARRAY_A );
+		foreach ( $rows as $i => $row ) {
+			if ( ! empty( $row['data'] ) ) {
+				$rows[ $i ]['data'] = json_decode( $row['data'], true );
+			}
+		}
+		return $rows;
+	}
+
 	/**
-	 * Wizard-Schritte. Feld: [label, type, required, full, placeholder, options, default, max].
-	 * type: text|email|tel|plz|textarea|select|radio|freistellung
+	 * Wizard-Schritte eines Formulars. Feld: [label, type, required, full, col,
+	 * placeholder, options, default, max].
+	 * type: text|email|tel|plz|date|textarea|select|radio|checkbox|freistellung
 	 * category: privat|dienstlich|neutral
+	 *
+	 * Die Struktur kommt aus der Formularverwaltung (BI_Formulare), die Felder
+	 * aus dem Bestand (BI_Anmeldefelder). Bis dahin stand beides fest verdrahtet
+	 * an dieser Stelle; das mitgelieferte Standardformular ist Wort für Wort
+	 * dasselbe, damit eine bestehende Installation nichts merkt.
 	 *
 	 * `max` ist die fachliche Höchstlänge in Zeichen. Sie wird zweifach durchgesetzt:
 	 * als maxlength im Browser (dort merkt sie niemand) und noch einmal serverseitig
@@ -123,58 +176,23 @@ class BI_Registration {
 	 * POST beliebig große Werte in Datenbank, JSON-Spalte und alle drei Mailtexte
 	 * schreiben. Die Werte liegen bewusst deutlich über jeder realen Eingabe und
 	 * unterhalb der jeweiligen Spaltenbreite in create_table().
+	 *
+	 * @param string $formular Schlüssel des Formulars; leer = Standardformular.
 	 */
-	public static function form_steps() {
-		return array(
-			array(
-				'key' => 'persoenlich', 'category' => 'privat',
-				'title' => 'Persönliche Angaben', 'sub' => 'Privat',
-				'desc'  => 'Name und Anschrift der teilnehmenden Person.',
-				'fields' => array(
-					'anrede'   => array( 'label' => 'Anrede', 'type' => 'select', 'col' => 6, 'options' => array( '', 'Frau', 'Herr', 'Divers', 'Keine Angabe' ) ),
-					'titel'    => array( 'label' => 'Titel', 'type' => 'text', 'col' => 6, 'placeholder' => 'z. B. Dr.', 'max' => 60 ),
-					'vorname'  => array( 'label' => 'Vorname', 'type' => 'text', 'col' => 6, 'required' => true, 'placeholder' => 'Vorname', 'max' => 100 ),
-					'nachname' => array( 'label' => 'Nachname', 'type' => 'text', 'col' => 6, 'required' => true, 'placeholder' => 'Nachname', 'max' => 100 ),
-					'strasse'  => array( 'label' => 'Straße & Hausnummer', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Musterstraße 12', 'max' => 150 ),
-					'plz'      => array( 'label' => 'PLZ', 'type' => 'plz', 'col' => 4, 'required' => true, 'placeholder' => '12345' ),
-					'ort'      => array( 'label' => 'Ort', 'type' => 'text', 'col' => 8, 'required' => true, 'placeholder' => 'Beispielort', 'max' => 100 ),
-				),
-			),
-			array(
-				'key' => 'kontakt', 'category' => 'privat',
-				'title' => 'Kontakt & Mitgliedschaft', 'sub' => 'Privat',
-				'desc'  => 'Wie wir dich erreichen und deine IG-Metall-Mitgliedschaft.',
-				'fields' => array(
-					'telefon'         => array( 'label' => 'Telefon', 'type' => 'tel', 'col' => 6, 'placeholder' => '0202 1234567', 'max' => 40 ),
-					'mobil'           => array( 'label' => 'Mobiltelefon', 'type' => 'tel', 'col' => 6, 'required' => true, 'placeholder' => '0151 1234567', 'max' => 40 ),
-					'email'           => array( 'label' => 'E-Mail', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'name@beispiel.de', 'max' => 180 ),
-					'mitglied'        => array( 'label' => 'Bist du Mitglied der IG Metall?', 'type' => 'radio', 'full' => true, 'default' => 'ja', 'options' => array( 'ja' => 'Ja', 'nein' => 'Nein' ) ),
-					'mitgliedsnummer' => array( 'label' => 'Mitgliedsnummer', 'type' => 'text', 'col' => 6, 'placeholder' => 'z. B. 1234567890', 'max' => 40 ),
-				),
-			),
-			array(
-				'key' => 'betrieb', 'category' => 'dienstlich',
-				'title' => 'Betrieb & Funktion', 'sub' => 'Dienstlich',
-				'desc'  => 'Angaben zu Arbeitgeber, Funktion und Freistellung.',
-				'fields' => array(
-					'betrieb'         => array( 'label' => 'Betrieb / Arbeitgeber', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Name des Unternehmens', 'max' => 150 ),
-					'betrieb_strasse' => array( 'label' => 'Straße & Hausnummer (Betrieb)', 'type' => 'text', 'full' => true, 'required' => true, 'placeholder' => 'Werkstraße 1', 'max' => 150 ),
-					'betrieb_plz'     => array( 'label' => 'PLZ (Betrieb)', 'type' => 'plz', 'col' => 4, 'required' => true, 'placeholder' => '12345', 'hint' => 'Bestimmt die zuständige Geschäftsstelle.' ),
-					'betrieb_ort'     => array( 'label' => 'Ort (Betrieb)', 'type' => 'text', 'col' => 8, 'required' => true, 'placeholder' => 'Beispielort', 'max' => 100 ),
-					'betrieb_email'   => array( 'label' => 'E-Mail (Betrieb)', 'type' => 'email', 'full' => true, 'required' => true, 'placeholder' => 'personal@beispiel-gmbh.de', 'hint' => 'Dienstliche Adresse, z. B. von Personalabteilung oder Betriebsrat.', 'max' => 180 ),
-					'funktion'        => array( 'label' => 'Funktion im Betriebsrat', 'type' => 'select', 'col' => 6, 'options' => array( '', 'BR-Mitglied', 'BR-Vorsitz', 'stellv. BR-Vorsitz', 'Ersatzmitglied', 'JAV', 'Schwerbehindertenvertretung' ) ),
-					'freistellung'    => array( 'label' => 'Freistellung nach', 'type' => 'freistellung', 'col' => 6, 'required' => true ),
-				),
-			),
-			array(
-				'key' => 'abschluss', 'category' => 'neutral',
-				'title' => 'Abschluss', 'sub' => 'Abschluss',
-				'desc'  => 'Wünsche ergänzen und Anmeldung absenden.',
-				'fields' => array(
-					'bemerkungen' => array( 'label' => 'Bemerkungen / Sonstiges', 'type' => 'textarea', 'full' => true, 'placeholder' => 'Anmerkungen zur Anreise, besondere Wünsche o. Ä.', 'max' => 2000 ),
-				),
-			),
-		);
+	public static function form_steps( $formular = '' ) {
+		return BI_Formulare::seiten( $formular );
+	}
+
+	/**
+	 * Welches Formular gilt für dieses Seminar?
+	 *
+	 * Immer aus der Seminar-ID abgeleitet, nie aus dem abgeschickten Formular:
+	 * Käme der Schlüssel aus dem POST, ließe sich das Formular mit den
+	 * wenigsten Pflichtfeldern benennen und damit die Prüfung des eigentlich
+	 * gültigen umgehen.
+	 */
+	public static function formular_key( $seminar_id ) {
+		return BI_Formulare::formular_for( (int) $seminar_id );
 	}
 
 	/**
@@ -194,14 +212,27 @@ class BI_Registration {
 		return ( $keys === range( 0, count( $opts ) - 1 ) ) ? array_values( $opts ) : array_map( 'strval', $keys );
 	}
 
-	private static function all_fields() {
+	/** Alle Felder EINES Formulars – die Menge, die geprüft und gespeichert wird. */
+	private static function all_fields( $formular = '' ) {
 		$out = array();
-		foreach ( self::form_steps() as $step ) {
+		foreach ( self::form_steps( $formular ) as $step ) {
 			foreach ( $step['fields'] as $key => $f ) {
 				$out[ $key ] = $f;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Der ganze Feld-Bestand – für Ansichten, die über alle Anmeldungen laufen.
+	 *
+	 * Export und Detailansicht dürfen NICHT die Felder eines einzelnen Formulars
+	 * nehmen: Sonst wechselten die Spalten der CSV-Datei je nachdem, welches
+	 * Formular gerade das Standardformular ist, und eine Anmeldung aus einem
+	 * anderen Formular verlöre in der Anzeige die Hälfte ihrer Angaben.
+	 */
+	private static function bestand_fields() {
+		return BI_Anmeldefelder::alle();
 	}
 
 	/** Kategorie -> Badge-Daten */
@@ -250,10 +281,53 @@ class BI_Registration {
 		return ( BI_ONLINE === $post_type ) ? 'Online' : 'Präsenz';
 	}
 
+	/**
+	 * Termin-IDs aus der Anfrage („12,34,56"). Nur Zahlen – geprüft wird die
+	 * Auswahl anschließend in BI_Reihen::auswahl_pruefen().
+	 */
+	private static function termine_aus_request() {
+		$roh = bi_get( 'termine' );
+		if ( '' === $roh ) {
+			$roh = bi_post( 'termine' );
+		}
+		if ( '' === trim( (string) $roh ) ) {
+			return array();
+		}
+		return array_values( array_filter( array_map( 'intval', explode( ',', (string) $roh ) ) ) );
+	}
+
+	/**
+	 * Anzeigedaten einer Reihenanmeldung: Titel der Reihe, Gruppe, Umfang und
+	 * die gewählten Teile in ihrer Reihenfolge.
+	 *
+	 * @param array $termine [ teil => post_id ], bereits geprüft und sortiert.
+	 */
+	private static function reihe_info( $reihe_id, $durchgang, $termine ) {
+		$liste = array();
+		foreach ( $termine as $teil => $sid ) {
+			$info    = self::seminar_info( $sid );
+			$liste[] = array(
+				'teil'   => (int) $teil,
+				'id'     => (int) $sid,
+				'titel'  => $info['title'],
+				'nummer' => $info['nummer'],
+				'termin' => $info['termin'],
+				'ort'    => $info['ort'],
+			);
+		}
+		$anzahl = count( $liste );
+		return array(
+			'titel'  => get_the_title( $reihe_id ),
+			'gruppe' => $durchgang ? 'Reihe ' . (int) $durchgang : 'ohne feste Gruppe',
+			'umfang' => sprintf( _n( '%d Teil', '%d Teile', $anzahl, 'bi-seminarsuche' ), $anzahl ),
+			'liste'  => $liste,
+		);
+	}
+
 	/** ---------- Shortcode ---------- */
 
 	public static function shortcode( $atts ) {
-		$atts = shortcode_atts( array( 'seminar' => 0 ), $atts, 'bi_anmeldung' );
+		$atts = shortcode_atts( array( 'seminar' => 0, 'reihe' => 0 ), $atts, 'bi_anmeldung' );
 
 		wp_enqueue_style( 'bi-archivo' );
 		wp_enqueue_style( 'bi-anmeldung' );
@@ -263,12 +337,15 @@ class BI_Registration {
 		if ( ! $seminar_id ) {
 			$seminar_id = intval( bi_get( 'seminar' ) );
 		}
+		$reihe_id = intval( $atts['reihe'] ) ?: intval( bi_get( 'reihe' ) );
 
 		$state = bi_get( 'bi_anmeldung' );
 
 		// Erfolgs-Screen
 		if ( 'ok' === $state ) {
-			return self::render_success( $seminar_id );
+			return $reihe_id
+				? self::render_success_reihe( $reihe_id, self::termine_aus_request() )
+				: self::render_success( $seminar_id );
 		}
 
 		// Auf Fehlerseiten stehen wieder Eingaben im Formular – die dürfen kein
@@ -278,6 +355,23 @@ class BI_Registration {
 				define( 'DONOTCACHEPAGE', true );
 			}
 			nocache_headers();
+		}
+
+		/* ---- Reihenanmeldung: eine Auswahl, ein Formular, mehrere Anmeldungen ---- */
+		if ( $reihe_id ) {
+			$pruefung = BI_Reihen::auswahl_pruefen( $reihe_id, self::termine_aus_request() );
+			if ( ! $pruefung['ok'] ) {
+				$zurueck = get_permalink( $reihe_id );
+				return '<div class="bi-wiz-note"><p><strong>Die Auswahl passt nicht.</strong> '
+					. esc_html( $pruefung['grund'] ) . '</p>'
+					. ( $zurueck ? '<p><a href="' . esc_url( $zurueck ) . '">Zurück zur Ausbildungsreihe</a></p>' : '' )
+					. '</div>';
+			}
+			return self::render_form( array(
+				'reihe_id'  => $reihe_id,
+				'durchgang' => $pruefung['durchgang'],
+				'termine'   => $pruefung['termine'],
+			), $state );
 		}
 
 		$has_fixed = $seminar_id && bi_is_seminar_post( $seminar_id );
@@ -294,6 +388,9 @@ class BI_Registration {
 
 			if ( BI_CPT::meta_bool( $seminar_id, '_bi_ausgebucht' ) ) {
 				$grund = ' Das Seminar ist ausgebucht.';
+			} elseif ( 'keine' === BI_Settings::variant_for( $seminar_id ) ) {
+				// Variante 3: Hier gibt es keinen Ausweichweg, nur die Auskunft.
+				$grund = ' ' . BI_Settings::get( 'keine_hinweis' );
 			} elseif ( 'extern' === $variante ) {
 				$grund = ' Die Anmeldung läuft über die Anmeldeseite des Webinars.';
 				$link  = '<a href="' . esc_url( BI_Online::anmeldelink( $seminar_id ) ) . '" target="_blank" rel="noopener">Zur Anmeldung</a>';
@@ -307,6 +404,22 @@ class BI_Registration {
 			return '<div class="bi-wiz-note">Für dieses Seminar ist keine Direktanmeldung möglich.'
 				. esc_html( $grund ) . ( $link ? ' ' . $link : '' ) . '</div>';
 		}
+
+		return self::render_form( array( 'termine' => array( 0 => $seminar_id ) ), $state );
+	}
+
+	/**
+	 * Der Wizard – für ein einzelnes Seminar wie für eine ganze Reihe.
+	 *
+	 * @param array  $buchung reihe_id, durchgang, termine (teil => post_id).
+	 * @param string $state   Zustand aus der URL (err/limit/fail).
+	 */
+	private static function render_form( $buchung, $state ) {
+		$reihe_id  = (int) ( $buchung['reihe_id'] ?? 0 );
+		$termine   = (array) $buchung['termine'];
+		$ids       = array_values( array_map( 'intval', $termine ) );
+		$erste     = (int) reset( $ids );
+		$ist_reihe = $reihe_id > 0;
 
 		// Fehlerzustand: In der URL steht nur noch ein Zufallstoken, die Eingaben
 		// selbst liegen serverseitig (siehe store_error_state).
@@ -326,18 +439,30 @@ class BI_Registration {
 
 		// Trichter-Schritt „Anmeldung begonnen": Das Formular wird nur über den
 		// Buchungs-Button erreicht, sein Aufruf ist also der Klick auf „Jetzt buchen".
-		BI_Tracking::track( 'formular', $seminar_id );
+		BI_Tracking::track( 'formular', $erste );
 
-		$info      = self::seminar_info( $seminar_id );
-		$frei_opts = self::freistellung_options( $seminar_id );
-		$steps     = self::form_steps();
+		$info = self::seminar_info( $erste );
+		// Freistellung: Bei einer Reihe muss die Angabe zu allen Teilen passen,
+		// also zählt der Durchschnitt nicht, sondern die Schnittmenge – was nur bei
+		// einem Teil erlaubt ist, ist für die Reihe keine gültige Freistellung.
+		$frei_opts = self::freistellung_options( $ids );
+		// Das Formular hängt am Seminar. Bei einer Reihe entscheidet der erste
+		// Teil für alle – eine Anmeldung, ein Satz Angaben; zwei verschiedene
+		// Formulare in einem Vorgang gäbe es keine sinnvolle Reihenfolge für.
+		$steps     = self::form_steps( self::formular_key( $erste ) );
+		$letzte    = count( $steps ) - 1;
+		$teile     = $ist_reihe ? self::reihe_info( $reihe_id, $buchung['durchgang'] ?? 0, $termine ) : null;
 
 		ob_start();
 		?>
 		<div class="bi-wiz" style="--accent:#E2001A;--sidebar-bg:#E2001A;">
 			<form class="bi-wiz__form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" novalidate>
 				<input type="hidden" name="action" value="bi_anmeldung">
-				<input type="hidden" name="seminar_id" value="<?php echo esc_attr( $seminar_id ); ?>">
+				<input type="hidden" name="seminar_id" value="<?php echo esc_attr( $erste ); ?>">
+				<?php if ( $ist_reihe ) : ?>
+					<input type="hidden" name="reihe_id" value="<?php echo esc_attr( $reihe_id ); ?>">
+					<input type="hidden" name="termine" value="<?php echo esc_attr( implode( ',', $ids ) ); ?>">
+				<?php endif; ?>
 				<input type="hidden" name="redirect" value="<?php echo esc_url( self::current_url() ); ?>">
 				<?php wp_nonce_field( 'bi_anmeldung', 'bi_anmeldung_nonce' ); ?>
 				<?php echo self::timestamp_field(); // phpcs:ignore – intern escaped ?>
@@ -345,9 +470,25 @@ class BI_Registration {
 
 				<!-- Sidebar -->
 				<aside class="bi-wiz__sidebar">
-					<div class="bi-wiz__eyebrow">Seminaranmeldung</div>
-					<h2 class="bi-wiz__title"><?php echo esc_html( $info['title'] ); ?></h2>
+					<div class="bi-wiz__eyebrow"><?php echo esc_html( $ist_reihe ? 'Anmeldung zur Ausbildungsreihe' : 'Seminaranmeldung' ); ?></div>
+					<h2 class="bi-wiz__title"><?php echo esc_html( $ist_reihe ? $teile['titel'] : $info['title'] ); ?></h2>
 					<div class="bi-wiz__divider"></div>
+					<?php if ( $ist_reihe ) : ?>
+						<div class="bi-wiz__info">
+							<div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Gruppe</span><span class="bi-wiz__info-val"><?php echo esc_html( $teile['gruppe'] ); ?></span></div>
+							<div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Umfang</span><span class="bi-wiz__info-val"><?php echo esc_html( $teile['umfang'] ); ?></span></div>
+						</div>
+						<div class="bi-wiz__divider"></div>
+						<ol class="bi-wiz__teile">
+							<?php foreach ( $teile['liste'] as $t ) : ?>
+								<li class="bi-wiz__teil">
+									<span class="bi-wiz__teil-nr">Teil <?php echo esc_html( $t['teil'] ); ?></span>
+									<span class="bi-wiz__teil-titel"><?php echo esc_html( $t['titel'] ); ?></span>
+									<span class="bi-wiz__teil-meta"><?php echo esc_html( trim( $t['termin'] . ( $t['ort'] ? ' · ' . $t['ort'] : '' ) ) ); ?></span>
+								</li>
+							<?php endforeach; ?>
+						</ol>
+					<?php else : ?>
 					<div class="bi-wiz__info">
 						<?php if ( $info['termin'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Termin</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['termin'] ); ?></span></div><?php endif; ?>
 						<?php if ( $info['ort'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Ort</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['ort'] ); ?></span></div><?php endif; ?>
@@ -356,6 +497,7 @@ class BI_Registration {
 							<?php if ( $info['ansprechpartner'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Ansprechpartner*in</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['ansprechpartner'] ); ?></span></div><?php endif; ?>
 						</div>
 					</div>
+					<?php endif; ?>
 					<div class="bi-wiz__divider"></div>
 					<nav class="bi-wiz__stepper">
 						<?php foreach ( $steps as $i => $st ) :
@@ -398,17 +540,23 @@ class BI_Registration {
 								} ?>
 							</div>
 
-							<?php if ( 'abschluss' === $st['key'] ) : ?>
+							<?php // Zusammenfassung, Seminarangaben und Einwilligung stehen immer
+							      // auf der LETZTEN Seite – egal, wie sie heißt. Vorher hing das an
+							      // einem festen Schlüssel; ein umbenannter Abschluss hätte den
+							      // Absendeknopf verschwinden lassen.
+							if ( $i === $letzte ) : ?>
 								<div class="bi-wiz__review">
 									<div class="bi-wiz__review-title">Deine Angaben</div>
 									<div class="bi-wiz__review-list" data-review>
 										<p class="bi-wiz__review-empty">Bitte fülle die vorherigen Schritte aus.</p>
 									</div>
 								</div>
-								<?php echo self::summary_card( $info ); // phpcs:ignore ?>
+								<?php echo $ist_reihe ? self::summary_card_reihe( $teile ) : self::summary_card( $info ); // phpcs:ignore ?>
 								<label class="bi-wiz__consent">
 									<input type="checkbox" name="datenschutz" value="1" data-req="1">
-									<span>Ich melde mich verbindlich an und habe die Hinweise zur Verarbeitung meiner personenbezogenen Daten zur Kenntnis genommen. <span class="bi-wiz__req">*</span></span>
+									<span><?php echo $ist_reihe
+										? 'Ich melde mich verbindlich zu <strong>allen oben genannten Teilen</strong> der Ausbildungsreihe an und habe die Hinweise zur Verarbeitung meiner personenbezogenen Daten zur Kenntnis genommen.'
+										: 'Ich melde mich verbindlich an und habe die Hinweise zur Verarbeitung meiner personenbezogenen Daten zur Kenntnis genommen.'; // phpcs:ignore ?> <span class="bi-wiz__req">*</span></span>
 								</label>
 							<?php endif; ?>
 						</section>
@@ -447,6 +595,9 @@ class BI_Registration {
 			echo '<div class="bi-wiz__radio-group">';
 			$cur = '' !== $val ? $val : ( $f['default'] ?? '' );
 			foreach ( (array) $f['options'] as $ov => $ol ) {
+				// Aufzählung („Frau", „Herr") -> der Text ist zugleich der Wert;
+				// Zuordnung („ja|Ja") -> der Schlüssel ist der Wert.
+				$ov = is_int( $ov ) ? $ol : $ov;
 				printf(
 					'<label class="bi-wiz__radio"><input type="radio" name="%1$s" value="%2$s"%3$s>%4$s</label>',
 					esc_attr( $key ),
@@ -456,6 +607,27 @@ class BI_Registration {
 				);
 			}
 			echo '</div>';
+			if ( ! empty( $f['hint'] ) ) {
+				echo '<span class="bi-wiz__hint">' . esc_html( $f['hint'] ) . '</span>';
+			}
+			echo '</div>';
+			return ob_get_clean();
+		}
+
+		// Ein einzelnes Kästchen trägt seine Frage neben sich, nicht darüber –
+		// eine Beschriftung über einem Haken liest sich wie eine Überschrift ohne Inhalt.
+		if ( 'checkbox' === $f['type'] ) {
+			printf(
+				'<label class="bi-wiz__radio"><input type="checkbox" id="%1$s" name="%2$s" value="1"%3$s%4$s>%5$s</label>',
+				esc_attr( $id ),
+				esc_attr( $key ),
+				checked( '1', $val, false ),
+				$reqa,
+				esc_html( $f['label'] ) . $star
+			);
+			if ( ! empty( $f['hint'] ) ) {
+				echo '<span class="bi-wiz__hint">' . esc_html( $f['hint'] ) . '</span>';
+			}
 			echo '</div>';
 			return ob_get_clean();
 		}
@@ -469,11 +641,23 @@ class BI_Registration {
 
 			case 'select':
 				echo '<select class="bi-wiz__input bi-wiz__select" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '"' . $reqa . '>';
-				foreach ( (array) $f['options'] as $opt ) {
-					$label = '' === $opt ? 'Bitte wählen' : $opt;
-					echo '<option value="' . esc_attr( $opt ) . '"' . selected( $val, $opt, false ) . '>' . esc_html( $label ) . '</option>';
+				$cur  = ( '' === $val && ! empty( $f['default'] ) ) ? (string) $f['default'] : $val;
+				$opts = (array) $f['options'];
+				// Bei einer Zuordnung („vegan|Vegan") fehlt die leere Auswahl,
+				// die eine Aufzählung als ersten Eintrag mitbringt.
+				if ( $opts && ! BI_Anmeldefelder::ist_liste( $opts ) ) {
+					echo '<option value="">Bitte wählen</option>';
+				}
+				foreach ( $opts as $ov => $ol ) {
+					$ov    = is_int( $ov ) ? $ol : $ov;
+					$label = '' === $ol ? 'Bitte wählen' : $ol;
+					echo '<option value="' . esc_attr( $ov ) . '"' . selected( $cur, $ov, false ) . '>' . esc_html( $label ) . '</option>';
 				}
 				echo '</select>';
+				break;
+
+			case 'date':
+				echo '<input type="date" class="bi-wiz__input" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" value="' . esc_attr( $val ) . '"' . $reqa . '>';
 				break;
 
 			case 'freistellung':
@@ -536,6 +720,61 @@ class BI_Registration {
 			echo '<div class="bi-wiz__summary-item"><span class="bi-wiz__summary-label">' . esc_html( $label ) . '</span><span class="bi-wiz__summary-val">' . esc_html( $value ) . '</span></div>';
 		}
 		echo '</div></div>';
+		return ob_get_clean();
+	}
+
+	/** Übersichtskarte in Schritt 4 – Reihenanmeldung */
+	private static function summary_card_reihe( $teile ) {
+		ob_start();
+		echo '<div class="bi-wiz__summary bi-wiz__summary--reihe"><div class="bi-wiz__summary-title">Deine Anmeldung im Überblick</div>';
+		echo '<div class="bi-wiz__summary-list">';
+		echo '<div class="bi-wiz__summary-item"><span class="bi-wiz__summary-label">Ausbildungsreihe</span>'
+			. '<span class="bi-wiz__summary-val">' . esc_html( $teile['titel'] ) . '</span></div>';
+		echo '<div class="bi-wiz__summary-item"><span class="bi-wiz__summary-label">Gruppe</span>'
+			. '<span class="bi-wiz__summary-val">' . esc_html( $teile['gruppe'] . ' · ' . $teile['umfang'] ) . '</span></div>';
+		foreach ( $teile['liste'] as $t ) {
+			$wert = trim( $t['titel'] . ' – ' . $t['termin'] . ( $t['ort'] ? ', ' . $t['ort'] : '' ) );
+			echo '<div class="bi-wiz__summary-item"><span class="bi-wiz__summary-label">Teil ' . (int) $t['teil'] . '</span>'
+				. '<span class="bi-wiz__summary-val">' . esc_html( $wert ) . '</span></div>';
+		}
+		echo '</div>';
+		echo '<p class="bi-wiz__summary-note">Mit dem Absenden entstehen ' . (int) count( $teile['liste'] )
+			. ' Anmeldungen – eine je Teil. Jedes Bildungszentrum bestätigt seinen Teil selbst.</p>';
+		echo '</div>';
+		return ob_get_clean();
+	}
+
+	/** Erfolgs-Screen – Reihenanmeldung */
+	private static function render_success_reihe( $reihe_id, $ids ) {
+		$pruefung = BI_Reihen::auswahl_pruefen( $reihe_id, $ids );
+		// Nach dem Absenden zählt nur noch die Anzeige: Sind die Termine
+		// zwischenzeitlich ausgebucht, ist die Anmeldung trotzdem eingegangen.
+		$termine = $pruefung['ok'] ? $pruefung['termine'] : array();
+		$titel   = get_the_title( $reihe_id );
+
+		ob_start();
+		?>
+		<div class="bi-wiz bi-wiz--success" style="--accent:#E2001A;">
+			<div class="bi-wiz__success">
+				<div class="bi-wiz__success-circle">✓</div>
+				<h2 class="bi-wiz__success-h2">Anmeldung übermittelt</h2>
+				<p class="bi-wiz__success-text">Vielen Dank! Deine Anmeldung<?php echo $titel ? ' zur Ausbildungsreihe <strong>' . esc_html( $titel ) . '</strong>' : ''; ?> ist eingegangen –
+					für jeden Teil eine eigene. Eine Bestätigung erhältst du per E-Mail.</p>
+				<?php if ( $termine ) : ?>
+					<div class="bi-wiz__success-box">
+						<?php foreach ( $termine as $teil => $sid ) :
+							$info = self::seminar_info( $sid ); ?>
+							<div class="bi-wiz__summary-item">
+								<span class="bi-wiz__summary-label">Teil <?php echo (int) $teil; ?></span>
+								<span class="bi-wiz__summary-val"><?php echo esc_html( trim( $info['title'] . ' – ' . $info['termin'] . ( $info['ort'] ? ', ' . $info['ort'] : '' ) ) ); ?></span>
+							</div>
+						<?php endforeach; ?>
+					</div>
+				<?php endif; ?>
+				<a class="bi-wiz__success-btn" href="<?php echo esc_url( self::uebersicht_url() ); ?>">Zur Seminarübersicht</a>
+			</div>
+		</div>
+		<?php
 		return ob_get_clean();
 	}
 
@@ -609,6 +848,14 @@ class BI_Registration {
 	 * Primärquelle sind die Seminardaten: die Terme der Taxonomie bi_freistellung
 	 * am Seminar (kommen aus der Spalte „Freistellung" des CSV-Imports). Nur wenn
 	 * am Seminar nichts gepflegt ist, greift die kanonische Gesamtliste als Fallback.
+	 *
+	 * Bei einer Reihenanmeldung wird die Frage einmal für alle Teile gestellt.
+	 * Gültig ist dann nur, was bei JEDEM Teil zulässig ist – die Schnittmenge.
+	 * Wäre sie leer (unterschiedlich gepflegte Teile), stünde niemandem eine
+	 * Auswahl zur Verfügung; dann tritt die Vereinigung an ihre Stelle, damit das
+	 * Formular benutzbar bleibt.
+	 *
+	 * @param int|int[] $seminar_id Ein Seminar oder mehrere (Reihenanmeldung).
 	 */
 	private static function freistellung_options( $seminar_id = 0 ) {
 		$canonical = array(
@@ -620,12 +867,30 @@ class BI_Registration {
 			'keine Freistellung',
 		);
 
-		$terms = $seminar_id ? wp_get_object_terms( $seminar_id, BI_TAX_FREI, array( 'fields' => 'names' ) ) : array();
-		if ( is_wp_error( $terms ) || ! $terms ) {
+		$ids = array_values( array_filter( array_map( 'intval', (array) $seminar_id ) ) );
+		if ( ! $ids ) {
 			return $canonical;
 		}
 
-		$terms = array_values( array_unique( array_filter( array_map( 'trim', (array) $terms ) ) ) );
+		$je_seminar = array();
+		foreach ( $ids as $id ) {
+			$t = wp_get_object_terms( $id, BI_TAX_FREI, array( 'fields' => 'names' ) );
+			$t = is_wp_error( $t ) ? array() : array_values( array_unique( array_filter( array_map( 'trim', (array) $t ) ) ) );
+			if ( $t ) {
+				$je_seminar[] = $t;
+			}
+		}
+		if ( ! $je_seminar ) {
+			return $canonical;
+		}
+
+		$terms = array_shift( $je_seminar );
+		$union = $terms;
+		foreach ( $je_seminar as $weitere ) {
+			$terms = array_intersect( $terms, $weitere );
+			$union = array_merge( $union, $weitere );
+		}
+		$terms = $terms ? array_values( $terms ) : array_values( array_unique( $union ) );
 		if ( ! $terms ) {
 			return $canonical;
 		}
@@ -671,13 +936,36 @@ class BI_Registration {
 	}
 
 	/** Abbruch mit Zustand ($state = err|limit|fail) und optional gemerkten Eingaben */
-	private static function fail( $state, $redirect, $seminar_id, array $data = array() ) {
+	/**
+	 * Abbruch mit Rücksprung ins Formular.
+	 *
+	 * Bei einer Reihenanmeldung müssen Reihe und Terminauswahl mit zurück –
+	 * sonst stünde nach einem Tippfehler plötzlich das Einzelformular da und die
+	 * Auswahl wäre verloren.
+	 */
+	private static function fail( $state, $redirect, $seminar_id, array $data = array(), $reihe_id = 0 ) {
 		$args = array( 'bi_anmeldung' => $state, 'seminar' => (int) $seminar_id );
+		if ( $reihe_id ) {
+			$args['reihe']   = (int) $reihe_id;
+			$args['termine'] = implode( ',', self::termine_aus_request() );
+		}
 		if ( $data ) {
 			$args['e'] = self::store_error_state( $data );
 		}
 		wp_safe_redirect( add_query_arg( $args, $redirect ) );
 		exit;
+	}
+
+	/** Query-Parameter für den Erfolgs-Screen (Einzel- wie Reihenanmeldung). */
+	private static function erfolg_args( $seminar_id, $reihe_id, $termine ) {
+		if ( ! $reihe_id ) {
+			return array( 'bi_anmeldung' => 'ok', 'seminar' => (int) $seminar_id );
+		}
+		return array(
+			'bi_anmeldung' => 'ok',
+			'reihe'        => (int) $reihe_id,
+			'termine'      => implode( ',', array_map( 'intval', array_values( $termine ) ) ),
+		);
 	}
 
 	/**
@@ -708,7 +996,7 @@ class BI_Registration {
 	/** Hinweis im Backend, wenn der Mail-Notaus in den letzten 24 Stunden gegriffen hat */
 	public static function budget_notice() {
 		$when = (int) get_option( self::BUDGET_OPTION, 0 );
-		if ( ! $when || ! current_user_can( 'manage_options' ) ) {
+		if ( ! $when || ! current_user_can( BI_CAP ) ) {
 			return;
 		}
 		if ( time() - $when > DAY_IN_SECONDS ) {
@@ -762,6 +1050,7 @@ class BI_Registration {
 		}
 
 		$seminar_id = (int) bi_post( 'seminar_id' );
+		$reihe_id   = (int) bi_post( 'reihe_id' );
 
 		// Honeypot und Zeitfalle: beides kann nur ein Automat auslösen. Beide melden
 		// bewusst Erfolg zurück, damit ein Bot nicht erkennt, woran er gescheitert ist.
@@ -770,10 +1059,32 @@ class BI_Registration {
 			exit;
 		}
 
+		// Reihenanmeldung: Die Auswahl wird noch einmal vollständig geprüft – das
+		// Formular kann seit dem Aufruf veraltet sein (Termin ausgebucht, Seminar
+		// zurückgezogen), und die IDs stammen aus einer URL.
+		$reihe_termine = array();
+		$durchgang     = 0;
+		if ( $reihe_id ) {
+			$pruefung = BI_Reihen::auswahl_pruefen( $reihe_id, self::termine_aus_request() );
+			if ( ! $pruefung['ok'] ) {
+				self::fail( 'err', $redirect, $seminar_id, array(), $reihe_id );
+			}
+			$reihe_termine = $pruefung['termine'];
+			$durchgang     = $pruefung['durchgang'];
+			// Für alle folgenden Prüfungen (Freistellung, Buchbarkeit) zählt der
+			// erste Teil stellvertretend; die übrigen sind bereits geprüft.
+			$seminar_id = (int) reset( $reihe_termine );
+		}
+
+		// Welches Formular gilt – aus der Seminar-ID, nicht aus dem POST. Geprüft
+		// wird genau die Feldmenge, die dieses Seminar auch angezeigt bekommen
+		// hat; ein Feld aus einem anderen Formular wird schlicht nicht gelesen.
+		$formular = self::formular_key( $seminar_id );
+
 		$data   = array();
 		$errors = false;
 
-		foreach ( self::all_fields() as $key => $f ) {
+		foreach ( self::all_fields( $formular ) as $key => $f ) {
 			$raw = bi_post( $key );
 			if ( 'textarea' === $f['type'] ) {
 				$raw = sanitize_textarea_field( $raw );
@@ -784,6 +1095,14 @@ class BI_Registration {
 			}
 			if ( 'plz' === $f['type'] ) {
 				$raw = substr( preg_replace( '/\D/', '', $raw ), 0, 5 );
+			}
+			if ( 'checkbox' === $f['type'] ) {
+				// Ein nicht angehaktes Kästchen sendet gar nichts. Alles außer
+				// der eigenen „1" ist deshalb ein Nein, kein Fehler.
+				$raw = ( '1' === $raw ) ? '1' : '';
+			}
+			if ( 'date' === $f['type'] && '' !== $raw && ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $raw ) ) {
+				$raw = '';
 			}
 			if ( ! empty( $f['required'] ) && '' === trim( $raw ) ) {
 				$errors = true;
@@ -804,9 +1123,11 @@ class BI_Registration {
 			$data[ $key ] = $raw;
 		}
 
-		// Freistellung muss eine der am Seminar hinterlegten Möglichkeiten sein.
+		// Freistellung muss eine der am Seminar hinterlegten Möglichkeiten sein –
+		// bei einer Reihe eine, die zu allen gewählten Teilen passt.
+		$frei_prueflinge = $reihe_termine ? array_values( $reihe_termine ) : $seminar_id;
 		if ( '' !== ( $data['freistellung'] ?? '' )
-			&& ! in_array( $data['freistellung'], self::freistellung_options( $seminar_id ), true ) ) {
+			&& ! in_array( $data['freistellung'], self::freistellung_options( $frei_prueflinge ), true ) ) {
 			$errors = true;
 		}
 
@@ -816,34 +1137,102 @@ class BI_Registration {
 		}
 
 		if ( $errors ) {
-			self::fail( 'err', $redirect, $seminar_id, $data );
+			self::fail( 'err', $redirect, $seminar_id, $data, $reihe_id );
 		}
 
-		// Doppelte Anmeldung derselben Person zum selben Seminar innerhalb weniger
-		// Minuten: kommt im Alltag durch Doppelklick oder Zurück-Taste zustande.
-		// Für die anmeldende Person ist das ein Erfolg – nur die zweite Mailrunde
-		// entfällt. Nebenbei verteuert das jeden Wiederholungsversuch.
-		$dupe = 'bi_dupe|' . strtolower( $data['email'] ) . '|' . $seminar_id;
+		// Das benutzte Formular mitschreiben. Die Anmeldung bleibt damit lesbar,
+		// auch wenn das Formular später umgebaut oder gelöscht wird – die
+		// Detailansicht gruppiert danach.
+		$data['_formular'] = $formular;
+
+		// Doppelte Anmeldung derselben Person innerhalb weniger Minuten: kommt im
+		// Alltag durch Doppelklick oder Zurück-Taste zustande. Für die anmeldende
+		// Person ist das ein Erfolg – nur die zweite Mailrunde entfällt. Nebenbei
+		// verteuert das jeden Wiederholungsversuch. Bei einer Reihe zählt die
+		// Gruppe als Ganzes, sonst sperrte der erste Teil die übrigen aus.
+		$dupe = 'bi_dupe|' . strtolower( $data['email'] ?? '' ) . '|'
+			. ( $reihe_id ? 'r' . $reihe_id . ':' . $durchgang : $seminar_id );
 		if ( ! bi_rate_hit( $dupe, 1, 10 * MINUTE_IN_SECONDS ) ) {
-			wp_safe_redirect( add_query_arg( array( 'bi_anmeldung' => 'ok', 'seminar' => $seminar_id ), $redirect ) );
+			wp_safe_redirect( add_query_arg( self::erfolg_args( $seminar_id, $reihe_id, $reihe_termine ), $redirect ) );
 			exit;
 		}
 
 		// Zwei Kontingente, beide großzügig über jedem realistischen Verhalten:
 		// pro Mailadresse (fängt Rotation über wechselnde Seminare ab) und pro
 		// Absenderadresse (fängt Rotation über wechselnde Mailadressen ab).
-		$ok_mail = bi_rate_hit( 'bi_mail|' . strtolower( $data['email'] ), (int) apply_filters( 'bi_limit_per_email', 5 ), HOUR_IN_SECONDS );
+		$ok_mail = bi_rate_hit( 'bi_mail|' . strtolower( $data['email'] ?? '' ), (int) apply_filters( 'bi_limit_per_email', 5 ), HOUR_IN_SECONDS );
 		$ok_ip   = bi_rate_hit( 'bi_ip|' . bi_client_ip(), (int) apply_filters( 'bi_limit_per_ip', 20 ), HOUR_IN_SECONDS );
 		if ( ! $ok_mail || ! $ok_ip ) {
-			self::fail( 'limit', $redirect, $seminar_id, $data );
+			self::fail( 'limit', $redirect, $seminar_id, $data, $reihe_id );
 		}
 
-		// GS-relevante PLZ = betriebliche PLZ -> Spalte plz.
-		// Seminar-Titel/-Nummer/-Termin als Snapshot mitspeichern, damit die Anmeldung
-		// auch nach Löschen/Re-Import des Seminars lesbar bleibt.
-		$info = self::seminar_info( $seminar_id );
+		// Eine Zeile je Teil; bei der Einzelanmeldung ist das genau eine.
+		$termine   = $reihe_termine ? $reihe_termine : array( 0 => $seminar_id );
+		$angelegt  = array();
+		$sammel_id = 0;
+
+		foreach ( $termine as $teil => $sid ) {
+			$row_id = self::zeile_anlegen( (int) $sid, $data, $reihe_id, $durchgang, (int) $teil, $sammel_id );
+
+			// Scheitert ein Insert (volle Platte, Schemaabweichung, DB-Fehler), darf
+			// die Seite keinen Erfolg melden: die Person hielte sich sonst für
+			// angemeldet, ohne dass es einen Datensatz gibt. Bei einer Reihe werden
+			// die schon angelegten Zeilen wieder entfernt – eine halb gebuchte Reihe
+			// wäre schlimmer als gar keine, weil niemand ihr ansieht, dass sie
+			// unvollständig ist.
+			if ( ! $row_id ) {
+				self::zeilen_entfernen( $angelegt );
+				// Duplikatsperre wieder lösen: Es gibt keine erste Anmeldung, gegen
+				// die sie schützen müsste. Ohne diese Freigabe liefe der zweite
+				// Versuch in die Sperre und bekäme einen Erfolg gemeldet, den es
+				// nicht gibt.
+				bi_rate_release( $dupe );
+				self::fail( 'fail', $redirect, $seminar_id, $data, $reihe_id );
+			}
+
+			// Die erste Zeile ist die Klammer über alle weiteren.
+			if ( $reihe_id && ! $sammel_id ) {
+				$sammel_id = $row_id;
+				self::sammel_id_setzen( $row_id, $row_id );
+			}
+
+			// Kampagnen-Trichter: EIN Erfolg je Anmeldevorgang, nicht einer je Teil.
+			// Die Frage lautet „wie viele Menschen hat dieser Link zur Anmeldung
+			// gebracht?" – eine Person ist eine Antwort, auch wenn dabei vier
+			// Zeilen entstehen.
+			if ( ! $angelegt ) {
+				BI_Tracking::track( 'anmeldung', (int) $sid, $row_id );
+			}
+			$angelegt[] = $row_id;
+		}
+
+		// Der Notaus greift erst hier: gespeichert ist die Anmeldung in jedem Fall,
+		// nur der automatische Versand entfällt, wenn das Stundenbudget erschöpft ist.
+		if ( self::mail_budget_ok() ) {
+			if ( $sammel_id ) {
+				// Je Empfängeradresse eine Mail – nicht eine je Teil.
+				BI_Mailer::dispatch_reihe( self::sammlung( $sammel_id ) );
+			} else {
+				BI_Mailer::dispatch( self::get( $angelegt[0] ) );
+			}
+		}
+
+		wp_safe_redirect( add_query_arg( self::erfolg_args( $seminar_id, $reihe_id, $termine ), $redirect ) );
+		exit;
+	}
+
+	/**
+	 * Eine Anmeldezeile schreiben. 0 bei Fehlschlag.
+	 *
+	 * GS-relevante PLZ = betriebliche PLZ -> Spalte plz.
+	 * Seminar-Titel/-Nummer/-Termin als Snapshot mitspeichern, damit die Anmeldung
+	 * auch nach Löschen/Re-Import des Seminars lesbar bleibt.
+	 */
+	private static function zeile_anlegen( $seminar_id, $data, $reihe_id, $durchgang, $teil, $sammel_id ) {
 		global $wpdb;
-		$inserted = $wpdb->insert( self::table(), array(
+		$info = self::seminar_info( $seminar_id );
+
+		$ok = $wpdb->insert( self::table(), array(
 			'created'        => current_time( 'mysql' ),
 			'seminar_id'     => $seminar_id,
 			// Seminarform mitschreiben: bleibt lesbar, auch wenn der Post später verschwindet.
@@ -851,46 +1240,50 @@ class BI_Registration {
 			'seminar_titel'  => $info['title'],
 			'seminar_nummer' => $info['nummer'],
 			'seminar_termin' => $info['termin'],
-			'vorname'        => $data['vorname'],
-			'nachname'       => $data['nachname'],
-			'email'          => $data['email'],
-			'telefon'        => $data['telefon'],
-			'betrieb'        => $data['betrieb'],
-			'plz'            => $data['betrieb_plz'],
-			'nachricht'      => $data['bemerkungen'],
+			'reihe_id'       => (int) $reihe_id,
+			'durchgang'      => (int) $durchgang,
+			'teil'           => (int) $teil,
+			'sammel_id'      => (int) $sammel_id,
+			// Die eigenen Spalten werden aus festen Feldschlüsseln gefüllt. Fragt
+			// ein Formular eines davon nicht ab, bleibt die Spalte leer statt
+			// eine Warnung zu werfen – welche Folge das hat, sagt der Editor
+			// beim Zusammenstellen (BI_Formulare::warnungen).
+			'vorname'        => $data['vorname'] ?? '',
+			'nachname'       => $data['nachname'] ?? '',
+			'email'          => $data['email'] ?? '',
+			'telefon'        => $data['telefon'] ?? '',
+			'betrieb'        => $data['betrieb'] ?? '',
+			'plz'            => $data['betrieb_plz'] ?? '',
+			'nachricht'      => $data['bemerkungen'] ?? '',
 			'data'           => wp_json_encode( $data ),
 			'status'         => 'neu',
 			// Kampagne, über die dieser Besuch hereinkam (leer, wenn ohne Kampagnen-Link).
 			// Bewusst als Kopie in der Anmeldung: Die Zahl bleibt gültig, auch wenn die
 			// Tracking-Ereignisse später aufgeräumt werden.
 			'kampagne'       => BI_Tracking::current_slug(),
-		), array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ) );
+		), array(
+			'%s', '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d',
+			'%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s',
+		) );
 
-		$submission_id = (int) $wpdb->insert_id;
-
-		// Scheitert der Insert (volle Platte, Schemaabweichung, DB-Fehler), darf die
-		// Seite keinen Erfolg melden: die Person hielte sich sonst für angemeldet,
-		// ohne dass es einen Datensatz gibt. Die Eingaben bleiben erhalten, damit
-		// ein zweiter Versuch nicht bei null anfängt.
-		if ( false === $inserted || ! $submission_id ) {
+		if ( false === $ok || ! $wpdb->insert_id ) {
 			error_log( 'BI_Registration: Anmeldung konnte nicht gespeichert werden. ' . $wpdb->last_error ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			// Duplikatsperre wieder lösen: Es gibt keine erste Anmeldung, gegen die
-			// sie schützen müsste. Ohne diese Freigabe liefe der zweite Versuch in
-			// die Sperre und bekäme einen Erfolg gemeldet, den es nicht gibt.
-			bi_rate_release( $dupe );
-			self::fail( 'fail', $redirect, $seminar_id, $data );
+			return 0;
 		}
+		return (int) $wpdb->insert_id;
+	}
 
-		BI_Tracking::track( 'anmeldung', $seminar_id, $submission_id );
+	private static function sammel_id_setzen( $row_id, $sammel_id ) {
+		global $wpdb;
+		$wpdb->update( self::table(), array( 'sammel_id' => (int) $sammel_id ), array( 'id' => (int) $row_id ), array( '%d' ), array( '%d' ) );
+	}
 
-		// Der Notaus greift erst hier: gespeichert ist die Anmeldung in jedem Fall,
-		// nur der automatische Versand entfällt, wenn das Stundenbudget erschöpft ist.
-		if ( self::mail_budget_ok() ) {
-			BI_Mailer::dispatch( self::get( $submission_id ) );
+	/** Zurücknehmen halb angelegter Sammelanmeldungen. */
+	private static function zeilen_entfernen( $ids ) {
+		global $wpdb;
+		foreach ( (array) $ids as $id ) {
+			$wpdb->delete( self::table(), array( 'id' => (int) $id ), array( '%d' ) );
 		}
-
-		wp_safe_redirect( add_query_arg( array( 'bi_anmeldung' => 'ok', 'seminar' => $seminar_id ), $redirect ) );
-		exit;
 	}
 
 	public static function get( $id ) {
@@ -1002,8 +1395,11 @@ class BI_Registration {
 		return array( 'titel' => $titel, 'nummer' => $nummer, 'termin' => $termin );
 	}
 
-	/** Anzeigewert eines Feldes (Radio/Select-Labels auflösen) */
+	/** Anzeigewert eines Feldes (Radio/Select-Labels auflösen, Haken als „ja") */
 	private static function display_value( $key, $f, $value ) {
+		if ( 'checkbox' === ( $f['type'] ?? '' ) ) {
+			return '1' === (string) $value ? 'ja' : '';
+		}
 		if ( ! empty( $f['options'] ) && is_array( $f['options'] ) ) {
 			$assoc = array_keys( $f['options'] ) !== range( 0, count( $f['options'] ) - 1 );
 			if ( $assoc && isset( $f['options'][ $value ] ) ) {
@@ -1084,12 +1480,29 @@ class BI_Registration {
 				$link = add_query_arg( array( 'page' => 'bi-anmeldungen', 'view' => $r['id'] ), admin_url( 'admin.php' ) );
 				$sem  = self::seminar_display( $r );
 				$sub  = array_filter( array( $sem['nummer'] ? 'Nr. ' . $sem['nummer'] : '', $sem['termin'] ) );
+				// Nach Ablauf der Aufbewahrungsfrist anonymisierte Zeilen kenntlich machen –
+				// „(ohne Namen)" würde sonst wie ein Fehler beim Ausfüllen aussehen.
+				$name = ( 'anonymisiert' === ( $r['status'] ?? '' ) )
+					? '(anonymisiert)'
+					: ( trim( $r['vorname'] . ' ' . $r['nachname'] ) ?: '(ohne Namen)' );
+				// Gehört die Zeile zu einer Reihenanmeldung, steht das dabei: Sonst
+				// sähen vier Zeilen derselben Person wie vier Einzelanmeldungen aus.
+				$reihe = '';
+				if ( ! empty( $r['reihe_id'] ) ) {
+					$rt    = get_the_title( (int) $r['reihe_id'] );
+					$reihe = '<br><span style="display:inline-block;margin-top:3px;padding:1px 6px;background:#f0f0f1;border-left:3px solid #e2001a;font-size:11px;color:#3c3c3c">'
+						. esc_html( trim( 'Reihe: ' . $rt
+							. ( ! empty( $r['durchgang'] ) ? ' · Gruppe ' . (int) $r['durchgang'] : '' )
+							. ( ! empty( $r['teil'] ) ? ' · Teil ' . (int) $r['teil'] : '' ) ) )
+						. '</span>';
+				}
 				echo '<tr>'
 					. '<td>' . esc_html( date_i18n( 'd.m.Y H:i', strtotime( $r['created'] ) ) ) . '</td>'
 					. '<td>' . esc_html( self::form_label( $r['post_type'] ?? BI_CPT ) ) . '</td>'
 					. '<td>' . esc_html( $sem['titel'] )
-						. ( $sub ? '<br><span style="color:#666;font-size:12px">' . esc_html( implode( ' · ', $sub ) ) . '</span>' : '' ) . '</td>'
-					. '<td><a href="' . esc_url( $link ) . '"><strong>' . esc_html( trim( $r['vorname'] . ' ' . $r['nachname'] ) ?: '(ohne Namen)' ) . '</strong></a></td>'
+						. ( $sub ? '<br><span style="color:#666;font-size:12px">' . esc_html( implode( ' · ', $sub ) ) . '</span>' : '' )
+						. $reihe . '</td>'
+					. '<td><a href="' . esc_url( $link ) . '"><strong>' . esc_html( $name ) . '</strong></a></td>'
 					. '<td>' . esc_html( $r['email'] ) . '</td>'
 					. '<td>' . esc_html( $r['betrieb'] ) . '</td>'
 					. '<td>' . esc_html( $r['plz'] ) . '</td>'
@@ -1143,6 +1556,32 @@ class BI_Registration {
 		echo '<tr><th>Seminar</th><td>' . ( $sem_link ? '<a href="' . esc_url( $sem_link ) . '">' . esc_html( $sem['titel'] ) . '</a>' : esc_html( $sem['titel'] ) )
 			. ' <span style="color:#666">(Nr. ' . esc_html( $sem['nummer'] ?: '—' ) . ')</span></td></tr>';
 		echo '<tr><th>Termin</th><td>' . ( $sem['termin'] ? esc_html( $sem['termin'] ) : '<span style="color:#999">—</span>' ) . '</td></tr>';
+
+		// Reihenanmeldung: die Geschwisterzeilen mit auflisten. Ohne sie sähe die
+		// Anmeldung wie eine einzelne aus, obwohl sie Teil einer Abfolge ist.
+		if ( ! empty( $r['sammel_id'] ) ) {
+			$geschwister = self::sammlung( (int) $r['sammel_id'] );
+			$zeilen      = '';
+			foreach ( $geschwister as $g ) {
+				$gs_sem = self::seminar_display( $g );
+				$link   = add_query_arg( array( 'page' => 'bi-anmeldungen', 'view' => $g['id'] ), admin_url( 'admin.php' ) );
+				$aktuell = (int) $g['id'] === (int) $id;
+				$zeilen .= '<li style="margin:0 0 4px">'
+					. 'Teil ' . (int) $g['teil'] . ': '
+					. ( $aktuell
+						? '<strong>' . esc_html( $gs_sem['titel'] ) . '</strong> (diese Anmeldung)'
+						: '<a href="' . esc_url( $link ) . '">' . esc_html( $gs_sem['titel'] ) . '</a>' )
+					. ' <span style="color:#666">' . esc_html( trim( $gs_sem['termin'] . ' · Nr. ' . ( $gs_sem['nummer'] ?: '—' ) ) ) . '</span>'
+					. '</li>';
+			}
+			echo '<tr><th>Ausbildungsreihe</th><td>'
+				. esc_html( get_the_title( (int) $r['reihe_id'] ) )
+				. ( ! empty( $r['durchgang'] ) ? ' <span style="color:#666">(Gruppe ' . (int) $r['durchgang'] . ')</span>' : '' )
+				. '<ul style="margin:8px 0 0">' . $zeilen . '</ul>'
+				. '<p class="description" style="margin:6px 0 0">Diese Teile wurden in einem Zug angemeldet. '
+				. 'Jeder Teil ist eine eigene Anmeldung und wird vom jeweiligen Bildungszentrum bestätigt.</p>'
+				. '</td></tr>';
+		}
 		echo '<tr><th>Zuständige Geschäftsstelle</th><td>' . ( $gs
 			? esc_html( $gs['geschaeftsstelle'] ) . ' &lt;' . esc_html( $gs['email'] ) . '&gt;'
 			: '<em>keine Zuordnung für PLZ ' . esc_html( $r['plz'] ) . '</em>' ) . '</td></tr>';
@@ -1152,13 +1591,40 @@ class BI_Registration {
 			: '<span style="color:#999">— direkt, ohne Kampagnen-Link</span>' ) . '</td></tr>';
 		echo '</tbody></table>';
 
-		// Felder nach Schritten gruppiert
-		foreach ( self::form_steps() as $step ) {
+		// Felder nach den Seiten des Formulars gruppiert, mit dem diese Anmeldung
+		// eingegangen ist. Gibt es das Formular nicht mehr, greift das
+		// Standardformular – und alles, was dann keine Zeile bekäme, steht
+		// darunter unter „Weitere Angaben". Ein gespeicherter Wert verschwindet
+		// nicht aus der Ansicht, nur weil jemand später ein Formular umgebaut hat.
+		$benutzt = (string) ( $data['_formular'] ?? '' );
+		$gezeigt = array();
+
+		foreach ( self::form_steps( $benutzt ) as $step ) {
 			echo '<h2>' . esc_html( $step['title'] ) . '</h2>';
 			echo '<table class="widefat striped" style="max-width:780px;margin-bottom:18px"><tbody>';
 			foreach ( $step['fields'] as $key => $f ) {
+				$gezeigt[ $key ] = true;
 				$val = self::display_value( $key, $f, (string) ( $data[ $key ] ?? '' ) );
 				echo '<tr><th style="width:220px">' . esc_html( $f['label'] ) . '</th><td>' . ( '' !== trim( $val ) ? nl2br( esc_html( $val ) ) : '<span style="color:#999">—</span>' ) . '</td></tr>';
+			}
+			echo '</tbody></table>';
+		}
+
+		$rest = array();
+		foreach ( self::bestand_fields() as $key => $f ) {
+			if ( isset( $gezeigt[ $key ] ) || '' === trim( (string) ( $data[ $key ] ?? '' ) ) ) {
+				continue;
+			}
+			$rest[ $key ] = $f;
+		}
+		if ( $rest ) {
+			echo '<h2>Weitere Angaben</h2>';
+			echo '<p class="description" style="max-width:780px">Diese Werte stehen in der Anmeldung, gehören aber nicht '
+				. 'zu den Seiten des benutzten Formulars – meist, weil das Formular seither geändert wurde.</p>';
+			echo '<table class="widefat striped" style="max-width:780px;margin-bottom:18px"><tbody>';
+			foreach ( $rest as $key => $f ) {
+				$val = self::display_value( $key, $f, (string) $data[ $key ] );
+				echo '<tr><th style="width:220px">' . esc_html( $f['label'] ) . '</th><td>' . nl2br( esc_html( $val ) ) . '</td></tr>';
 			}
 			echo '</tbody></table>';
 		}
@@ -1186,7 +1652,7 @@ class BI_Registration {
 	}
 
 	public static function handle_export() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_export_anmeldungen' );
@@ -1194,10 +1660,17 @@ class BI_Registration {
 		$search = sanitize_text_field( bi_get( 's' ) );
 		$form   = sanitize_key( bi_get( 'form' ) );
 		$form   = in_array( $form, bi_seminar_post_types(), true ) ? $form : '';
-		$rows   = self::fetch( $search, 'created', 'desc', 100000, 0, $form );
-		$fields = self::all_fields();
+		$rows = self::fetch( $search, 'created', 'desc', 100000, 0, $form );
 
-		$header = array( 'ID', 'Eingegangen', 'Seminarform', 'Seminar', 'Seminarnummer', 'Termin', 'Geschäftsstelle', 'GS-E-Mail' );
+		// Der GANZE Feld-Bestand, nicht die Felder eines Formulars: Die Spalten
+		// sollen gleich bleiben, egal welches Formular gerade Standard ist und
+		// aus welchem Formular die einzelne Zeile stammt.
+		$fields = self::bestand_fields();
+
+		// „Sammel-ID" macht die Zeilen einer Reihenanmeldung in der Tabelle wieder
+		// zusammenführbar – sortiert man danach, stehen die Teile beieinander.
+		$header = array( 'ID', 'Sammel-ID', 'Eingegangen', 'Seminarform', 'Seminar', 'Seminarnummer', 'Termin',
+			'Ausbildungsreihe', 'Gruppe', 'Teil', 'Geschäftsstelle', 'GS-E-Mail', 'Formular' );
 		foreach ( $fields as $f ) {
 			$header[] = $f['label'];
 		}
@@ -1218,13 +1691,20 @@ class BI_Registration {
 			$sem  = self::seminar_display( $r );
 			$line = array(
 				$r['id'],
+				! empty( $r['sammel_id'] ) ? $r['sammel_id'] : '',
 				$r['created'],
 				self::form_label( $r['post_type'] ?? BI_CPT ),
 				$sem['titel'],
 				$sem['nummer'],
 				$sem['termin'],
+				! empty( $r['reihe_id'] ) ? get_the_title( (int) $r['reihe_id'] ) : '',
+				! empty( $r['durchgang'] ) ? 'Reihe ' . (int) $r['durchgang'] : '',
+				! empty( $r['teil'] ) ? (int) $r['teil'] : '',
 				$gs ? $gs['geschaeftsstelle'] : '',
 				$gs ? $gs['email'] : '',
+				// Aus welchem Formular diese Zeile stammt – sonst ließe sich eine
+				// leere Spalte nicht von einer nie gestellten Frage unterscheiden.
+				BI_Formulare::choices()[ $data['_formular'] ?? '' ] ?? (string) ( $data['_formular'] ?? '' ),
 			);
 			foreach ( $fields as $key => $f ) {
 				$line[] = self::display_value( $key, $f, (string) ( $data[ $key ] ?? '' ) );

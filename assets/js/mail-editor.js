@@ -1,5 +1,5 @@
 /**
- * Admin-Seite „Mail-Benachrichtigungen": Formatier-Leiste über den Textfeldern und
+ * Admin-Seite „Benachrichtigungen": Formatier-Leiste über den Textfeldern und
  * das Ein-/Ausblenden der Felder, die nur zu bestimmten Auswahlen gehören.
  *
  * Formatier-Leiste:

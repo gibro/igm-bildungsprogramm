@@ -1,9 +1,13 @@
 <?php
 /**
- * Seminardetails als PDF – Anhang der Anmeldemails.
+ * Seminardetails als PDF – Anhang der Anmeldemails und Download auf der
+ * Detailseite (Box „Seminardetails als PDF" in der Sidebar, BI_Detail::pdf_box).
  *
- * Alle Angaben zum Seminar auf einem Blatt, Logo oben rechts (Bild aus der
- * Einstellung „Logo für PDF-Anhänge").
+ * Alle Angaben zum Seminar auf einem Blatt, Logo oben rechts: das mitgelieferte
+ * IG-Metall-Signet (assets/img/igm-logo.png), sofern die Einstellung „Logo für
+ * PDF-Anhänge" nichts anderes vorgibt. Beide Wege erzeugen dasselbe Dokument –
+ * was jemand vorab herunterlädt, ist wortgleich das, was später der Bestätigung
+ * beiliegt.
  *
  * Der zweite Anhang, die **Beschlussvorlage**, steckt in class-bi-beschluss.php –
  * die ist bewusst eine Word-Datei, weil der Betriebsrat sie noch ergänzen muss.
@@ -29,6 +33,10 @@ class BI_PDF {
 	public static function init() {
 		// Vorschau aus dem Admin (Einstellungen → PDF-Anhänge)
 		add_action( 'admin_post_bi_pdf_preview', array( __CLASS__, 'preview' ) );
+		// Download von der Detailseite – auch für Gäste, das PDF enthält nichts,
+		// was nicht ohnehin auf der Seite steht.
+		add_action( 'admin_post_bi_seminar_pdf', array( __CLASS__, 'download' ) );
+		add_action( 'admin_post_nopriv_bi_seminar_pdf', array( __CLASS__, 'download' ) );
 	}
 
 	/**
@@ -52,35 +60,69 @@ class BI_PDF {
 		return class_exists( 'FPDF' ) && class_exists( 'BI_PDF_Doc' );
 	}
 
+	/**
+	 * Ist die PDF-Erzeugung grundsätzlich eingebaut?
+	 *
+	 * Prüft nur, ob FPDF da ist, ohne es zu laden – für Stellen, die bloß
+	 * entscheiden, ob sie einen Download-Link anzeigen. available() lädt die
+	 * Bibliothek und gehört erst an die Stelle, an der wirklich ein PDF entsteht.
+	 */
+	public static function vorhanden() {
+		return class_exists( 'FPDF' ) || file_exists( BI_PATH . 'vendor/fpdf/fpdf.php' );
+	}
+
 	/** ---------- Einstellungen ---------- */
 
-	/** Serverpfad der Logodatei aus den Einstellungen; '' wenn nicht gesetzt/vorhanden. */
+	/** Mitgeliefertes IG-Metall-Signet, wenn in den Einstellungen keins gewählt ist. */
+	const LOGO_STANDARD = 'assets/img/igm-logo.png';
+
+	/**
+	 * Serverpfad der Logodatei für den Kopf der Seminardetails.
+	 *
+	 * Reihenfolge: eigenes Logo aus den Einstellungen, sonst das mitgelieferte
+	 * IG-Metall-Signet. Ein Kopf ohne Zeichen sah nach unfertigem Dokument aus,
+	 * und in einer frischen Installation hätte ihn niemand vermisst, bis das
+	 * erste PDF in einer Betriebsratssitzung lag.
+	 *
+	 * Wer gar kein Logo will (fremder Veranstalter, eigener Briefbogen), hängt
+	 * sich an `bi_pdf_logo_path` und gibt '' zurück.
+	 */
 	public static function logo_path() {
-		$id = (int) BI_Settings::get( 'pdf_logo_id' );
-		if ( ! $id ) {
-			return '';
+		$file = '';
+		$id   = (int) BI_Settings::get( 'pdf_logo_id' );
+
+		if ( $id ) {
+			$eigen = get_attached_file( $id );
+			if ( $eigen && file_exists( $eigen ) && self::einbettbar( $eigen ) ) {
+				$file = $eigen;
+			}
 		}
-		$file = get_attached_file( $id );
-		if ( ! $file || ! file_exists( $file ) ) {
-			return '';
+		if ( '' === $file ) {
+			$standard = BI_PATH . self::LOGO_STANDARD;
+			if ( file_exists( $standard ) ) {
+				$file = $standard;
+			}
 		}
-		// FPDF kann nur JPEG, PNG und GIF einbetten – SVG & Co. sauber abweisen
+
+		$file = (string) apply_filters( 'bi_pdf_logo_path', $file );
+		return ( '' !== $file && file_exists( $file ) ) ? $file : '';
+	}
+
+	/** FPDF kann nur JPEG, PNG und GIF einbetten – SVG & Co. sauber abweisen. */
+	private static function einbettbar( $file ) {
 		$ext = strtolower( pathinfo( $file, PATHINFO_EXTENSION ) );
-		if ( ! in_array( $ext, array( 'jpg', 'jpeg', 'png', 'gif' ), true ) ) {
-			return '';
-		}
-		return $file;
+		return in_array( $ext, array( 'jpg', 'jpeg', 'png', 'gif' ), true );
 	}
 
 	/** Vorgabe, solange in den Einstellungen nichts hinterlegt ist. */
-	const VERANSTALTER_STANDARD = 'Industriegewerkschaft Metall';
+	const VERANSTALTER_STANDARD = 'IG Metall';
 
 	/**
 	 * Name und Anschrift des Veranstalters (mehrzeilig).
 	 *
-	 * Ohne Einstellung greift die Vorgabe „Industriegewerkschaft Metall" – NICHT
-	 * der Seitenname: In der Beschlussvorlage stünde sonst je nach Installation
-	 * etwas wie „Das Seminar wird von Test-Wordpress veranstaltet".
+	 * Ohne Einstellung greift die Vorgabe „IG Metall" – NICHT der Seitenname: In
+	 * der Beschlussvorlage stünde sonst je nach Installation etwas wie „Das
+	 * Seminar wird von Test-Wordpress veranstaltet".
 	 */
 	public static function veranstalter() {
 		$v = trim( (string) BI_Settings::get( 'pdf_veranstalter' ) );
@@ -131,8 +173,14 @@ class BI_PDF {
 			'anreise'     => $meta( '_bi_anreisedatum' ),
 			'anreisezeit' => $meta( '_bi_anreiseuhrzeit' ),
 			'kosten'      => $meta( '_bi_kosten' ),
+			'seminarort'  => $meta( '_bi_seminarort' ),
+			'ort_anzeige' => BI_CPT::ort_anzeige( $seminar_id ),
+			'kinderbetreuung' => BI_CPT::meta_bool( $seminar_id, '_bi_kinderbetreuung' ),
+			'kosten_posten'   => BI_CPT::kosten_posten( $seminar_id ),
+			'gesamtkosten'    => BI_CPT::gesamtkosten( $seminar_id ),
 			'ansprech'    => $meta( '_bi_ansprechpartner' ),
 			'ansprech_m'  => $meta( '_bi_ansprechpartner_email' ),
+			'ansprech_t'  => $meta( '_bi_ansprechpartner_telefon' ),
 			'ort'         => $terms( BI_TAX_ORT ),
 			'thema'       => $terms( BI_TAX_THEMA ),
 			'ziel'        => $terms( BI_TAX_ZIEL ),
@@ -245,17 +293,38 @@ class BI_PDF {
 				$pdf->row( 'Plattform', $d['plattform'] );
 				$pdf->row( 'Referent*innen', $d['referenten'] );
 			} else {
-				$pdf->row( 'Bildungszentrum', $d['ort'] );
+				// „Ort" ist der tatsächliche Veranstaltungsort; das zuständige
+				// Bildungszentrum steht nur dann zusätzlich da, wenn es ein
+				// anderes ist – sonst stünde dieselbe Angabe zweimal.
+				$pdf->row( 'Ort', $d['ort_anzeige'] );
+				if ( $d['ort'] !== $d['ort_anzeige'] && BI_CPT::ANDERE !== $d['ort'] ) {
+					$pdf->row( 'Zuständiges Bildungszentrum', $d['ort'] );
+				}
 			}
 			$pdf->row( 'Themenfeld', $d['thema'] );
 			$pdf->row( 'Zielgruppe', $d['ziel'] );
 			$pdf->row( 'Freistellung', $d['frei'] );
-			$pdf->row( 'Kosten / Hinweis', $d['kosten'] );
+
+			// Ab Programm 2027 stehen die Kosten aufgeschlüsselt samt errechneter
+			// Summe; ältere Jahrgänge haben nur die Freitextzeile.
+			foreach ( (array) $d['kosten_posten'] as $p ) {
+				$pdf->row( $p['label'], BI_CPT::money_format( $p['betrag'] ) );
+			}
+			if ( null !== $d['gesamtkosten'] ) {
+				$pdf->row( 'Gesamtkosten', BI_CPT::money_format( $d['gesamtkosten'] ) );
+			}
+			$pdf->row( $d['kosten_posten'] ? 'Hinweis zu den Kosten' : 'Kosten / Hinweis', $d['kosten'] );
+			if ( ! empty( $d['kinderbetreuung'] ) ) {
+				$pdf->row( 'Kinderbetreuung', 'wird angeboten' );
+			}
 			$pdf->row( 'Programmjahr', $d['programm'] );
 			$pdf->row( 'Veranstalter', self::veranstalter_inline() );
 
 			// Ansprechpartner
-			$ansprech = trim( $d['ansprech'] . ( '' !== $d['ansprech_m'] ? ' (' . $d['ansprech_m'] . ')' : '' ) );
+			// Telefon und E-Mail nur, wo sie gepflegt sind – eine leere Klammer
+			// hinter dem Namen sähe nach einem Fehler aus.
+			$kontakt  = array_values( array_filter( array( $d['ansprech_t'], $d['ansprech_m'] ), 'strlen' ) );
+			$ansprech = trim( $d['ansprech'] . ( $kontakt ? ' (' . implode( ', ', $kontakt ) . ')' : '' ) );
 			$pdf->row( 'Ansprechpartner', $ansprech );
 
 			if ( '' !== $d['beschreibung'] ) {
@@ -340,6 +409,53 @@ class BI_PDF {
 		}
 	}
 
+	/** ---------- Download auf der Detailseite ---------- */
+
+	/**
+	 * Adresse des öffentlichen Downloads („Seminardetails als PDF").
+	 *
+	 * Ohne Nonce: Der Link steht auf einer öffentlichen Seite, soll geteilt und
+	 * gespeichert werden können und löst nichts aus – er liest nur Angaben, die
+	 * daneben ohnehin im Klartext stehen. Ein Nonce liefe nach 24 Stunden ab und
+	 * machte die Seite nebenbei uncachebar.
+	 */
+	public static function download_url( $seminar_id ) {
+		return add_query_arg(
+			array( 'action' => 'bi_seminar_pdf', 'seminar' => (int) $seminar_id ),
+			admin_url( 'admin-post.php' )
+		);
+	}
+
+	/**
+	 * Liefert die Seminardetails als PDF zum Herunterladen.
+	 *
+	 * Ausgegeben wird nur, was auch veröffentlicht ist; Entwürfe und private
+	 * Seminare bekommt nur, wer sie auch im Backend sehen dürfte.
+	 */
+	public static function download() {
+		$seminar_id = isset( $_GET['seminar'] ) ? (int) $_GET['seminar'] : 0;
+		$post       = $seminar_id ? get_post( $seminar_id ) : null;
+
+		if ( ! $post || ! bi_is_seminar_post( $seminar_id ) ) {
+			wp_die( 'Seminar nicht gefunden.', 'Nicht gefunden', array( 'response' => 404 ) );
+		}
+		if ( 'publish' !== $post->post_status && ! current_user_can( 'read_post', $seminar_id ) ) {
+			wp_die( 'Seminar nicht gefunden.', 'Nicht gefunden', array( 'response' => 404 ) );
+		}
+
+		$bytes = self::seminar_bytes( $seminar_id );
+		if ( '' === $bytes ) {
+			wp_die( 'Das PDF konnte nicht erzeugt werden.', 'Fehler', array( 'response' => 500 ) );
+		}
+
+		nocache_headers();
+		header( 'Content-Type: application/pdf' );
+		header( 'Content-Disposition: attachment; filename="' . self::filename( 'Seminardetails', $seminar_id ) . '"' );
+		header( 'Content-Length: ' . strlen( $bytes ) );
+		echo $bytes; // phpcs:ignore WordPress.Security.EscapeOutput – Binärdaten
+		exit;
+	}
+
 	/** ---------- Vorschau im Admin ---------- */
 
 	/** URL der Vorschau (Einstellungen → PDF-Anhänge) */
@@ -358,7 +474,7 @@ class BI_PDF {
 	 * Seminardetails als PDF (inline), Beschlussvorlage als Word-Datei (Download).
 	 */
 	public static function preview() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( BI_CAP ) ) {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_pdf_preview' );

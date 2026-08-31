@@ -1,0 +1,109 @@
+/* ============================================================
+   BI Seminarsuche – Einbettungsmodus (iframe)
+
+   Nur Korrekturen für den Rahmen. Das Aussehen der Bauteile selbst
+   kommt unverändert aus filterleiste.css, detailseiten.css und
+   anmeldung.css – im Rahmen soll dasselbe zu sehen sein wie auf der
+   eigenen Website, nur ohne Kopf und Fuß.
+
+   Die Höhe des Rahmens setzt die Fremdseite anhand der Meldungen aus
+   embed.js. Damit die gemeldete Höhe stimmt, darf hier nichts mit
+   Prozent- oder Viewport-Höhen arbeiten: 100vh im Rahmen ist die Höhe
+   des Rahmens, und die soll ja gerade erst berechnet werden.
+   ============================================================ */
+
+html.bi-embed-html,
+body.bi-embed {
+	margin: 0;
+	padding: 0;
+	/* Weiß statt durchsichtig: Sonst schiene die Hintergrundfarbe der
+	   Fremdseite durch und die Trefferliste stünde auf fremdem Grund. */
+	background: #fff;
+	min-height: 0;
+	height: auto;
+	overflow-x: hidden;
+}
+
+body.bi-embed .bi-embed__main {
+	margin: 0;
+	padding: 0 0 2rem;
+}
+
+/* Der Admin-Balken ist im Rahmen serverseitig abgeschaltet; falls ihn ein
+   Plugin doch einblendet, verschiebt er die Höhenmessung um 32 Pixel. */
+body.bi-embed #wpadminbar {
+	display: none !important;
+}
+
+body.bi-embed .bi-embed__leer {
+	padding: 2rem 1rem;
+	font-size: 1rem;
+}
+
+/* Sicherheitsnetz: Sollte ein Theme seinen Kopf- oder Fußbereich über einen
+   eigenen Weg ausgeben (Block-Theme-Teile, Page-Builder), bleibt er hier
+   unsichtbar. Das Template ruft ihn nicht auf – diese Regeln kosten nichts
+   und ersparen im Zweifel eine Fehlersuche. */
+body.bi-embed > header,
+body.bi-embed > footer,
+body.bi-embed .site-header,
+body.bi-embed .site-footer,
+body.bi-embed .wp-site-blocks > header,
+body.bi-embed .wp-site-blocks > footer {
+	display: none !important;
+}
+
+/* ------------------------------------------------------------
+   Rahmen mit fester Höhe
+
+   Kann die einbettende Website kein Skript aufnehmen – manche
+   Redaktionssysteme bieten nur ein Feld für die Adresse –, bleibt der
+   Rahmen auf der Höhe stehen, die dort eingetragen ist, und der Inhalt
+   rollt darin. Dagegen ist nichts zu machen: Ein Rahmen von einer
+   anderen Domain darf seine eigene Größe nicht verändern, und es gibt
+   keine Browserfunktion, die das ersetzt.
+
+   Was sich machen lässt: das Rollen erträglich gestalten. Die
+   Filterleiste bleibt oben stehen, damit man die Auswahl nicht aus dem
+   Blick verliert, während man die Treffer durchsieht. Rollt gar nichts –
+   weil die Höhe von außen mitwächst –, ist die Regel wirkungslos.
+   ------------------------------------------------------------ */
+
+body.bi-embed #bi-filter {
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	/* Ohne eigenen Hintergrund schöben sich die Treffer sichtbar darunter durch. */
+	background: #fff;
+	/* Etwas Luft nach oben, sonst klebt die Leiste an der Rahmenkante. */
+	padding-top: 8px;
+	margin-top: -8px;
+}
+
+/* Ein Schatten, sobald tatsächlich etwas darunter wegrollt. Er entsteht
+   erst durch das Kleben – ein Element, das nie klebt, wirft keinen. */
+body.bi-embed #bi-filter::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: -12px;
+	height: 12px;
+	background: linear-gradient(to bottom, rgba(0, 0, 0, .08), rgba(0, 0, 0, 0));
+	pointer-events: none;
+}
+
+/* In einem sehr flachen Rahmen nähme die Leiste – zumal mit geöffnetem
+   Filterpanel – den ganzen Platz. Dann besser mitrollen lassen.
+   Die Höhenangabe bezieht sich im Rahmen auf den Rahmen, nicht auf den
+   Bildschirm: Genau das ist hier gemeint. */
+@media (max-height: 620px) {
+	body.bi-embed #bi-filter {
+		position: static;
+		padding-top: 0;
+		margin-top: 0;
+	}
+	body.bi-embed #bi-filter::after {
+		display: none;
+	}
+}

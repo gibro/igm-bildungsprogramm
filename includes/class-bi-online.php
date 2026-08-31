@@ -55,22 +55,29 @@ class BI_Online {
 	 *
 	 * Geteilt mit BI_CPT (gleiche Schlüssel!): _bi_startdatum, _bi_enddatum,
 	 * _bi_startuhrzeit, _bi_enduhrzeit, _bi_seminarnummer, _bi_kosten, _bi_themen,
-	 * _bi_ansprechpartner, _bi_ansprechpartner_email sowie die drei Flags.
+	 * _bi_ansprechpartner, _bi_ansprechpartner_email, _bi_ansprechpartner_telefon,
+	 * _bi_bz_email sowie die drei Flags.
 	 *
 	 * Bewusst NICHT dabei (im Gegensatz zu Präsenz-Seminaren): Anreisedatum/-zeit,
 	 * Plätze, Voraussetzung, Last-Minute sowie die internen Angaben zur Einreichung.
 	 */
 	public static function meta_fields() {
 		return array(
-			'_bi_untertitel'    => array( 'label' => 'Untertitel', 'type' => 'text' ),
-			'_bi_startdatum'    => array( 'label' => 'Startdatum', 'type' => 'date' ),
-			'_bi_enddatum'      => array( 'label' => 'Enddatum', 'type' => 'date' ),
-			'_bi_startuhrzeit'  => array( 'label' => 'Uhrzeit Seminarbeginn', 'type' => 'time' ),
-			'_bi_enduhrzeit'    => array( 'label' => 'Uhrzeit Seminarende', 'type' => 'time' ),
-			'_bi_seminarnummer' => array( 'label' => 'Seminarnummer', 'type' => 'text' ),
-			'_bi_referenten'    => array( 'label' => 'Referent*innen', 'type' => 'text' ),
-			'_bi_themen'        => array( 'label' => 'Themen im Seminar', 'type' => 'html' ),
-			'_bi_kosten'        => array( 'label' => 'Kosten', 'type' => 'text' ),
+			'_bi_untertitel'    => array( 'label' => 'Untertitel', 'type' => 'text' , 'gruppe' => 'inhalt' ),
+			'_bi_startdatum'    => array( 'label' => 'Startdatum', 'type' => 'date' , 'gruppe' => 'termin' ),
+			'_bi_enddatum'      => array( 'label' => 'Enddatum', 'type' => 'date' , 'gruppe' => 'termin' ),
+			'_bi_startuhrzeit'  => array( 'label' => 'Uhrzeit Seminarbeginn', 'type' => 'time' , 'gruppe' => 'termin' ),
+			'_bi_enduhrzeit'    => array( 'label' => 'Uhrzeit Seminarende', 'type' => 'time' , 'gruppe' => 'termin' ),
+			'_bi_seminarnummer' => array( 'label' => 'Seminarnummer', 'type' => 'text' , 'gruppe' => 'termin' ),
+			'_bi_referenten'    => array( 'label' => 'Referent*innen', 'type' => 'text' , 'gruppe' => 'inhalt', 'bulk' => true ),
+			'_bi_themen'        => array( 'label' => 'Themen im Seminar', 'type' => 'html' , 'gruppe' => 'inhalt' ),
+			'_bi_kosten'        => array( 'label' => 'Kosten', 'type' => 'text' , 'gruppe' => 'kosten', 'bulk' => true ),
+			'_bi_teil_reihe'    => array(
+				'label'  => 'Teil | Reihe',
+				'type'   => 'text',
+				'gruppe' => 'programm',
+				'hint'   => 'Zuordnung zu einer Ausbildungsreihe, Form: „Teil 2 | Name der Reihe".',
+			),
 
 			// ---- Zugang & Anmelde-Weiche ----
 			'_bi_online_tool'   => array(
@@ -78,34 +85,73 @@ class BI_Online {
 				'type'    => 'select',
 				'options' => self::tools(),
 				'default' => 'teams_meeting',
+				'gruppe'  => 'zugang',
+				'bulk'   => true,
 				'hint'    => 'Bei „Teams – Webinar" führt der Buchungs-Button auf die externe Anmeldeseite (Feld darunter).',
 			),
 			'_bi_anmeldelink'   => array(
-				'label' => 'Anmeldelink (Teams-Webinar)',
-				'type'  => 'url',
-				'hint'  => 'Registrierungsseite des Teams-Webinars. Nur dann übernimmt Microsoft die Anmeldung.',
+				'label'  => 'Anmeldelink (Teams-Webinar)',
+				'type'   => 'url',
+				'gruppe' => 'zugang',
+				'bulk'   => true,
+				'hint'   => 'Registrierungsseite des Teams-Webinars. Nur dann übernimmt Microsoft die Anmeldung.',
 			),
 			'_bi_online_link'   => array(
-				'label' => 'Online-Link (öffentlich)',
-				'type'  => 'url',
-				'hint'  => 'NUR ausfüllen, wenn die Veranstaltung öffentlich zugänglich sein soll – der Link steht dann auf der Detailseite.',
+				'label'  => 'Online-Link (öffentlich)',
+				'type'   => 'url',
+				'gruppe' => 'zugang',
+				'bulk'   => true,
+				'hint'   => 'NUR ausfüllen, wenn die Veranstaltung öffentlich zugänglich sein soll – der Link steht dann auf der Detailseite.',
+			),
+
+			// ---- Wohin die Post geht ----
+			// Dieselben Schlüssel wie bei Präsenz-Seminaren, nur anders beschriftet.
+			// Die CSV-Spalte des Anlege-Formulars heißt „Anmeldung" – gemeint war
+			// dort immer die Anmeldestelle, nicht eine Person. Seit der Trennung
+			// (1.116.0) steht sie deshalb hier, bei der Veranstalter*in.
+			'_bi_bz_email'              => array(
+				'label'  => 'Anmeldung (E-Mail)',
+				'type'   => 'email',
+				'gruppe' => 'ort',
+				'bulk'   => true,
+				'hint'   => 'Wohin die Anmeldungen und Benachrichtigungen zu diesem Online-Seminar gehen. Bleibt das Feld leer, gilt die Adresse am Begriff der Veranstalter*in.',
 			),
 
 			// ---- Kontakte ----
-			// Die Anmelde-Adresse IST die Adresse der Ansprechpartner*in – deshalb
-			// derselbe Meta-Schlüssel wie bei Präsenz-Seminaren, nur anders beschriftet
-			// (die CSV-Spalte des Anlege-Formulars heißt „Anmeldung").
-			'_bi_ansprechpartner'       => array( 'label' => 'Ansprechpartner*in', 'type' => 'text' ),
-			'_bi_ansprechpartner_email' => array(
-				'label' => 'Anmeldung (E-Mail)',
-				'type'  => 'email',
-				'hint'  => 'Adresse der Ansprechpartner*in: An sie gehen die Anmeldungen, sie steht auf der Detailseite und speist den Mail-Trigger „Ansprechpartner".',
+			// Wen Interessierte fragen können. Ohne Bedeutung für den Versand –
+			// genau das war vorher die Verwechslung.
+			'_bi_ansprechpartner'         => array( 'label' => 'Ansprechpartner*in', 'type' => 'text' , 'gruppe' => 'kontakt', 'bulk' => true ),
+			'_bi_ansprechpartner_email'   => array(
+				'label'  => 'E-Mail Ansprechpartner*in',
+				'type'   => 'email',
+				'gruppe' => 'kontakt',
+				'bulk'   => true,
+				'hint'   => 'Steht auf der Detailseite. Steuert KEINEN Versand – dafür ist „Anmeldung (E-Mail)" zuständig.',
+			),
+			'_bi_ansprechpartner_telefon' => array(
+				'label'  => 'Telefon Ansprechpartner*in',
+				'type'   => 'text',
+				'gruppe' => 'kontakt',
+				'bulk'   => true,
+				'hint'   => 'Erscheint auf der Detailseite nur, wenn hier etwas steht.',
 			),
 
 			// ---- Flags: Default = Verhalten bei leerer CSV-Zelle ----
-			'_bi_anmeldung_moeglich' => array( 'label' => 'Anmeldung möglich', 'type' => 'bool', 'default' => true ),
-			'_bi_anzeigen'           => array( 'label' => 'Anzeigen?', 'type' => 'bool', 'default' => true ),
-			'_bi_ausgebucht'         => array( 'label' => 'Ausgebucht?', 'type' => 'bool', 'default' => false ),
+			'_bi_anmeldung_moeglich' => array( 'label' => 'Anmeldung möglich', 'type' => 'bool', 'default' => true , 'gruppe' => 'teilnahme', 'bulk' => true ),
+			'_bi_anzeigen'           => array( 'label' => 'Anzeigen?', 'type' => 'bool', 'default' => true , 'gruppe' => 'teilnahme', 'bulk' => true ),
+			'_bi_ausgebucht'         => array( 'label' => 'Ausgebucht?', 'type' => 'bool', 'default' => false , 'gruppe' => 'teilnahme', 'bulk' => true ),
+
+			// Ausnahme von der Zuordnung: Welches Anmeldeformular dieses Seminar
+			// benutzt. Leer = die Regeln in „Anmeldeformulare → Zuordnung"
+			// entscheiden, und wenn keine greift, das Standardformular.
+			'_bi_formular'           => array(
+				'label'   => 'Anmeldeformular',
+				'type'    => 'select',
+				'gruppe'  => 'teilnahme',
+				'bulk'    => true,
+				'options' => array(), // wird in meta_fields() gefüllt – die Formulare stehen in einer Option
+				'hint'    => 'Leer lassen heißt: Es gilt die Zuordnung aus den Regeln.',
+			),
 		);
 	}
 
@@ -116,11 +162,11 @@ class BI_Online {
 	 */
 	public static function taxonomies() {
 		return array(
-			BI_TAX_ORT      => array( 'label' => 'Veranstalter*innen', 'single' => 'Veranstalter*in', 'multi' => false, 'has_email' => true ),
-			BI_TAX_THEMA    => array( 'label' => 'Handlungsfelder', 'single' => 'Handlungsfeld', 'multi' => false, 'has_email' => false ),
-			BI_TAX_ZIEL     => array( 'label' => 'Zielgruppen', 'single' => 'Zielgruppe', 'multi' => true, 'has_email' => false ),
-			BI_TAX_FREI     => array( 'label' => 'Freistellungen', 'single' => 'Freistellung', 'multi' => true, 'has_email' => false ),
-			BI_TAX_PROGRAMM => array( 'label' => 'Programme', 'single' => 'Programm', 'multi' => false, 'has_email' => false ),
+			BI_TAX_ORT      => array( 'label' => 'Veranstalter*innen', 'single' => 'Veranstalter*in', 'multi' => false, 'has_email' => true, 'gruppe' => 'ort' ),
+			BI_TAX_THEMA    => array( 'label' => 'Themenfelder', 'single' => 'Themenfeld', 'multi' => false, 'has_email' => false, 'gruppe' => 'inhalt' ),
+			BI_TAX_ZIEL     => array( 'label' => 'Zielgruppen', 'single' => 'Zielgruppe', 'multi' => true, 'has_email' => false, 'gruppe' => 'inhalt' ),
+			BI_TAX_FREI     => array( 'label' => 'Freistellungen', 'single' => 'Freistellung', 'multi' => true, 'has_email' => false, 'gruppe' => 'teilnahme' ),
+			BI_TAX_PROGRAMM => array( 'label' => 'Programme', 'single' => 'Programm', 'multi' => false, 'has_email' => false, 'gruppe' => 'programm' ),
 		);
 	}
 
@@ -144,7 +190,12 @@ class BI_Online {
 				'menu_name'     => 'Online-Seminare',
 			),
 			'public'       => true,
-			'show_in_menu' => 'bi-seminarsuche',
+			// Kein eigener Menüpunkt: Online-Seminare stehen gemeinsam mit den
+			// Präsenz-Seminaren unter „Seminare" und werden dort über das
+			// Auswahlfeld „Seminarform" ein- und ausgeblendet (BI_CPT::admin_filters).
+			// Die eigene Liste bleibt unter edit.php?post_type=bi_online erreichbar,
+			// damit alte Lesezeichen und Links aus dem Dashboard weiter funktionieren.
+			'show_in_menu' => false,
 			'show_in_rest' => true,
 			'menu_icon'    => 'dashicons-video-alt2',
 			// thumbnail = Referent*innen-Bild aus dem Anlege-Formular
@@ -166,6 +217,7 @@ class BI_Online {
 	 *   'offen'      – öffentlich zugänglich, keine Anmeldung nötig (nur Teilnahme-Link)
 	 *   'direct'     – internes Anmeldeformular [bi_anmeldung]
 	 *   'gs'         – über die Geschäftsstelle (aus der Regel-Engine)
+	 *   'keine'      – gar keine Anmeldung vorgesehen (aus der Regel-Engine)
 	 */
 	public static function variante( $post_id ) {
 		if ( BI_CPT::meta_bool( $post_id, '_bi_ausgebucht' ) ) {

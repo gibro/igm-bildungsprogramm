@@ -57,9 +57,22 @@ class BI_PDF_Doc extends FPDF {
 		}
 		$top = 12;
 
-		// Logo oben rechts, auf 32 mm Breite skaliert und rechtsbündig am Satzspiegel
+		// Logo oben rechts, rechtsbündig am Satzspiegel.
+		//
+		// Eingepasst wird in ein Feld von 32 × 15 mm: Ein Schriftzug schöpft die
+		// Breite aus, ein quadratisches Signet – wie das IG-Metall-Zeichen – die
+		// Höhe. Früher galten stur 32 mm Breite; damit wäre ein Quadrat 32 mm hoch
+		// geworden und mitten durch die rote Linie bei y = 32 gelaufen.
 		if ( $this->logo && file_exists( $this->logo ) ) {
-			$w = 32;
+			$max_w = 32;
+			$max_h = 15;
+			$w     = $max_w;
+
+			$masse = @getimagesize( $this->logo ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+			if ( is_array( $masse ) && ! empty( $masse[0] ) && ! empty( $masse[1] ) ) {
+				$w = min( $max_w, $max_h * ( $masse[0] / $masse[1] ) );
+			}
+
 			try {
 				$this->Image( $this->logo, $this->GetPageWidth() - 20 - $w, $top, $w );
 			} catch ( Exception $e ) {
