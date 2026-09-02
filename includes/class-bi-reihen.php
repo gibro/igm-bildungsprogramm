@@ -1846,6 +1846,62 @@ class BI_Reihen {
 		);
 	}
 
+	/**
+	 * Post-ID der Reihe, wenn dieses Seminar NUR als Teil einer komplett
+	 * buchbaren Reihe zu haben ist – sonst 0.
+	 *
+	 * Der Haken „Nur komplett buchbar" sitzt an der Reihe und sagt: Eine
+	 * Anmeldung zu einem einzelnen Teil gibt es nicht. Die Reihenseite hielt
+	 * sich daran (auswahl_pruefen weist eine unvollständige Auswahl ab), die
+	 * Seminarseite wusste bis dahin nichts davon: Wer über die Suche direkt auf
+	 * einen Teil kam, sah dort seinen gewohnten Buchen-Button und meldete sich
+	 * zu einem Baustein an, den es einzeln gar nicht gibt.
+	 *
+	 * Eine Reihe im Entwurf zählt nicht. Auf eine unveröffentlichte Reihenseite
+	 * lässt sich niemand verweisen, und ein weggenommener Button ohne Ziel wäre
+	 * eine Sackgasse – dann bleibt es beim gewohnten Weg. Dieselbe Regel wie in
+	 * hinweis(), aus demselben Grund.
+	 */
+	public static function nur_komplett( $post_id ) {
+		$rid = (int) get_post_meta( (int) $post_id, self::META_REIHE, true );
+		if ( ! $rid || 'publish' !== get_post_status( $rid ) ) {
+			return 0;
+		}
+		return BI_CPT::meta_bool( $rid, '_bir_komplett' ) ? $rid : 0;
+	}
+
+	/**
+	 * Was auf der Seminarseite an der Stelle des Buchen-Buttons steht, wenn die
+	 * Reihe nur komplett buchbar ist: der Satz, warum hier nichts zu buchen
+	 * ist, und der Weg dorthin, wo es geht.
+	 *
+	 * Leerer String bei einem frei buchbaren Seminar – die aufrufende Stelle
+	 * fragt damit in einem Zug „betrifft mich das?" und „was steht dann da?".
+	 */
+	public static function komplett_verweis( $post_id ) {
+		$rid = self::nur_komplett( $post_id );
+		if ( ! $rid ) {
+			return '';
+		}
+
+		$titel = esc_html( get_the_title( $rid ) );
+		$teil  = (int) get_post_meta( (int) $post_id, self::META_TEIL, true );
+
+		// Ohne Teilnummer (unsauber gepflegtes „Teil | Reihe") bleibt der Satz
+		// wahr, nur ungenauer – das ist besser als eine erfundene „Teil 0".
+		$satz = $teil
+			? sprintf( 'Dieses Seminar ist <strong>Teil %d</strong> der Ausbildungsreihe „%s".', $teil, $titel )
+			: sprintf( 'Dieses Seminar gehört zur Ausbildungsreihe „%s".', $titel );
+
+		return '<div class="igm-reihe-verweis">'
+			. '<p class="igm-buchen-hinweis">' . $satz
+			. ' Sie lässt sich nur vollständig buchen – alle Teile werden auf der Reihenseite'
+			. ' in einem Zug angemeldet.</p>'
+			. '<a class="igm-btn-buchen" href="' . esc_url( (string) get_permalink( $rid ) ) . '">'
+			. 'Zur Ausbildungsreihe</a>'
+			. '</div>';
+	}
+
 	/* ===================================================================
 	 *  Prüfliste für die Datenpflege
 	 * =================================================================== */

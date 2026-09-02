@@ -1262,7 +1262,9 @@ class BI_Settings {
 		<p class="description">Der Anhang <code>?bi_embed=1</code> ist der Schalter. Ohne ihn kommt die
 			Seite mit dem gewohnten Rahmen. Zusätzlich möglich:
 			<code>&amp;bi_pro_seite=10</code> für eine kürzere Trefferliste, und jeder Filter,
-			etwa <code>&amp;thema=digitalisierung</code>.</p>
+			etwa <code>&amp;thema=digitalisierung</code>. Die Trefferzahl kann die Besucherin
+			auch selbst über der Liste umstellen; im Rahmen bleibt hier jede Zahl zwischen
+			3 und 50 erlaubt, damit bestehende Einbettungen unverändert weiterlaufen.</p>
 
 		<h2 class="title">Wer einbetten darf</h2>
 

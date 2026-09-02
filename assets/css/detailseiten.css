@@ -607,6 +607,12 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 .igm-buchen-hinweis strong { color: var(--bi-anthrazit); }
 .igm-box .igm-btn-buchen { margin-top: 20px; }
 
+/* Verweis auf die Reihe – steht an der Stelle des Buchen-Buttons, wenn die
+   Reihe nur komplett buchbar ist. Der Satz kommt zuerst, der Button darunter:
+   Erst der Grund, dann der Weg. */
+.igm-reihe-verweis { margin-top: 18px; }
+.igm-reihe-verweis .igm-buchen-hinweis { margin-top: 0; }
+
 /* Geschäftsstellen-Anfrage (PLZ-Suche + mailto) */
 .igm-gs-anfrage { margin-top: 18px; }
 .igm-gs-anfrage__label { display: block; margin-top: 14px; font-size: 13px; font-weight: 700; color: var(--bi-anthrazit); }

@@ -94,6 +94,38 @@
 .bi-pagination .page-numbers.current { background: var(--bi-accent); color: #fff; border-color: var(--bi-accent); }
 .bi-pagination .page-numbers:hover:not(.current) { border-color: var(--bi-accent); }
 
+/* ---------------- „Seminare je Seite" ----------------
+   Steht ZWISCHEN Filterleiste und Trefferliste, rechtsbündig: Die Angabe
+   gehört zu dem, was gleich kommt, nicht zu dem, was man schon gelesen hat.
+   Rechts, weil dort schon die Trefferzahl der Filterleiste steht – dieselbe
+   Achse, dieselbe Art von Auskunft. Links bliebe der Rand für die roten
+   Balken der Trefferzeilen frei.
+
+   Die Stufen sehen aus wie die Seitenzahlen unter der Liste. Es ist dieselbe
+   Handlung – weiterlesen –, nur in der anderen Richtung. */
+
+.bi-perpage {
+  display: flex; align-items: center; justify-content: flex-end;
+  flex-wrap: wrap; gap: 6px; margin-bottom: 14px; font-size: 14px;
+}
+.bi-perpage-label { color: var(--bi-muted); margin-right: 4px; }
+.bi-perpage-opt {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 34px; height: 34px; padding: 0 9px;
+  border: 1px solid var(--bi-border); border-radius: 8px;
+  font-size: 14px; line-height: 1; text-decoration: none; color: #374151;
+  transition: border-color .15s, color .15s;
+}
+a.bi-perpage-opt:hover { border-color: var(--bi-accent); color: var(--bi-accent); text-decoration: none; }
+a.bi-perpage-opt:focus-visible { outline: 2px solid var(--bi-accent); outline-offset: 2px; }
+.bi-perpage-opt.is-current { background: var(--bi-accent); color: #fff; border-color: var(--bi-accent); cursor: default; }
+
+/* Schmale Spalte: Rechtsbündig säße die Zeile am Rand fest – mittig hat sie
+   über der Liste denselben Halt wie die Seitenzahlen darunter. */
+@media (max-width: 640px) {
+  .bi-perpage { justify-content: center; }
+}
+
 /* ---------------- Verfügbarkeits-Ampel ----------------
    Ausgabe von BI_Ampel::badge(). Auf den Detailseiten übernimmt
    detailseiten.css die Gestaltung; diese Regeln greifen, wo die Ampel sonst

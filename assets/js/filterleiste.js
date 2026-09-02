@@ -653,7 +653,15 @@
           active.appendChild(chip);
         });
         var reset = el('<button class="bi-reset" type="button">Alle zurücksetzen</button>');
-        reset.addEventListener('click', function () { apply(new URLSearchParams()); });
+        reset.addEventListener('click', function () {
+          /* „Alle zurücksetzen" meint die Filter, nicht die Ansicht: Die unter
+             der Liste gewählte Listenlänge (?bi_pro_seite) bleibt stehen. Sie
+             ist keine Aussage darüber, welche Seminare gesucht werden. */
+          var leer = new URLSearchParams();
+          var pps = params().get('bi_pro_seite');
+          if (pps) leer.set('bi_pro_seite', pps);
+          apply(leer);
+        });
         active.appendChild(reset);
         card.appendChild(active);
       }

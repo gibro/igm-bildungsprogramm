@@ -32,6 +32,9 @@
  *    ausgebucht        -> ausgegraut, kein Anmeldelink, Hinweis „Ausgebucht"
  *    Anmeldung möglich -> „Jetzt buchen" -> Anmeldeformular ?seminar=ID
  *    ohne diesen Haken -> Störer statt Button
+ *  Davor steht die Reihe: Trägt sie den Haken „Nur komplett buchbar", gibt es
+ *  zu diesem Teil überhaupt keine Einzelanmeldung – an die Stelle des Buttons
+ *  tritt der Weg zur Reihenseite (BI_Reihen::komplett_verweis).
  *  Die Geschäftsstellen-Variante (PLZ-Suche + Mail-Anfrage) hängt nicht am
  *  Haken, sondern an einer Regel (BI_Settings::variant_for).
  *
@@ -307,6 +310,11 @@ class BI_Detail {
 		if ( bi_is_online( $post_id ) && 'offen' === BI_Online::variante( $post_id ) ) {
 			return false;
 		}
+		// Teil einer nur komplett buchbaren Reihe: Auf der Detailseite steht der
+		// Weg zur Reihe, kein Anmeldeformular.
+		if ( BI_Reihen::nur_komplett( $post_id ) ) {
+			return false;
+		}
 		return true;
 	}
 
@@ -327,8 +335,16 @@ class BI_Detail {
 	 * termin_zeile() vorher ab (siehe nicht_buchbar).
 	 */
 	private static function zeilen_button( $post_id ) {
+		// Teil einer nur komplett buchbaren Reihe: Auf der Zielseite steht kein
+		// Buchen-Button, sondern der Verweis auf die Reihe. „Jetzt buchen"
+		// verspräche hier etwas, das die Detailseite nicht einlöst. Das Ziel
+		// bleibt dasselbe – erst der Termin, dort dann der Weg weiter.
+		$label = BI_Reihen::nur_komplett( $post_id )
+			? 'Zum Termin'
+			: BI_Settings::get( 'direct_label' );
+
 		return '<a class="igm-btn-buchen" href="' . esc_url( (string) get_permalink( $post_id ) ) . '">'
-			. esc_html( BI_Settings::get( 'direct_label' ) ) . '</a>';
+			. esc_html( $label ) . '</a>';
 	}
 
 	/**
@@ -896,6 +912,25 @@ class BI_Detail {
 	/** Buchungs-Block der Sidebar (Button + Hinweistext zum Beschlussverfahren) */
 	private static function booking_block( $post_id ) {
 		$is_online = bi_is_online( $post_id );
+
+		/*
+		 * Teil einer nur komplett buchbaren Reihe: Hier gibt es nichts zu
+		 * buchen – weder über das Formular noch über die Geschäftsstelle.
+		 * Statt des Buttons steht der Weg zur Reihe, wo alle Teile in einem Zug
+		 * angemeldet werden.
+		 *
+		 * Diese Weiche steht VOR der Frage nach „ausgebucht": Ist dieser eine
+		 * Termin voll, führt der Weg trotzdem zur Reihe – dort stehen die
+		 * übrigen Gruppen, in denen noch Plätze frei sein können. Der Hinweis
+		 * auf den vollen Termin bleibt darüber stehen, er ist ja weiter wahr.
+		 */
+		$reihe_verweis = BI_Reihen::komplett_verweis( $post_id );
+		if ( '' !== $reihe_verweis ) {
+			$voll = BI_CPT::meta_bool( $post_id, '_bi_ausgebucht' )
+				? '<div class="igm-buchen-hinweis">Dieser Termin ist <strong>ausgebucht</strong>.</div>'
+				: '';
+			return $voll . $reihe_verweis;
+		}
 
 		if ( BI_CPT::meta_bool( $post_id, '_bi_ausgebucht' ) ) {
 			return '<div class="igm-buchen-hinweis">Dieses Seminar ist <strong>ausgebucht</strong>.</div>';

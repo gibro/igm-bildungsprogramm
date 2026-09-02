@@ -19,6 +19,7 @@ Formular-Plugins benötigt.
 - [Einrichtung](#einrichtung)
 - [Shortcodes](#shortcodes)
   - [Seminarsuche](#bi_seminarsuche--such--und-filterleiste)
+    - [Seminare je Seite](#wie-viele-seminare-auf-eine-seite-kommen-seit-11240)
     - [Suche nach der Seminarnummer](#die-seminarnummer-findet-ihr-seminar-seit-1950)
   - [Anmeldeformular](#bi_anmeldung--anmeldeformular)
   - [Marketing-Kacheln](#bi_kachel--marketing-kacheln)
@@ -160,7 +161,7 @@ Alle Schritte finden sich auch im Backend unter **Bildungsprogramm → Übersich
 
 | Shortcode | Zweck | Attribute |
 |---|---|---|
-| `[bi_seminarsuche]` | Such-/Filterleiste + Ergebnisliste | `anmeldung_url`, `per_page` (Standard 20), `programm`, `form` (`praesenz`/`online`) |
+| `[bi_seminarsuche]` | Such-/Filterleiste + Ergebnisliste | `anmeldung_url`, `per_page` (Vorgabe, Standard 20), `pro_seite` (wählbare Stufen, Standard `10\|20\|50\|100`, `nein` = keine Wahl), `programm`, `form` (`praesenz`/`online`) |
 | `[bi_suchmaske]` | Nur die Suchmaske, ohne Ergebnisliste – Button springt auf die Übersicht | `ziel_url`, `button`, `titel`, `kicker`, `hinweis`, `programm`, `form` |
 | `[bi_anmeldung]` | Anmeldeformular | `seminar="ID"` für ein festes Seminar, `reihe="ID"` für eine [Sammelanmeldung](#sammelanmeldung-eine-reihe-in-einem-zug) |
 | `[bi_kachel]` | Marketing-Kachel (Teaser mit Filter-Link) | [siehe unten](#bi_kachel--marketing-kacheln) |
@@ -174,6 +175,57 @@ Themenfeld, Zielgruppe, Freistellung, Zeitraum) mit der Ergebnisliste. Gefiltert
 wird über GET-Parameter (`?thema=…&ort=…`, Mehrfachwerte pipe-getrennt) –
 Filterseiten sind damit verlinkbar und bookmarkfähig. Angezeigt werden nur
 kommende, sichtbare Seminare, sortiert nach Startdatum.
+
+#### Wie viele Seminare auf eine Seite kommen (seit 1.124.0)
+
+Zwischen der Filterleiste und der Trefferliste steht rechtsbündig die Wahl
+**„Seminare je Seite"** (10 · 20 · 50 · 100). Die Redaktion kann das nicht für
+beide Seiten zugleich richtig entscheiden: **Wer sucht, will eine kurze Liste;
+wer stöbert, will scrollen statt klicken.** Also entscheidet es, wer davorsitzt.
+
+Sie steht **über** der Liste, weil sie zu dem gehört, was gleich kommt – unter
+der Liste hätte man erst zwanzig Treffer durchgescrollt, um zu erfahren, dass
+es auch fünfzig auf einmal gegeben hätte. Rechtsbündig, weil dort schon die
+Trefferzahl der Filterleiste steht; links bleibt der Rand für die roten Balken
+der Trefferzeilen frei. Das Blättern bleibt unverändert mittig unter der
+Liste.
+
+```
+[bi_seminarsuche]                          Vorgabe 20, Stufen 10|20|50|100
+[bi_seminarsuche per_page="50"]            Seite startet mit 50 – 50 steht mit zur Wahl
+[bi_seminarsuche pro_seite="10|25|50"]     eigene Stufen
+[bi_seminarsuche pro_seite="nein"]         keine Wahl anbieten, per_page gilt fest
+```
+
+Drei Entscheidungen stecken darin:
+
+- **Links, kein Auswahlfeld mit JavaScript.** Jede Stufe ist eine eigene
+  Adresse (`?bi_pro_seite=50`) – teilbar, als Lesezeichen brauchbar, und sie
+  funktioniert auch dort, wo das Skript der Filterleiste nicht ankommt
+  (Page-Builder, eingebetteter Rahmen). Die Vorgabe der Seite kommt ohne
+  Parameter aus, damit die Adresse beim Zurückstellen wieder sauber ist.
+- **Nur die angebotenen Stufen gelten.** Der Wunsch steht in der Adresse und
+  ist damit öffentlich; `?bi_pro_seite=5000` wäre eine Einladung, den Server
+  rechnen zu lassen, und jede beliebige Zahl wäre zusätzlich ein eigener
+  Eintrag im Seiten-Cache. Die Vorgabe aus `per_page` reiht sich immer mit ein,
+  sonst ließe sich der Ausgangszustand nicht wiederherstellen.
+- **Die Wahl verschwindet, wo sie folgenlos wäre** – bei `pro_seite="nein"`,
+  wenn nur eine Stufe übrig bleibt, und wenn ohnehin alle Treffer auf die
+  kleinste Stufe passen. Ein Bedienelement, das nichts ändert, ist keine
+  Freundlichkeit.
+
+Die gewählte Länge hängt an der Adresse und bleibt deshalb beim Blättern und
+beim Filtern erhalten. Auch „Alle zurücksetzen" in der Filterleiste lässt sie
+stehen: Das ist eine Aussage über die Ansicht, nicht darüber, welche Seminare
+gesucht werden. Ein Wechsel der Länge beginnt wieder auf Seite eins – Seite 7
+von 40 hat bei 100 Treffern je Seite keine Entsprechung.
+
+Im **Einbettungsmodus** (`?bi_embed=1`) bleibt es zusätzlich bei der alten
+Freiheit: Dort nennt die Adresse weiterhin jede Zahl zwischen 3 und 50, weil
+das fremde Redaktionssystem oft nur ein Adressfeld anbietet und bestehende
+Rahmen nicht umspringen sollen.
+
+Geprüft wird das in `tests/test-pro-seite.php` (ohne WordPress lauffähig).
 
 #### Warum die Seite schnell lädt (seit 1.96.0)
 
@@ -1898,9 +1950,51 @@ Geprüft in `tests/test-reihe-vorauswahl.js` (`node tests/test-reihe-vorauswahl.
 > buchbar" **ohne** Durchgänge trägt das Etikett weiterhin ohne einen Weg, es
 > einzulösen — und dort erscheint auch der Störer nicht, wenn eine Regel
 > *Keine Anmeldung* sagt, weil es keinen Gruppen-Fuß gibt, in dem er stünde.
-> Ein Termin einer komplett-Reihe ist außerdem auf seiner eigenen Detailseite
-> weiterhin einzeln buchbar: „nur komplett" gilt für den Weg über die
-> Reihenseite, nicht für das einzelne Seminar.
+
+#### Der einzelne Teil führt zur Reihe, nicht zur Anmeldung (seit 1.125.0)
+
+Bis 1.124.0 galt „nur komplett" ausschließlich für den Weg über die Reihenseite.
+Ein Termin dieser Reihe war auf **seiner eigenen Detailseite weiterhin einzeln
+buchbar** — mit dem gewohnten Buchen-Button, dem Anmeldeformular dahinter und
+allem, was daran hängt.
+
+Das war der wahrscheinlichste Weg auf diese Seite und zugleich der einzige, auf
+dem der Haken nichts galt: Über die Suche kommt man nicht auf der Reihenseite an,
+sondern auf einem Teil. Wer dort buchte, meldete sich zu einem Baustein an, den
+es einzeln gar nicht gibt — und niemandem fiel es auf, weil die Seite völlig
+normal aussah.
+
+**Seit 1.125.0 tritt in der Box „Seminardetails" der Weg zur Reihe an die Stelle
+des Buchen-Buttons:**
+
+> Dieses Seminar ist **Teil 2** der Ausbildungsreihe „Aufgaben der VK-Leitung".
+> Sie lässt sich nur vollständig buchen – alle Teile werden auf der Reihenseite
+> in einem Zug angemeldet.
+>
+> **[ Zur Ausbildungsreihe ]**
+
+Was dazugehört:
+
+- **Kein Ausweichweg daneben.** Weder das Anmeldeformular noch die
+  Geschäftsstellen-Anfrage erscheinen. Beide führten zu einer Anmeldung für den
+  einzelnen Teil — genau das, was der Haken ausschließt.
+- **Auch bei einem ausgebuchten Termin.** Der Hinweis „Dieser Termin ist
+  ausgebucht" bleibt stehen, der Verweis auf die Reihe steht darunter: Dort
+  stehen die übrigen Gruppen, in denen noch Plätze frei sein können.
+- **Die Trefferliste verspricht nichts mehr.** Der Weiter-Link heißt dort
+  „Details" statt „Details und Anmeldung", und in „Weitere Termine zu diesem
+  Seminar" heißt der Knopf „Zum Termin" statt „Jetzt buchen".
+- **Die Adresse ist ebenfalls dicht.** `?seminar=ID` von Hand getippt zeigt den
+  Hinweis samt Link zur Reihe statt des Formulars, und ein abgesetztes POST wird
+  abgewiesen. Bei einer Reihenanmeldung greift dieser Riegel nicht — dort hat
+  `auswahl_pruefen()` die Vollzähligkeit schon geprüft.
+- **Eine Reihe im Entwurf ändert nichts.** Auf eine unveröffentlichte
+  Reihenseite lässt sich niemand verweisen; ein weggenommener Button ohne Ziel
+  wäre eine Sackgasse. Dann bleibt es beim gewohnten Weg — dieselbe Regel wie
+  beim Badge „Teil 2 der Reihe …" über dem Titel.
+
+Geprüft in `tests/test-reihen-komplett.php`
+(`php tests/test-reihen-komplett.php`).
 
 Rechts stehen die Angaben, die für alle Teile gelten: Zielgruppe,
 Voraussetzungen, Freistellung, Seminarleitung, weitere Informationen und ein
@@ -2859,12 +2953,15 @@ Sind mehrere Haken gesetzt, entscheidet die Liste von oben:
 
 1. **Nicht anzeigen** — das Seminar ist gar nicht erst in der Liste. Alles
    Weitere betrifft nur noch, wer den Link kennt.
-2. **Ausgebucht** — ausgegraut, kein Anmeldelink.
-3. **Der Anmeldeweg aus den Regeln** — Buchen-Button, Geschäftsstellen-Anfrage
+2. **Nur komplett buchbar an der Reihe** — steht an der Reihe, nicht am Seminar,
+   und geht allen Haken vor: An die Stelle des Buchungsbereichs tritt der Weg
+   zur Reihe ([siehe oben](#der-einzelne-teil-führt-zur-reihe-nicht-zur-anmeldung-seit-11250)).
+3. **Ausgebucht** — ausgegraut, kein Anmeldelink.
+4. **Der Anmeldeweg aus den Regeln** — Buchen-Button, Geschäftsstellen-Anfrage
    oder Störer.
 
-Die ersten beiden Punkte sind Darstellung und Auffindbarkeit, der dritte ist der
-Weg. Deshalb liegt nur er in den Regeln — und deshalb kann ein ausgebuchtes
+Die Punkte 1 und 3 sind Darstellung und Auffindbarkeit, Punkt 4 ist der Weg.
+Deshalb liegt nur er in den Regeln — und deshalb kann ein ausgebuchtes
 Seminar durchaus die Variante *Direktanmeldung* tragen: Sobald der Haken fällt,
 ist der Button wieder da, ohne dass jemand eine Regel anfassen muss.
 

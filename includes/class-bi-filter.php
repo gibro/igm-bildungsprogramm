@@ -39,8 +39,13 @@
  *
  * Attribute:
  *   [bi_seminarsuche anmeldung_url="/anmeldung"]  Ziel des "Anmelden"-Buttons
- *   [bi_seminarsuche per_page="20"]
+ *   [bi_seminarsuche per_page="20"]               Vorgabe: Treffer je Seite
+ *   [bi_seminarsuche pro_seite="10|20|50|100"]    Stufen, die der Besucher unter der Liste wählen kann
+ *   [bi_seminarsuche pro_seite="nein"]            keine Wahl anbieten – die Vorgabe gilt
  *   [bi_seminarsuche form="online"]               Seite fest auf eine Seminarform beschränken
+ *
+ * Die gewählte Stufe steht in der Adresse (?bi_pro_seite=50) und bleibt dort
+ * beim Blättern und beim Filtern erhalten.
  *
  * Zusätzlich [bi_suchmaske]: nur die Such-/Filterleiste, ohne Ergebnisliste – für
  * Startseite, Sidebar o. ä. Die Filter wirken dort NICHT sofort, sondern werden
@@ -1212,12 +1217,135 @@ class BI_Filter {
 		return array_values( array_map( 'sanitize_text_field', $teile ) );
 	}
 
+	/** ---------- Trefferzahl je Seite ---------- */
+
+	/** Vorgabe der wählbaren Stufen, wenn das Shortcode nichts anderes sagt. */
+	const PRO_SEITE_STUFEN = '10|20|50|100';
+
+	/**
+	 * Welche Stufen die Zeile über der Liste zur Wahl stellt.
+	 *
+	 * EINE FESTE LISTE STATT EINER SPANNE. Der Wunsch kommt aus der Adresse, und
+	 * eine Spanne („irgendetwas zwischen 3 und 100") ließe jede Zahl dazwischen
+	 * zu – jede davon eine eigene Abfrage und ein eigener Eintrag im
+	 * Seiten-Cache. Vier Stufen decken den Bedarf ab und sind zugleich der ganze
+	 * Vorrat an Adressen, den die Liste beantwortet.
+	 *
+	 * Die Vorgabe der Seite (Attribut per_page) gehört immer dazu – sonst stünde
+	 * der Zustand, mit dem die Seite geladen wurde, selbst nicht zur Wahl.
+	 *
+	 * @param string $liste   Shortcode-Attribut pro_seite, z. B. "10|20|50".
+	 *                        „nein"/„aus" blendet die Auswahl aus.
+	 * @param int    $default Vorgabe der Seite (Attribut per_page).
+	 * @return int[] Aufsteigend, ohne Dubletten. Weniger als zwei = keine Wahl.
+	 */
+	private static function pro_seite_stufen( $liste, $default ) {
+		$liste = trim( (string) $liste );
+		if ( in_array( strtolower( $liste ), array( 'nein', 'aus', 'nie', '0' ), true ) ) {
+			return array();
+		}
+		if ( '' === $liste ) {
+			$liste = self::PRO_SEITE_STUFEN;
+		}
+
+		$stufen = array();
+		foreach ( explode( '|', $liste ) as $teil ) {
+			$n = intval( trim( $teil ) );
+			if ( $n >= 3 && $n <= 100 ) {
+				$stufen[] = $n;
+			}
+		}
+		$stufen[] = max( 3, min( 100, (int) $default ) );
+
+		$stufen = array_values( array_unique( $stufen ) );
+		sort( $stufen, SORT_NUMERIC );
+
+		// Eine einzige Stufe ist keine Wahl, sondern eine Behauptung.
+		return count( $stufen ) > 1 ? $stufen : array();
+	}
+
+	/**
+	 * Die tatsächlich gültige Trefferzahl je Seite.
+	 *
+	 * @param int[] $stufen  Erlaubte Stufen aus pro_seite_stufen().
+	 * @param int   $default Vorgabe der Seite (Attribut per_page).
+	 * @return int
+	 */
+	private static function pro_seite( array $stufen, $default ) {
+		$default = max( 3, min( 100, (int) $default ) );
+		$wunsch  = intval( bi_get( 'bi_pro_seite', '0' ) );
+
+		if ( $wunsch > 0 && in_array( $wunsch, $stufen, true ) ) {
+			return $wunsch;
+		}
+
+		// Altbestand: Im Einbettungsmodus durfte die Adresse seit jeher jede Zahl
+		// zwischen 3 und 50 nennen (?bi_pro_seite=15), weil das fremde
+		// Redaktionssystem oft nur ein Adressfeld anbietet. Solche Rahmen stehen
+		// draußen im Netz und sollen nicht dadurch umspringen, dass es hier jetzt
+		// Stufen gibt.
+		if ( $wunsch > 0 && class_exists( 'BI_Embed' ) && BI_Embed::aktiv() ) {
+			return min( 50, max( 3, $wunsch ) );
+		}
+
+		return $default;
+	}
+
+	/**
+	 * Die Auswahl „Seminare je Seite" als Links über der Liste.
+	 *
+	 * LINKS, KEIN AUSWAHLFELD MIT JAVASCRIPT: Jede Stufe ist damit eine eigene
+	 * Adresse – teilbar, als Lesezeichen brauchbar, und sie funktioniert auch
+	 * dort, wo das Skript der Filterleiste nicht ankommt (Page-Builder,
+	 * eingebetteter Rahmen mit strengem Skript-Regime).
+	 *
+	 * @param int[] $stufen  Erlaubte Stufen.
+	 * @param int   $aktiv   Gerade gültige Stufe.
+	 * @param int   $default Vorgabe der Seite – sie kommt ohne Parameter aus.
+	 * @param int   $count   Treffer insgesamt.
+	 * @return string HTML oder ''.
+	 */
+	private static function pro_seite_auswahl( array $stufen, $aktiv, $default, $count ) {
+		if ( count( $stufen ) < 2 ) {
+			return '';
+		}
+		// Passt der Bestand schon in die kleinste Stufe, ändert die Wahl nichts.
+		// Dann ist sie kein Angebot, sondern nur ein weiteres Bedienelement.
+		if ( $count > 0 && $count <= $stufen[0] ) {
+			return '';
+		}
+
+		// get_pagenum_link( 1 ) liefert die aktuelle Adresse ohne Seitenzahl –
+		// mit hübschen Permalinks (…/page/3/) genauso wie ohne. Alle Filter
+		// bleiben daran hängen, der Einbettungsmodus ebenso.
+		$basis = remove_query_arg( array( 'bi_pro_seite', 'paged' ), get_pagenum_link( 1 ) );
+
+		$out  = '<div class="bi-perpage" role="group" aria-label="Anzahl der Seminare je Seite">';
+		$out .= '<span class="bi-perpage-label">Seminare je Seite</span>';
+		foreach ( $stufen as $n ) {
+			$text = esc_html( number_format_i18n( $n ) );
+			if ( (int) $n === (int) $aktiv ) {
+				$out .= '<span class="bi-perpage-opt is-current" aria-current="true">' . $text . '</span>';
+				continue;
+			}
+			// Die Vorgabe der Seite braucht keinen Parameter – so bleibt die
+			// Adresse sauber, wenn man zum Ausgangszustand zurückkehrt.
+			$url  = ( (int) $n === (int) $default ) ? $basis : add_query_arg( 'bi_pro_seite', (int) $n, $basis );
+			$out .= '<a class="bi-perpage-opt" href="' . esc_url( $url ) . '" rel="nofollow">'
+				. $text . '<span class="igm-visually-hidden"> Seminare je Seite anzeigen</span></a>';
+		}
+		$out .= '</div>';
+
+		return $out;
+	}
+
 	/** ---------- Shortcode ---------- */
 
 	public static function shortcode( $atts ) {
 		$atts = shortcode_atts( array(
 			'anmeldung_url' => '',
 			'per_page'      => 20,
+			'pro_seite'     => '', // wählbare Stufen über der Liste, z. B. "10|25|50"; "nein" = keine Wahl
 			'programm'      => '', // auf ein Programmjahr beschränken, z. B. programm="2026"
 			'form'          => '', // auf eine Seminarform beschränken: praesenz | online
 		), $atts, 'bi_seminarsuche' );
@@ -1233,20 +1361,15 @@ class BI_Filter {
 
 		$paged = max( 1, get_query_var( 'paged' ), intval( bi_get( 'paged', '1' ) ) );
 
-		// Trefferzahl je Seite: normalerweise das Shortcode-Attribut. Im
-		// Einbettungsmodus darf zusätzlich die Adresse entscheiden – dort ist
-		// die Adresse oft das Einzige, was sich einstellen lässt, weil das
-		// fremde Redaktionssystem nur ein Feld dafür anbietet. Eine kürzere
-		// Liste macht die Höhe des Rahmens vorhersehbar.
-		// Öffentlich einstellbar heißt: begrenzt. Ohne Deckel wäre
+		// Trefferzahl je Seite: Das Shortcode-Attribut setzt die Vorgabe, die
+		// Besucherin darf sie über der Liste ändern (?bi_pro_seite=50). Wer
+		// stöbert, will lange Listen; wer sucht, will kurze – das lässt sich von
+		// der Redaktion nicht für beide zugleich entscheiden.
+		// Öffentlich einstellbar heißt: begrenzt. Ohne Stufenliste wäre
 		// ?bi_pro_seite=5000 eine Einladung, den Server rechnen zu lassen.
-		$per_page = intval( $atts['per_page'] );
-		if ( class_exists( 'BI_Embed' ) && BI_Embed::aktiv() ) {
-			$wunsch = intval( bi_get( 'bi_pro_seite', '0' ) );
-			if ( $wunsch > 0 ) {
-				$per_page = min( 50, max( 3, $wunsch ) );
-			}
-		}
+		$default_pp = max( 3, min( 100, intval( $atts['per_page'] ) ) );
+		$stufen     = self::pro_seite_stufen( $atts['pro_seite'], $default_pp );
+		$per_page   = self::pro_seite( $stufen, $default_pp );
 
 		// ERST DIE LISTE, DANN DIE FACETTEN.
 		//
@@ -1275,6 +1398,13 @@ class BI_Filter {
 		<div class="bi-results">
 			<?php echo self::korrektur_hinweis( $suchstand ); ?>
 			<?php if ( $q->have_posts() ) : ?>
+				<?php
+				// Die Wahl der Listenlänge steht ÜBER der Liste, nicht darunter:
+				// Sie gehört zu dem, was gleich kommt. Unter der Liste hätte man
+				// erst zwanzig Treffer durchgescrollt, um zu erfahren, dass es
+				// auch fünfzig auf einmal gegeben hätte.
+				echo self::pro_seite_auswahl( $stufen, $per_page, $default_pp, $count );
+				?>
 				<div class="bi-list">
 					<?php while ( $q->have_posts() ) : $q->the_post(); ?>
 						<?php echo self::render_row( get_the_ID() ); ?>

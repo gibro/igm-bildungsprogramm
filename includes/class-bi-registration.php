@@ -381,6 +381,20 @@ class BI_Registration {
 			return self::render_seminar_picker();
 		}
 
+		// Teil einer nur komplett buchbaren Reihe: Die Einzelanmeldung gibt es
+		// nicht – auch nicht über eine von Hand getippte Adresse. Auf der
+		// Seminarseite steht dafür gar kein Button mehr; hier zählt, dass die
+		// Adresse aus der URL stammt und jede getippte Zahl tragen kann.
+		$nur_komplett = BI_Reihen::nur_komplett( $seminar_id );
+		if ( $nur_komplett ) {
+			$zurueck = get_permalink( $nur_komplett );
+			return '<div class="bi-wiz-note"><p><strong>Dieses Seminar ist Teil einer Ausbildungsreihe</strong>, '
+				. 'die sich nur vollständig buchen lässt. Eine Anmeldung zu einem einzelnen Teil ist nicht möglich.</p>'
+				. ( $zurueck ? '<p><a href="' . esc_url( $zurueck ) . '">Zur Ausbildungsreihe „'
+					. esc_html( get_the_title( $nur_komplett ) ) . '"</a></p>' : '' )
+				. '</div>';
+		}
+
 		// Nicht direkt buchbar -> Hinweis statt Formular
 		if ( ! BI_CPT::is_bookable( $seminar_id ) ) {
 			$variante = bi_is_online( $seminar_id ) ? BI_Online::variante( $seminar_id ) : '';
@@ -1131,8 +1145,14 @@ class BI_Registration {
 			$errors = true;
 		}
 
+		// Nur komplett buchbare Reihe: als Einzelanmeldung nie zulässig. Bei
+		// einer Reihenanmeldung ($reihe_id) hat auswahl_pruefen die Vollzähligkeit
+		// schon geprüft – dort ist $seminar_id der erste Teil und dieser Riegel
+		// wäre falsch herum.
+		$einzeln_gesperrt = ! $reihe_id && $seminar_id && BI_Reihen::nur_komplett( $seminar_id );
+
 		if ( '' === bi_post( 'datenschutz' ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
-			|| ! BI_CPT::is_bookable( $seminar_id ) ) {
+			|| ! BI_CPT::is_bookable( $seminar_id ) || $einzeln_gesperrt ) {
 			$errors = true;
 		}
 
