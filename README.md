@@ -78,7 +78,8 @@ Formular-Plugins benötigt.
   Titel, Beschreibung, Themen, Seminarort, Referent\*innen, Ansprechpartner\*in,
   Seminarnummer, den Namen der Ausbildungsreihe und die Begriffe aller
   Filter-Chips. Alles zusammen steht in einer eigenen Indextabelle mit
-  `FULLTEXT`-Index.
+  `FULLTEXT`-Index. Wer mag, verknüpft mit **`ODER`, `NICHT`, `"Wortgruppen"`
+  und Klammern** — ohne Zutun bleibt es beim UND.
 - **Online-Anmeldung** als vierstufiger Formular-Wizard; Anmeldungen werden in
   der Datenbank gespeichert und sind im Backend einsehbar.
 - **Benachrichtigungen**: beliebig viele Mails pro Anmeldung – an
@@ -341,6 +342,66 @@ Gesucht wird **Wort für Wort und mit UND verknüpft** (seit 1.87.0):
 spielt keine Rolle. Vorher wurde die ganze Eingabe als eine Zeichenkette
 verglichen — schon zwei Wörter in der falschen Reihenfolge fanden nichts.
 
+Seit 1.126.0 lässt sich das UND überschreiben — siehe den nächsten Abschnitt.
+
+#### Boolesche Operatoren (seit 1.126.0)
+
+Das UND bleibt die Vorgabe — wer nichts weiter tut, sucht wie vorher. Wer mehr
+braucht, schreibt es hin:
+
+| Eingabe | Bedeutung |
+|---|---|
+| `arbeitsrecht bonn` | beide Wörter müssen vorkommen (wie bisher) |
+| `bonn ODER berlin` | eines von beiden genügt — auch `OR`, auch <code>&#124;</code> |
+| `arbeitsrecht UND bonn` | dasselbe wie ohne `UND` — auch `AND`, auch `&` |
+| `NICHT online` | ohne dieses Wort — auch `NOT`, auch `-online` |
+| `"neue Betriebsräte"` | genau diese Wortfolge — auch `„…"` aus dem Programmheft |
+| `(bonn ODER berlin) jav` | Klammern fassen zusammen |
+
+Vorrang wie überall: `NICHT` bindet stärker als `UND`, `UND` stärker als `ODER`.
+`a ODER b c` heißt also `a ODER (b UND c)`.
+
+Unter dem Suchfeld steht der aufklappbare Hinweis **„Suche verfeinern"** mit
+denselben Beispielen. Zugeklappt ist er eine Zeile: Wer die Operatoren nicht
+braucht, soll sie nicht wegsehen müssen.
+
+Vier Entscheidungen dahinter:
+
+- **Der Bindestrich ist nur am Anfang eines Stücks ein Ausschluss.** Mitten im
+  Wort ist er ein Bindestrich — sonst würde aus `E-Learning` ein „alles ohne
+  Learning" und aus der Seminarnummer `LO-1234` eine Suche ohne die 1234. Ein
+  Gedankenstrich mit Leerzeichen ringsum (`Grundlagen – Teil 1`) ist gar kein
+  Operator und fällt weg.
+- **Klein geschrieben ist ein Angebot, GROSS geschrieben eine Ansage.** „nicht",
+  „und" und „oder" sind auch gewöhnliches Deutsch: *Nicht nur reden* ist ein
+  Seminartitel, keine Ausschlussbedingung. Findet eine Anfrage mit
+  kleingeschriebenen Operatorwörtern nichts, wird sie deshalb ein zweites Mal
+  **wortwörtlich** gelesen — ohne Hinweis über der Liste, denn es steht nichts
+  anderes darin, als eingetippt wurde; nur die Verknüpfung war eine andere.
+  Bei `NICHT` in Großbuchstaben und bei jedem Zeichen (`-`, `"`, <code>&#124;</code>,
+  `&`, Klammern) passiert das **nicht**: Wer so schreibt, meint es, und eine
+  leere Liste ist dann die richtige Antwort. Sonst zeigte
+  `arbeitsrecht NICHT online` am Ende genau die Online-Seminare, die jemand
+  gerade ausgeschlossen hat.
+- **Was `MATCH` nicht kann, geht sofort zu `LIKE`.** `BOOLEAN MODE` kennt kein
+  UND innerhalb einer ODER-Gruppe (`(a b) ODER c`), keinen Ausschluss einer
+  ganzen Gruppe (`NICHT (a ODER b)`) und liefert bei einer Anfrage aus lauter
+  Ausschlüssen die leere Menge statt „alles außer". Solche Bäume gehen deshalb
+  von vornherein über `LIKE` — das bildet **jeden** Baum ab. Die Antwort wäre
+  sonst nicht langsam, sondern falsch. Entschieden wird das in
+  `BI_Suche::modus_fuer()`, einmal je Suche, vor der ersten Abfrage.
+- **Es bleibt EINE Unterabfrage.** Egal wie verschachtelt die Eingabe ist —
+  aus dem Baum wird ein einziges `EXISTS` auf `wp_bi_suchindex`.
+
+Die Tippfehler-Korrektur lässt Operatoren stehen und behält das Vorzeichen:
+aus `-arbeitsercht` wird `-Arbeitsrecht`, nicht `Arbeitsrecht`. Auch die
+Autovervollständigung ergänzt nur das angefangene Wort und rührt weder
+Operatorwörter noch ein gesetztes `-` an.
+
+Geprüft in `tests/test-suche-boolean.php`. Ausschalten lassen sich die
+Operatorwörter über den Filter `bi_suche_operatoren` (die Zeichen `-`, `"` und
+die Klammern bleiben davon unberührt).
+
 #### Über alle Datenfelder (seit 1.107.0)
 
 Bis 1.106.3 verglich die Suche **nur den Titel**. Alles andere, was ein Seminar
@@ -366,7 +427,9 @@ Vier Entscheidungen dahinter:
 - **Das UND gilt zwischen den Wörtern, das ODER zwischen den Feldern.**
   `sprockhövel betriebsrat` findet ein Seminar, das in Sprockhövel stattfindet
   **und** „Betriebsrat" im Titel trägt. Beide Wörter im *selben* Feld zu
-  verlangen wäre unbrauchbar — niemand tippt so.
+  verlangen wäre unbrauchbar — niemand tippt so. (Das UND zwischen den Wörtern
+  ist seit 1.126.0 nur noch die *Vorgabe*, siehe oben; das ODER zwischen den
+  Feldern gilt unverändert immer.)
 - **Zahlen, Daten und Haken bleiben draußen.** Ja/Nein, Datum, Uhrzeit, Zahl und
   Betrag tragen keine Wörter. Wären sie dabei, fände `1` jedes Seminar mit
   irgendeinem gesetzten Haken und `12` jeden Dezember-Termin, jeden Termin am

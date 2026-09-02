@@ -44,6 +44,23 @@
 .bi-search input:focus { border-color: var(--bi-accent); box-shadow: 0 0 0 3px rgba(226, 0, 26, .12); }
 .bi-search-clear { position: absolute; right: 10px; background: #f1f2f4; border: 0; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--bi-muted); }
 
+/* ---- Suchbefehle ---------------------------------------------
+   Zugeklappt eine einzige Zeile: Wer die Operatoren nicht braucht, soll sie
+   nicht wegsehen müssen. Aufgeklappt eine Liste aus Beispielen statt einer
+   Erklärung – ein Beispiel liest man, eine Syntaxregel nicht. */
+.bi-suchtipps { margin: 8px 2px 0; font-size: 12.5px; color: var(--bi-muted); }
+.bi-suchtipps > summary { cursor: pointer; display: inline-block; list-style: none; }
+.bi-suchtipps > summary::-webkit-details-marker { display: none; }
+.bi-suchtipps > summary::before { content: "＋ "; font-weight: 700; }
+.bi-suchtipps[open] > summary::before { content: "－ "; }
+.bi-suchtipps > summary:hover { color: var(--bi-text); }
+.bi-suchtipps > summary:focus-visible { outline: 2px solid var(--bi-accent); outline-offset: 2px; border-radius: 4px; }
+.bi-suchtipps ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.bi-suchtipps code {
+  background: #f1f2f4; border-radius: 5px; padding: 1px 6px; margin-right: 6px;
+  font-size: 12px; color: var(--bi-text); white-space: nowrap;
+}
+
 /* ---- Autovervollständigung ----------------------------------
    Der Kasten hängt am Suchfeld (das ist position: relative) und liegt über
    allem, was darunter kommt – auch über einem geöffneten Filter-Panel.

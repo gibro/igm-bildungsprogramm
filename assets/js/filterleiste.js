@@ -590,6 +590,21 @@
       });
       card.appendChild(search);
 
+      /* Suchbefehle – zugeklappt, weil sie fast niemand braucht, und trotzdem
+         da, weil sie sonst niemand findet. Das UND bleibt die Vorgabe: Wer
+         nichts aufklappt, sucht wie immer. Was hier steht, muss zu
+         BI_Suche::operatorwoerter() passen. */
+      card.appendChild(el(
+        '<details class="bi-suchtipps"><summary>Suche verfeinern</summary>' +
+        '<ul>' +
+        '<li><code>arbeitsrecht bonn</code> beide Wörter müssen vorkommen</li>' +
+        '<li><code>bonn ODER berlin</code> eines von beiden genügt</li>' +
+        '<li><code>-online</code> oder <code>NICHT online</code> ohne dieses Wort</li>' +
+        '<li><code>"neue Betriebsräte"</code> genau diese Wortfolge</li>' +
+        '<li><code>(bonn ODER berlin) jav</code> Klammern fassen zusammen</li>' +
+        '</ul></details>'
+      ));
+
       card.appendChild(el('<p class="bi-hint">' + escapeHtml(CONFIG.hint) + '</p>'));
 
       /* Eigene Chips – über den Filtern, weil sie der schnellere Weg zum selben

@@ -38,6 +38,35 @@
  *  Unterabfragen über postmeta. Erkannt wird das beim Anlegen der Tabelle.
  *
  * ============================================================================
+ *  BOOLESCHE OPERATOREN (seit 1.126.0)
+ * ============================================================================
+ *  Die Eingabe wird nicht mehr nur zerlegt, sondern GELESEN:
+ *
+ *    arbeitsrecht bonn        beide Wörter (das UND gilt weiter von selbst)
+ *    bonn ODER berlin         eines von beiden          – auch OR, auch |
+ *    arbeitsrecht UND bonn    dasselbe wie ohne UND     – auch AND, auch &
+ *    NICHT online             ohne dieses Wort          – auch NOT, auch -online
+ *    "neue betriebsräte"      genau diese Wortfolge     – auch „…" typografisch
+ *    (bonn ODER berlin) jav   Klammern gruppieren
+ *
+ *  Vorrang wie überall: NICHT vor UND vor ODER.
+ *
+ *  DAS UND BLEIBT DIE VORGABE. Wer nichts weiter tut, sucht wie vorher: alle
+ *  Wörter Pflicht, Reihenfolge egal. Die Operatoren sind ein Angebot für die,
+ *  die eines brauchen – nicht eine neue Sprache, die alle lernen müssen.
+ *
+ *  KLEIN GESCHRIEBEN IST EIN ANGEBOT, GROSS GESCHRIEBEN IST EINE ANSAGE.
+ *  „nicht" und „oder" sind auch gewöhnliches Deutsch; „Nicht nur reden" ist
+ *  ein Seminartitel. Findet eine Anfrage mit kleingeschriebenen
+ *  Operatorwörtern nichts, wird sie deshalb ein zweites Mal wortwörtlich
+ *  gelesen. Bei GROSS geschriebenen Wörtern und bei Zeichen (-, ", |, &,
+ *  Klammern) passiert das nicht: Wer so schreibt, meint es, und eine leere
+ *  Liste ist dann die richtige Antwort.
+ *
+ *  Der ganze Weg von der Eingabe zur Bedingung steht weiter unten im Abschnitt
+ *  „Die Anfrage lesen".
+ *
+ * ============================================================================
  *  WAS IM INDEX STEHT
  * ============================================================================
  *    - post_title
@@ -136,6 +165,24 @@ class BI_Suche {
 	 * mit LIKE gesucht.
 	 */
 	const MIN_TOKEN = 3;
+
+	/**
+	 * Wie viele Begriffe eine Anfrage höchstens trägt.
+	 *
+	 * Mehr Begriffe bringen keine Genauigkeit mehr, nur Last. Die Grenze gilt
+	 * für Wörter wie für Wortgruppen und unabhängig davon, wie sie verknüpft
+	 * sind – eine ODER-Aufzählung kostet dieselbe Arbeit wie eine UND-Kette.
+	 */
+	const MAX_TERME = 6;
+
+	/**
+	 * Wie viele Bausteine der Zerleger höchstens ausgibt.
+	 *
+	 * Klammern, Operatoren und Auto-Klammern sind keine Begriffe und zählen
+	 * deshalb nicht gegen MAX_TERME. Eine Eingabe aus tausend Klammern soll den
+	 * Zerleger trotzdem nicht beschäftigen.
+	 */
+	const MAX_TOKEN = 60;
 
 	/** Während dieses Aufrufs geänderte Beiträge (siehe nachtragen). */
 	private static $offen = array();
@@ -640,6 +687,379 @@ class BI_Suche {
 	}
 
 	/* ===================================================================
+	 *  Die Anfrage lesen: Wörter, Wortgruppen, Operatoren
+	 * ===================================================================
+	 *
+	 *  Aus dem eingetippten Text wird ein BAUM, und aus dem Baum wird die
+	 *  Bedingung – einmal für MATCH, einmal für LIKE. Dazwischen liegt nichts
+	 *  Zusammengeklebtes: Wer die Eingabe versteht, versteht auch die Abfrage.
+	 *
+	 *  WAS MAN SCHREIBEN KANN
+	 *
+	 *    arbeitsrecht bonn        beide Wörter (das UND gilt weiter von selbst)
+	 *    bonn ODER berlin         eines von beiden          – auch OR, auch |
+	 *    arbeitsrecht UND bonn    dasselbe wie ohne UND     – auch AND, auch &
+	 *    NICHT online             ohne dieses Wort          – auch NOT, auch -online
+	 *    "neue betriebsräte"      genau diese Wortfolge     – auch „…" typografisch
+	 *    (bonn ODER berlin) jav   Klammern gruppieren
+	 *
+	 *  Vorrang wie überall sonst: NICHT bindet stärker als UND, UND stärker als
+	 *  ODER. `a ODER b c` heißt also `a ODER (b UND c)`.
+	 *
+	 *  DER BINDESTRICH IST NUR AM ANFANG EINES STÜCKS EIN AUSSCHLUSS. Mitten im
+	 *  Wort ist er ein Bindestrich – sonst würde aus „E-Learning" ein „alles
+	 *  ohne Learning". Ein Gedankenstrich mit Leerzeichen ringsum („Grundlagen –
+	 *  Teil 1") ist gar kein Operator und fällt weg.
+	 *
+	 *  KLEINGESCHRIEBENE OPERATORWÖRTER SIND EIN ANGEBOT, KEIN URTEIL. „nicht"
+	 *  und „oder" sind auch gewöhnliche deutsche Wörter: „Nicht nur reden" ist
+	 *  ein Seminartitel, keine Ausschlussbedingung. Findet eine Anfrage mit
+	 *  kleingeschriebenen Operatorwörtern nichts, wird sie deshalb ein zweites
+	 *  Mal wortwörtlich gelesen (siehe deutungsoffen und
+	 *  BI_Filter::liste_mit_rueckfall). Wer GROSS schreibt oder ein Zeichen
+	 *  benutzt (-, ", |, &, Klammern), meint es – da wird nichts zurückgenommen.
+	 *
+	 *  ZWEI WEGE, WIE VORHER: MATCH kann längst nicht jeden Baum ausdrücken –
+	 *  BOOLEAN MODE kennt kein verschachteltes UND in einer ODER-Gruppe und
+	 *  keine Anfrage, die nur aus Ausschlüssen besteht. Was MATCH nicht kann,
+	 *  beantwortet LIKE vollständig; entschieden wird das in modus_fuer, bevor
+	 *  die erste Abfrage läuft.
+	 */
+
+	/**
+	 * Die Operatorwörter und ihre englischen Zwillinge.
+	 *
+	 * Englisch dazu, weil die halbe Welt AND/OR/NOT tippt und es nichts kostet:
+	 * „and", „or" und „not" sind im deutschen Bestand keine Suchwörter.
+	 *
+	 * Filter: `bi_suche_operatoren`.
+	 */
+	public static function operatorwoerter() {
+		return (array) apply_filters( 'bi_suche_operatoren', array(
+			'und'   => 'und',
+			'and'   => 'und',
+			'oder'  => 'oder',
+			'or'    => 'oder',
+			'nicht' => 'nicht',
+			'not'   => 'nicht',
+		) );
+	}
+
+	/**
+	 * Ist dieses Stück ein Operatorwort?
+	 *
+	 * @return string 'und' | 'oder' | 'nicht' – oder '' .
+	 */
+	public static function operatorwort( $stueck ) {
+		$stueck = (string) $stueck;
+		$klein  = function_exists( 'mb_strtolower' ) ? mb_strtolower( $stueck, 'UTF-8' ) : strtolower( $stueck );
+		$tabelle = self::operatorwoerter();
+		return isset( $tabelle[ $klein ] ) ? (string) $tabelle[ $klein ] : '';
+	}
+
+	/** Zeichenzahl – mb_strlen, wo es sie gibt. Ein „ä" ist EIN Zeichen. */
+	private static function zeichen( $text ) {
+		return function_exists( 'mb_strlen' ) ? mb_strlen( (string) $text, 'UTF-8' ) : strlen( (string) $text );
+	}
+
+	/**
+	 * Die Eingabe in Bausteine zerlegen.
+	 *
+	 * Ergebnis: eine flache Liste aus
+	 *   ['typ'=>'wort',  'wert'=>…]
+	 *   ['typ'=>'phrase','wert'=>…]
+	 *   ['typ'=>'und'|'oder'|'nicht', 'zeichen'=>bool, 'gross'=>bool]
+	 *   ['typ'=>'auf'|'zu', 'auto'=>bool]
+	 *
+	 * DIE KLAMMERN SIND HIER SCHON AUSGEGLICHEN: Eine schließende ohne
+	 * öffnende fällt weg, eine offene wird am Ende geschlossen. Der Parser
+	 * bekommt damit nie eine kaputte Eingabe zu sehen und braucht keine
+	 * Sonderwege für den Fall, dass jemand eine Klammer vergisst.
+	 *
+	 * EIN STÜCK MIT MEHREREN WÖRTERN BLEIBT ZUSAMMEN: „E-Learning" wird zu
+	 * „(E Learning)". Ohne die Klammer risse ein folgendes ODER den zweiten
+	 * Teil heraus – aus „E-Learning ODER Präsenz" würde „E UND (Learning ODER
+	 * Präsenz)". Diese Klammern sind mit 'auto' gekennzeichnet: Sie stammen
+	 * nicht aus der Eingabe und zählen deshalb nicht als Operator.
+	 */
+	public static function tokenisieren( $text ) {
+		// Typografische Anführungszeichen mitnehmen: Wer aus dem Programmheft
+		// kopiert, hat „…" im Zwischenspeicher, nicht "…".
+		$text = str_replace(
+			array( '„', '“', '”', '‟', '»', '«' ),
+			'"',
+			(string) $text
+		);
+		$text = self::zusammenziehen( $text );
+
+		$tokens = array();
+		$terme  = 0;
+		$tiefe  = 0;
+		$len    = strlen( $text );
+		$i      = 0;
+
+		while ( $i < $len && $terme < self::MAX_TERME && count( $tokens ) < self::MAX_TOKEN ) {
+			$c = $text[ $i ];
+
+			if ( ' ' === $c ) {
+				$i++;
+				continue;
+			}
+
+			// Wortgruppe in Anführungszeichen. Fehlt das schließende, gilt der
+			// Rest der Eingabe als Gruppe – abbrechen wäre die schlechtere
+			// Antwort auf einen vergessenen Tastendruck.
+			if ( '"' === $c ) {
+				$ende   = strpos( $text, '"', $i + 1 );
+				$inhalt = ( false === $ende ) ? substr( $text, $i + 1 ) : substr( $text, $i + 1, $ende - $i - 1 );
+				$i      = ( false === $ende ) ? $len : $ende + 1;
+				$inhalt = self::zusammenziehen( $inhalt );
+				if ( '' !== $inhalt ) {
+					$tokens[] = array( 'typ' => 'phrase', 'wert' => $inhalt );
+					$terme++;
+				}
+				continue;
+			}
+
+			if ( '(' === $c ) {
+				$tokens[] = array( 'typ' => 'auf' );
+				$tiefe++;
+				$i++;
+				continue;
+			}
+			if ( ')' === $c ) {
+				$i++;
+				if ( $tiefe > 0 ) {
+					$tokens[] = array( 'typ' => 'zu' );
+					$tiefe--;
+				}
+				continue;
+			}
+			// & und && meinen dasselbe, | und || auch.
+			if ( '&' === $c || '|' === $c ) {
+				$tokens[] = array( 'typ' => ( '&' === $c ) ? 'und' : 'oder', 'zeichen' => true );
+				$i++;
+				if ( $i < $len && $text[ $i ] === $c ) {
+					$i++;
+				}
+				continue;
+			}
+
+			// Ein Stück bis zum nächsten Trennzeichen. Byteweise ist das sicher:
+			// Alle Trennzeichen sind ASCII, und ein Folgebyte aus UTF-8 kann
+			// keines davon sein.
+			$j = $i;
+			while ( $j < $len && false === strpos( ' "()&|', $text[ $j ] ) ) {
+				$j++;
+			}
+			$roh = substr( $text, $i, $j - $i );
+			$i   = $j;
+
+			// Ausschluss – nur AM ANFANG des Stücks (siehe Kopf dieses Abschnitts).
+			$negiert = false;
+			if ( preg_match( '/^[-!]+/', $roh, $m ) ) {
+				$rest = substr( $roh, strlen( $m[0] ) );
+				if ( '' !== $rest ) {
+					$negiert = true;
+					$roh     = $rest;
+				} elseif ( $i < $len && ( '"' === $text[ $i ] || '(' === $text[ $i ] ) ) {
+					// -"neue betriebsräte" bzw. -(bonn berlin)
+					$tokens[] = array( 'typ' => 'nicht', 'zeichen' => true );
+					continue;
+				} else {
+					continue; // ein Strich zwischen Wörtern ist kein Operator
+				}
+			}
+
+			// Operatorwort – aber nur ungerührt: „-nicht" ist ein Suchwort.
+			$operator = $negiert ? '' : self::operatorwort( $roh );
+			if ( '' !== $operator ) {
+				$gross = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $roh, 'UTF-8' ) : strtoupper( $roh );
+				$tokens[] = array( 'typ' => $operator, 'gross' => ( $roh === $gross ) );
+				continue;
+			}
+
+			$woerter = self::zerlegen( $roh );
+			if ( ! $woerter ) {
+				continue;
+			}
+			if ( $negiert ) {
+				$tokens[] = array( 'typ' => 'nicht', 'zeichen' => true );
+			}
+			$klammer = ( count( $woerter ) > 1 );
+			if ( $klammer ) {
+				$tokens[] = array( 'typ' => 'auf', 'auto' => true );
+			}
+			foreach ( $woerter as $wort ) {
+				$tokens[] = array( 'typ' => 'wort', 'wert' => $wort );
+				$terme++;
+			}
+			if ( $klammer ) {
+				$tokens[] = array( 'typ' => 'zu', 'auto' => true );
+			}
+		}
+
+		while ( $tiefe-- > 0 ) {
+			$tokens[] = array( 'typ' => 'zu' );
+		}
+		return $tokens;
+	}
+
+	/**
+	 * Die Anfrage als Baum – oder null, wenn nichts Suchbares übrig bleibt.
+	 *
+	 * Knoten:
+	 *   ['typ'=>'wort'|'phrase', 'wert'=>…]
+	 *   ['typ'=>'nicht', 'kind'=>Knoten]
+	 *   ['typ'=>'und'|'oder', 'kinder'=>[Knoten, …]]
+	 */
+	public static function ausdruck( $text ) {
+		$tokens = self::tokenisieren( $text );
+		if ( ! $tokens ) {
+			return null;
+		}
+		$i = 0;
+		return self::lese_oder( $tokens, $i );
+	}
+
+	/** oder := und ( ODER und )* */
+	private static function lese_oder( array $tokens, &$i ) {
+		$kinder = array( self::lese_und( $tokens, $i ) );
+		while ( isset( $tokens[ $i ] ) && 'oder' === $tokens[ $i ]['typ'] ) {
+			$i++;
+			$kinder[] = self::lese_und( $tokens, $i );
+		}
+		return self::verbinden( 'oder', $kinder );
+	}
+
+	/** und := faktor ( [UND] faktor )* – das UND darf fehlen, es gilt ohnehin. */
+	private static function lese_und( array $tokens, &$i ) {
+		$kinder = array();
+		while ( isset( $tokens[ $i ] ) ) {
+			$typ = $tokens[ $i ]['typ'];
+			if ( 'oder' === $typ || 'zu' === $typ ) {
+				break;
+			}
+			if ( 'und' === $typ ) {
+				$i++;
+				continue;
+			}
+			$vorher = $i;
+			$faktor = self::lese_faktor( $tokens, $i );
+			if ( null !== $faktor ) {
+				$kinder[] = $faktor;
+				continue;
+			}
+			// Stillstand ausschließen: Ein Baustein, der nichts ergibt, muss
+			// trotzdem verbraucht werden – sonst dreht sich die Schleife ewig.
+			if ( $i === $vorher ) {
+				$i++;
+			}
+		}
+		return self::verbinden( 'und', $kinder );
+	}
+
+	/** faktor := NICHT faktor | ( oder ) | wort | phrase */
+	private static function lese_faktor( array $tokens, &$i ) {
+		if ( ! isset( $tokens[ $i ] ) ) {
+			return null;
+		}
+		$token = $tokens[ $i ];
+
+		if ( 'nicht' === $token['typ'] ) {
+			$i++;
+			$kind = self::lese_faktor( $tokens, $i );
+			return $kind ? array( 'typ' => 'nicht', 'kind' => $kind ) : null;
+		}
+		if ( 'auf' === $token['typ'] ) {
+			$i++;
+			$innen = self::lese_oder( $tokens, $i );
+			if ( isset( $tokens[ $i ] ) && 'zu' === $tokens[ $i ]['typ'] ) {
+				$i++;
+			}
+			return $innen;
+		}
+		if ( 'wort' === $token['typ'] || 'phrase' === $token['typ'] ) {
+			$i++;
+			return array( 'typ' => $token['typ'], 'wert' => $token['wert'] );
+		}
+		$i++;
+		return null;
+	}
+
+	/**
+	 * Kinder zu einem Knoten verbinden – und dabei flach halten.
+	 *
+	 * `und(a, und(b, c))` wird zu `und(a, b, c)`. Das ist nicht Kosmetik: MATCH
+	 * kann eine flache UND-Kette ausdrücken, eine verschachtelte nicht. Ohne das
+	 * Flachziehen fiele „arbeitsrecht Online-Seminar" auf LIKE zurück, nur weil
+	 * das zweite Stück aus zwei Wörtern besteht.
+	 */
+	private static function verbinden( $typ, array $kinder ) {
+		$flach = array();
+		foreach ( $kinder as $kind ) {
+			if ( ! is_array( $kind ) || ! isset( $kind['typ'] ) ) {
+				continue;
+			}
+			if ( $typ === $kind['typ'] ) {
+				$flach = array_merge( $flach, $kind['kinder'] );
+				continue;
+			}
+			$flach[] = $kind;
+		}
+		if ( ! $flach ) {
+			return null;
+		}
+		return ( 1 === count( $flach ) ) ? $flach[0] : array( 'typ' => $typ, 'kinder' => $flach );
+	}
+
+	/** Trägt die Eingabe überhaupt einen Operator? (Auto-Klammern zählen nicht.) */
+	public static function hat_operatoren( $text ) {
+		foreach ( self::tokenisieren( $text ) as $token ) {
+			if ( 'wort' !== $token['typ'] && empty( $token['auto'] ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Kann diese Eingabe auch wortwörtlich gemeint sein?
+	 *
+	 * Genau dann, wenn ihre Operatoren ausschließlich KLEINGESCHRIEBENE Wörter
+	 * sind. „nicht", „und" und „oder" sind auch gewöhnliches Deutsch – „Nicht
+	 * nur reden" ist ein Titel, keine Bedingung. Findet so eine Anfrage nichts,
+	 * wird sie ein zweites Mal wortwörtlich gelesen.
+	 *
+	 * NICHT deutungsoffen ist alles Gezeichnete: -, ", (, ), |, & – und ein
+	 * GROSS geschriebenes Operatorwort. Wer so schreibt, meint es, und eine
+	 * leere Trefferliste ist dann die richtige Antwort. Sonst zeigte
+	 * „arbeitsrecht NICHT online" am Ende genau die Online-Seminare, die jemand
+	 * gerade ausgeschlossen hat.
+	 */
+	public static function deutungsoffen( $text ) {
+		$offen = false;
+		foreach ( self::tokenisieren( $text ) as $token ) {
+			if ( 'wort' === $token['typ'] || ! empty( $token['auto'] ) ) {
+				continue;
+			}
+			if ( ! in_array( $token['typ'], array( 'und', 'oder', 'nicht' ), true ) ) {
+				return false;
+			}
+			if ( ! empty( $token['zeichen'] ) || ! empty( $token['gross'] ) ) {
+				return false;
+			}
+			$offen = true;
+		}
+		return $offen;
+	}
+
+	/** Dieselbe Eingabe ohne jede Operatorwirkung: alle Wörter, alle Pflicht. */
+	public static function wortweise( $text ) {
+		return implode( ' ', array_slice( self::zerlegen( $text ), 0, self::MAX_TERME ) );
+	}
+
+	/* ===================================================================
 	 *  Die Suchbedingung
 	 * =================================================================== */
 
@@ -647,41 +1067,195 @@ class BI_Suche {
 	 * Womit soll diese Eingabe gesucht werden – 'match' oder 'like'?
 	 *
 	 * MATCH ist der schnelle Weg, taugt aber nicht immer: ohne FULLTEXT-Index
-	 * gar nicht, und mit einem Wort unter MIN_TOKEN Zeichen liefert es
-	 * verlässlich NICHTS statt ungenau (siehe MIN_TOKEN).
+	 * gar nicht, mit einem Wort unter MIN_TOKEN Zeichen liefert es verlässlich
+	 * NICHTS statt ungenau (siehe MIN_TOKEN), und einen verschachtelten
+	 * Ausdruck kann BOOLEAN MODE nicht abbilden. Entschieden wird das hier,
+	 * einmal je Suche, bevor die erste Abfrage läuft.
 	 */
 	public static function modus_fuer( $text ) {
 		if ( ! self::fulltext_vorhanden() ) {
 			return 'like';
 		}
-		return ( '' === self::boolean_ausdruck( self::zerlegen( $text ) ) ) ? 'like' : 'match';
+		$knoten = self::ausdruck( $text );
+		if ( ! $knoten ) {
+			return 'like';
+		}
+		return ( '' === self::match_ausdruck( $knoten ) ) ? 'like' : 'match';
 	}
 
 	/**
-	 * Die Wörter als Boolean-Ausdruck: `+arbeitsrecht* +grundlagen*`
+	 * Eine flache Wortliste als Baum: alle Wörter Pflicht.
 	 *
-	 * Das `+` macht jedes Wort zur Pflicht (UND zwischen den Wörtern), das `*`
-	 * erlaubt den Wortanfang. Operatorzeichen aus der Eingabe werden entfernt,
-	 * nicht maskiert: Ein `-` in der Eingabe wäre in BOOLEAN MODE ein
-	 * Ausschluss, und aus der Suche nach „E-Learning" würde „alles ohne
-	 * Learning".
+	 * Der Weg für Aufrufer, die schon zerlegt haben und keine Operatoren
+	 * meinen – etwa boolean_ausdruck().
+	 */
+	private static function wortliste( array $woerter ) {
+		$kinder = array();
+		foreach ( array_slice( array_values( $woerter ), 0, self::MAX_TERME ) as $wort ) {
+			$wort = self::zusammenziehen( $wort );
+			if ( '' !== $wort ) {
+				$kinder[] = array( 'typ' => 'wort', 'wert' => $wort );
+			}
+		}
+		return self::verbinden( 'und', $kinder );
+	}
+
+	/**
+	 * Eine Liste von Pflichtwörtern als Boolean-Ausdruck: `+arbeitsrecht* +grundlagen*`
+	 *
+	 * Der schmale Weg ohne Operatoren – die Wörter sind schon zerlegt und alle
+	 * Pflicht. Operatorzeichen aus den Wörtern werden entfernt, nicht maskiert:
+	 * Ein `-` wäre in BOOLEAN MODE ein Ausschluss, und aus der Suche nach
+	 * „E-Learning" würde „alles ohne Learning".
 	 *
 	 * @return string '' , wenn MATCH nicht taugt.
 	 */
 	public static function boolean_ausdruck( array $woerter ) {
-		$teile = array();
-		foreach ( array_slice( $woerter, 0, 6 ) as $wort ) {
-			$sauber = preg_replace( '/[^\p{L}\p{N}_]+/u', '', (string) $wort );
-			if ( '' === $sauber ) {
+		$knoten = self::wortliste( $woerter );
+		return $knoten ? self::match_ausdruck( $knoten ) : '';
+	}
+
+	/**
+	 * Der Baum als Ausdruck für MATCH … AGAINST … IN BOOLEAN MODE.
+	 *
+	 * WAS BOOLEAN MODE KANN: eine flache Kette aus Pflichtteilen (`+`),
+	 * Ausschlüssen (`-`) und ODER-Gruppen aus einzelnen Begriffen (`+(a* b*)`).
+	 * Das deckt ab, was Leute tatsächlich tippen.
+	 *
+	 * WAS ES NICHT KANN – und was deshalb '' zurückgibt, damit LIKE übernimmt:
+	 *   - ein UND innerhalb einer ODER-Gruppe: `(a b) ODER c`
+	 *   - ein Ausschluss einer ganzen Gruppe: `NICHT (a ODER b)`
+	 *   - eine Anfrage NUR aus Ausschlüssen. MATCH ohne ein einziges
+	 *     Pflichtwort liefert die leere Menge, nicht „alles außer" – und das
+	 *     wäre eine falsche Antwort, keine langsame.
+	 *
+	 * @return string '' , wenn MATCH diesen Baum nicht ausdrücken kann.
+	 */
+	public static function match_ausdruck( $knoten ) {
+		if ( ! is_array( $knoten ) || ! isset( $knoten['typ'] ) ) {
+			return '';
+		}
+		$kinder = ( 'und' === $knoten['typ'] ) ? $knoten['kinder'] : array( $knoten );
+
+		$teile   = array();
+		$positiv = 0;
+		foreach ( $kinder as $kind ) {
+			$negiert = false;
+			if ( 'nicht' === $kind['typ'] ) {
+				$negiert = true;
+				$kind    = $kind['kind'];
+			}
+
+			if ( 'oder' === $kind['typ'] ) {
+				if ( $negiert ) {
+					return '';
+				}
+				$gruppe = self::match_gruppe( $kind );
+				if ( '' === $gruppe ) {
+					return '';
+				}
+				$teile[] = '+' . $gruppe;
+				$positiv++;
 				continue;
 			}
-			$laenge = function_exists( 'mb_strlen' ) ? mb_strlen( $sauber, 'UTF-8' ) : strlen( $sauber );
-			if ( $laenge < self::MIN_TOKEN ) {
+
+			$begriff = self::match_begriff( $kind );
+			if ( '' === $begriff ) {
 				return '';
 			}
-			$teile[] = '+' . $sauber . '*';
+			$teile[] = ( $negiert ? '-' : '+' ) . $begriff;
+			if ( ! $negiert ) {
+				$positiv++;
+			}
 		}
-		return $teile ? implode( ' ', $teile ) : '';
+		return $positiv ? implode( ' ', $teile ) : '';
+	}
+
+	/** Eine ODER-Gruppe als `(bonn* berlin*)` – oder '' , wenn ein Kind nicht taugt. */
+	private static function match_gruppe( $knoten ) {
+		$teile = array();
+		foreach ( $knoten['kinder'] as $kind ) {
+			$begriff = self::match_begriff( $kind );
+			if ( '' === $begriff ) {
+				return '';
+			}
+			$teile[] = $begriff;
+		}
+		return $teile ? '(' . implode( ' ', $teile ) . ')' : '';
+	}
+
+	/**
+	 * Ein einzelner Begriff: `arbeitsrecht*` oder `"neue betriebsräte"`.
+	 *
+	 * Bei der Wortgruppe muss JEDES Wort lang genug sein: Ein Wort unter
+	 * MIN_TOKEN Zeichen steht nicht im Index, und eine Wortfolge mit einer Lücke
+	 * darin findet MATCH nie – aus einer ungenauen Suche würde gar keine.
+	 */
+	private static function match_begriff( $knoten ) {
+		if ( ! is_array( $knoten ) || ! isset( $knoten['typ'] ) ) {
+			return '';
+		}
+		if ( 'phrase' === $knoten['typ'] ) {
+			$woerter = self::zerlegen( $knoten['wert'] );
+			if ( ! $woerter ) {
+				return '';
+			}
+			foreach ( $woerter as $wort ) {
+				if ( self::zeichen( $wort ) < self::MIN_TOKEN ) {
+					return '';
+				}
+			}
+			return '"' . implode( ' ', $woerter ) . '"';
+		}
+		if ( 'wort' !== $knoten['typ'] ) {
+			return '';
+		}
+		$sauber = preg_replace( '/[^\p{L}\p{N}_]+/u', '', (string) $knoten['wert'] );
+		if ( '' === $sauber || self::zeichen( $sauber ) < self::MIN_TOKEN ) {
+			return '';
+		}
+		return $sauber . '*';
+	}
+
+	/**
+	 * Der Baum als SQL über `bi_si.inhalt`.
+	 *
+	 * LIKE ist der langsamere Weg, aber der vollständige: Er bildet JEDEN Baum
+	 * ab – ODER, NICHT, jede Schachtelung – und er findet auch mitten im Wort
+	 * („rat" -> „Betriebsrat"), was im Deutschen kein Sonderfall ist.
+	 *
+	 * @return string SQL-Ausdruck oder '' .
+	 */
+	public static function like_bedingung( $knoten ) {
+		global $wpdb;
+		if ( ! is_array( $knoten ) || ! isset( $knoten['typ'] ) ) {
+			return '';
+		}
+
+		if ( 'wort' === $knoten['typ'] || 'phrase' === $knoten['typ'] ) {
+			$wert = self::zusammenziehen( $knoten['wert'] );
+			if ( '' === $wert ) {
+				return '';
+			}
+			return $wpdb->prepare( 'bi_si.inhalt LIKE %s', '%' . $wpdb->esc_like( $wert ) . '%' );
+		}
+
+		if ( 'nicht' === $knoten['typ'] ) {
+			$kind = self::like_bedingung( $knoten['kind'] );
+			return ( '' === $kind ) ? '' : 'NOT (' . $kind . ')';
+		}
+
+		$teile = array();
+		foreach ( (array) $knoten['kinder'] as $kind ) {
+			$teil = self::like_bedingung( $kind );
+			if ( '' !== $teil ) {
+				$teile[] = $teil;
+			}
+		}
+		if ( ! $teile ) {
+			return '';
+		}
+		return '(' . implode( ( 'oder' === $knoten['typ'] ) ? ' OR ' : ' AND ', $teile ) . ')';
 	}
 
 	/**
@@ -689,18 +1263,27 @@ class BI_Suche {
 	 *
 	 * Vorher waren es je Suchwort zwei Unterabfragen über postmeta und die
 	 * Term-Tabellen – bei sechs Wörtern zwölf. Jetzt ist es eine, unabhängig
-	 * von der Wortzahl, gegen eine Tabelle mit genau einer Zeile je Seminar.
+	 * von der Wortzahl und unabhängig davon, wie verschachtelt die Eingabe ist,
+	 * gegen eine Tabelle mit genau einer Zeile je Seminar.
 	 *
-	 * @param string[] $woerter Die Suchwörter.
-	 * @param string   $modus   'match' oder 'like'.
+	 * @param array  $knoten Ein Baum aus ausdruck() – oder, wie früher, eine
+	 *                       flache Liste von Wörtern, die dann alle Pflicht sind.
+	 * @param string $modus  'match' oder 'like'.
 	 * @return string SQL-Fragment oder '' .
 	 */
-	public static function such_klausel( array $woerter, $modus = 'match' ) {
+	public static function such_klausel( array $knoten, $modus = 'match' ) {
 		global $wpdb;
 		$tab = self::table();
 
+		if ( ! isset( $knoten['typ'] ) ) {
+			$knoten = self::wortliste( $knoten );
+		}
+		if ( ! $knoten ) {
+			return '';
+		}
+
 		if ( 'match' === $modus ) {
-			$ausdruck = self::boolean_ausdruck( $woerter );
+			$ausdruck = self::match_ausdruck( $knoten );
 			if ( '' === $ausdruck ) {
 				return '';
 			}
@@ -711,16 +1294,12 @@ class BI_Suche {
 			);
 		}
 
-		// Mehr als sechs Wörter bringen keine Genauigkeit mehr, nur Last.
-		$teile = array();
-		foreach ( array_slice( $woerter, 0, 6 ) as $wort ) {
-			$teile[] = $wpdb->prepare( 'bi_si.inhalt LIKE %s', '%' . $wpdb->esc_like( $wort ) . '%' );
-		}
-		if ( ! $teile ) {
+		$bedingung = self::like_bedingung( $knoten );
+		if ( '' === $bedingung ) {
 			return '';
 		}
 		return "EXISTS ( SELECT 1 FROM {$tab} AS bi_si WHERE bi_si.post_id = {$wpdb->posts}.ID" // phpcs:ignore WordPress.DB.PreparedSQL
-			. ' AND (' . implode( ' AND ', $teile ) . ') )';
+			. ' AND ' . $bedingung . ' )';
 	}
 
 	/* ===================================================================
@@ -1035,27 +1614,48 @@ class BI_Suche {
 	/**
 	 * Ganze Anfrage korrigieren.
 	 *
+	 * STÜCKWEISE, NICHT WORTWEISE: Die Anfrage wird an den Leerzeichen geteilt,
+	 * und von jedem Stück nur der Kern gegen den Wortschatz gehalten. Was vorn
+	 * und hinten dranhängt, bleibt stehen – aus `-arbeitsercht` wird
+	 * `-Arbeitsrecht` und aus `"betriebsraete"` wird `"Betriebsräte"`. Fiele
+	 * das Vorzeichen weg, machte die Korrektur aus einem Ausschluss eine
+	 * Pflicht: Man bekäme genau das zu sehen, was man ausgeschlossen hat.
+	 *
+	 * OPERATORWÖRTER BLEIBEN UNANGETASTET. „oder" ist vier Zeichen lang und
+	 * hätte im Wortschatz jederzeit einen nahen Nachbarn – aus „ODER" würde
+	 * dann ein Suchwort und aus der ODER-Suche eine andere Frage.
+	 *
 	 * @return string Korrigierte Anfrage oder '' , wenn nichts zu korrigieren
 	 *                war (oder nichts Nahes gefunden wurde).
 	 */
 	public static function korrigieren( $anfrage, $schatz = null ) {
-		$woerter = self::zerlegen( $anfrage );
-		if ( ! $woerter ) {
+		$stuecke = preg_split( '/\s+/u', self::zusammenziehen( $anfrage ), -1, PREG_SPLIT_NO_EMPTY );
+		if ( ! $stuecke ) {
 			return '';
 		}
 		if ( ! is_array( $schatz ) ) {
 			$schatz = self::wortschatz();
 		}
 
-		$neu      = array();
+		$neu       = array();
 		$geaendert = false;
-		foreach ( $woerter as $w ) {
-			$k = self::wort_korrigieren( $w, $schatz );
+		foreach ( $stuecke as $stueck ) {
+			if ( '' !== self::operatorwort( $stueck ) ) {
+				$neu[] = $stueck;
+				continue;
+			}
+			// Zierrat vorn und hinten abtrennen; der Kern darf innen alles
+			// tragen, was zu einem Wort gehört – auch den Bindestrich.
+			if ( ! preg_match( '/^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u', $stueck, $m ) || '' === $m[2] ) {
+				$neu[] = $stueck;
+				continue;
+			}
+			$k = self::wort_korrigieren( $m[2], $schatz );
 			if ( '' !== $k ) {
-				$neu[]     = $k;
+				$neu[]     = $m[1] . $k . $m[3];
 				$geaendert = true;
 			} else {
-				$neu[] = $w;
+				$neu[] = $stueck;
 			}
 		}
 		return $geaendert ? implode( ' ', $neu ) : '';

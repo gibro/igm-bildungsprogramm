@@ -1040,10 +1040,17 @@ class BI_Filter {
 	 * Sekunden, und zwar mehrfach je Seitenaufruf. Jetzt ist es EIN EXISTS,
 	 * unabhängig von der Wortzahl.
 	 *
+	 * SEIT 1.126.0 WIRD DIE EINGABE GELESEN, NICHT NUR ZERLEGT: `ODER`, `NICHT`,
+	 * `-wort`, `"eine Wortfolge"` und Klammern ergeben einen Baum, und aus dem
+	 * Baum wird die Bedingung. Ohne Operator bleibt es beim Alten – alle Wörter
+	 * Pflicht, Reihenfolge egal. Die Sprache steht im Kopf von BI_Suche.
+	 *
 	 * ZWEI WEGE (self::$such_modus): erst MATCH über den FULLTEXT-Index, und nur
 	 * wenn das nichts findet, dasselbe noch einmal mit LIKE – das findet auch
 	 * mitten im Wort („rat" -> „Betriebsrat"), was im Deutschen kein Sonderfall
-	 * ist. Wer entscheidet, steht in shortcode(); warum, in BI_Suche.
+	 * ist. LIKE ist außerdem der einzige Weg, der JEDEN Baum abbilden kann;
+	 * was BOOLEAN MODE nicht ausdrücken kann, geht deshalb von vornherein
+	 * dorthin. Wer entscheidet, steht in shortcode(); warum, in BI_Suche.
 	 *
 	 * DIE SEMINARNUMMER STEHT ZUSÄTZLICH DANEBEN: Sieht die Eingabe nach einer
 	 * Nummer aus, wird die GANZE Eingabe am Stück gegen die Seminarnummer
@@ -1059,11 +1066,11 @@ class BI_Filter {
 		if ( ! self::$title_query || ! $query->get( 'bi_title_search' ) ) {
 			return $where;
 		}
-		$woerter = BI_Suche::zerlegen( self::$title_query );
-		if ( ! $woerter ) {
+		$knoten = BI_Suche::ausdruck( self::$title_query );
+		if ( ! $knoten ) {
 			return $where;
 		}
-		$bedingung = BI_Suche::such_klausel( $woerter, self::$such_modus );
+		$bedingung = BI_Suche::such_klausel( $knoten, self::$such_modus );
 		if ( '' === $bedingung ) {
 			return $where;
 		}
@@ -1141,7 +1148,20 @@ class BI_Filter {
 	 * dieselbe Suche noch einmal mit LIKE über dieselbe Tabelle – langsamer,
 	 * aber nur in dem Fall, in dem der schnelle Weg nichts gebracht hat.
 	 *
-	 * DANN ERST DER TIPPFEHLER. Eine Seminarnummer bleibt davon ausgenommen:
+	 * DANN DIE WORTWÖRTLICHE LESART – aber nur, wenn die Eingabe überhaupt
+	 * deutungsoffen ist: wenn ihre Operatoren ausschließlich kleingeschriebene
+	 * Wörter sind. „Nicht nur reden" ist ein Seminartitel und keine
+	 * Ausschlussbedingung; wer das eintippt, soll das Seminar bekommen und
+	 * nicht eine leere Liste. GROSS geschrieben oder mit einem Zeichen (-, ",
+	 * |, &, Klammern) ist die Eingabe eine Ansage, und dann bleibt es bei der
+	 * leeren Liste: Sonst zeigte „arbeitsrecht NICHT online" am Ende genau die
+	 * Online-Seminare, die jemand gerade ausgeschlossen hat.
+	 *
+	 * OHNE HINWEIS ÜBER DER LISTE, anders als bei der Korrektur: Gesucht wird
+	 * Wort für Wort genau das, was eingetippt wurde. Es steht nichts anderes in
+	 * der Liste, als dort stehen kann – nur die Verknüpfung war eine andere.
+	 *
+	 * ZULETZT DER TIPPFEHLER. Eine Seminarnummer bleibt davon ausgenommen:
 	 * Findet sie nichts, ist das kein Buchstabendreher, sondern eine Nummer ohne
 	 * Seminar (vergangen, unsichtbar, gar nicht im Bestand). Sie zu einem
 	 * ähnlich geschriebenen Titelwort zu verbiegen, beantwortete eine Frage, die
@@ -1161,6 +1181,20 @@ class BI_Filter {
 			$q = self::liste_holen( $programm, $per_page, $paged );
 			if ( (int) $q->found_posts > 0 ) {
 				return array( $q, $stand );
+			}
+		}
+
+		if ( BI_Suche::deutungsoffen( $roh ) ) {
+			$wortweise = BI_Suche::wortweise( $roh );
+			if ( '' !== $wortweise ) {
+				$modus_vorher = self::$such_modus;
+				self::such_setzen( $wortweise );
+				$w = self::liste_holen( $programm, $per_page, $paged );
+				if ( (int) $w->found_posts > 0 ) {
+					return array( $w, $stand );
+				}
+				self::such_setzen( $roh );
+				self::$such_modus = $modus_vorher;
 			}
 		}
 
@@ -1675,14 +1709,38 @@ class BI_Filter {
 	 * NUR DAS LETZTE WORT: Wer „grundlagen arbeit" tippt, ist beim zweiten Wort;
 	 * das erste steht schon fest. Der Vorschlag ersetzt deshalb nur den
 	 * angefangenen Rest und gibt die ganze neue Eingabe zurück.
+	 *
+	 * GETEILT WIRD AN DEN LEERZEICHEN, NICHT AN DEN WORTGRENZEN. Sonst käme aus
+	 * „bonn ODER arbeit" der Vorschlag „bonn ODER Arbeitsrecht" nur zufällig
+	 * heraus – und aus „-online arbeit" ein Vorschlag ohne das Minuszeichen,
+	 * der den gerade gesetzten Ausschluss wieder aufhöbe.
+	 *
+	 * EIN OPERATOR WIRD NICHT ZU ENDE GESCHRIEBEN: Nach „bonn ODER" fehlt ein
+	 * Suchwort, kein Vorschlag. „ODER" selbst steht im Wortschatz nicht und
+	 * hätte dort nichts verloren.
 	 */
 	private static function vorschlag_woerter( $roh, $limit ) {
-		$woerter = BI_Suche::zerlegen( $roh );
-		if ( ! $woerter ) {
+		$stuecke = preg_split( '/\s+/u', trim( (string) $roh ), -1, PREG_SPLIT_NO_EMPTY );
+		if ( ! $stuecke ) {
 			return array();
 		}
-		$letztes = array_pop( $woerter );
-		$vorne   = $woerter ? implode( ' ', $woerter ) . ' ' : '';
+		$letztes = (string) array_pop( $stuecke );
+		$vorne   = $stuecke ? implode( ' ', $stuecke ) . ' ' : '';
+
+		if ( '' !== BI_Suche::operatorwort( $letztes ) ) {
+			return array();
+		}
+		// Ein Vorzeichen bleibt stehen, der Rest wird ergänzt: „-arbeit" führt
+		// zu „-Arbeitsrecht", nicht zu „Arbeitsrecht".
+		$vorzeichen = '';
+		if ( preg_match( '/^[-!(]+/', $letztes, $m ) ) {
+			$vorzeichen = $m[0];
+			$letztes    = substr( $letztes, strlen( $m[0] ) );
+		}
+		// Ein abgeschlossenes Stück ist nichts Angefangenes mehr.
+		if ( '' === $letztes || preg_match( '/["\)]/', $letztes ) ) {
+			return array();
+		}
 
 		$out = array();
 		foreach ( BI_Suche::wort_vorschlaege( $letztes, $limit ) as $wort ) {
@@ -1690,7 +1748,7 @@ class BI_Filter {
 				'typ'    => 'wort',
 				'label'  => self::klartext( $wort ),
 				'zusatz' => '',
-				'q'      => self::klartext( $vorne . $wort ),
+				'q'      => self::klartext( $vorne . $vorzeichen . $wort ),
 			);
 		}
 		return $out;
