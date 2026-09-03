@@ -280,6 +280,47 @@ der Adresse, filtert er weiterhin. Sonst würden bestehende Links und
 Marketing-Kacheln in dem Moment still eine größere Treffermenge zeigen, in dem
 jemand den Haken entfernt.
 
+#### Eigene Chips („Schnellzugriff"): die Adresse einer Suche
+
+Unter *Einstellungen → Such-Filterleiste → Eigene Chips* steht je Zeile ein Name
+und die **Adresse einer Suche**. Ein Klick auf den Chip setzt genau deren Filter,
+ohne die Seite zu wechseln; ein zweiter Klick nimmt sie wieder zurück. Aus der
+Adresse zählt nur der Filterteil — die Seite, `utm_…` und `paged` fallen weg
+(`BI_Filter::url_params`).
+
+**Die Volltextsuche gehört dazu, samt Operatoren.** Steht beim Kopieren ein
+Suchbegriff im Feld, hängt er als `q=…` mit in der Adresse:
+
+| In der Adresszeile | Was der Chip sucht |
+|---|---|
+| `?q=%22BR+kompakt%3A%22` | `"BR kompakt:"` — genau diese Wortfolge |
+| `?q=bonn+ODER+berlin` | `bonn ODER berlin` |
+| `?q=arbeitsrecht+-online` | `arbeitsrecht -online` |
+| `?q=%28bonn+%7C+berlin%29+jav` | `(bonn \| berlin) jav` |
+
+Kopiert wird die Adresse so, wie sie im Browser steht — kodiert. Die Zeile unter
+dem Eingabefeld zeigt, was daraus gelesen wurde, und wie viele Seminare der Chip
+gerade träfe.
+
+> **Behoben in 1.126.1.** Bis 1.126.0 lief die eingegebene Adresse beim Speichern
+> durch `sanitize_text_field()` — und das entfernt **jede Prozentfolge**. Aus
+> `?q=%22BR+kompakt%3A%22` wurde damit `?q=BR+kompakt` (die Anführungszeichen der
+> Wortgruppe verschwanden) und aus `?ort=Sprockh%C3%B6vel` ein
+> `?ort=Sprockhvel`. Geprüft wurde beim Speichern die **rohe** Eingabe — deshalb
+> sah die Zeile unter dem Feld noch richtig aus und erst nach dem nächsten
+> Öffnen falsch. Gespeichert wird jetzt über `BI_Filter::url_saeubern()`: kaputtes
+> UTF-8, Steuerzeichen, HTML und Länge fliegen raus, die Kodierung bleibt.
+>
+> **Ein vorhandener Chip mit kodierten Zeichen muss einmal neu eingefügt
+> werden** — was beim Speichern verlorenging, steht nirgends mehr.
+>
+> Dass es so lange unbemerkt blieb, lag an der Attrappe im Test: Sie war
+> `trim(strip_tags(…))` und damit gutmütiger als WordPress. Eine Attrappe, die
+> mehr durchlässt als das Original, prüft nichts — sie bestätigt nur. Sie bildet
+> die Prozentfolgen-Falle jetzt nach.
+
+Geprüft in `tests/test-filterleiste-chips.php`.
+
 #### Seiten-Cache: das Plugin leert ihn selbst (seit 1.110.0)
 
 Ein Seiten-Cache liefert fertiges HTML aus, ohne PHP zu starten — auf einer
@@ -397,6 +438,10 @@ Die Tippfehler-Korrektur lässt Operatoren stehen und behält das Vorzeichen:
 aus `-arbeitsercht` wird `-Arbeitsrecht`, nicht `Arbeitsrecht`. Auch die
 Autovervollständigung ergänzt nur das angefangene Wort und rührt weder
 Operatorwörter noch ein gesetztes `-` an.
+
+Die Operatoren tragen auch über die Adresse: `?q=%22BR+kompakt%3A%22` ist eine
+gültige Suche und damit als **eigener Chip** speicherbar — siehe
+[Eigene Chips](#eigene-chips-schnellzugriff-die-adresse-einer-suche).
 
 Geprüft in `tests/test-suche-boolean.php`. Ausschalten lassen sich die
 Operatorwörter über den Filter `bi_suche_operatoren` (die Zeichen `-`, `"` und

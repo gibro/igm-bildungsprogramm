@@ -1076,6 +1076,15 @@ class BI_Settings {
 			zurück; was du daneben ausgewählt hast, bleibt stehen. Auch die reine Parameterliste
 			(<code>form=online&amp;thema=Arbeitsrecht</code>) wird angenommen.
 		</p>
+		<p class="description" style="max-width:1080px">
+			<strong>Auch die Volltextsuche gehört dazu.</strong> Steht beim Kopieren ein Suchbegriff im
+			Feld, hängt er als <code>q=…</code> mit in der Adresse – samt Booleschen Operatoren:
+			<code>q=&quot;BR kompakt:&quot;</code> (genau diese Wortfolge),
+			<code>q=bonn ODER berlin</code>, <code>q=arbeitsrecht -online</code>. In der Adresszeile
+			stehen diese Zeichen kodiert (<code>%22</code> für das Anführungszeichen,
+			<code>%3A</code> für den Doppelpunkt); kopiere sie ruhig so, wie sie dort stehen – die
+			Zeile darunter zeigt dir, was daraus gelesen wurde.
+		</p>
 
 		<table class="widefat striped" style="max-width:1080px;margin-bottom:8px">
 			<thead><tr>
@@ -1696,15 +1705,16 @@ class BI_Settings {
 				}
 				// Gespeichert wird die Adresse, wie sie eingegeben wurde: Sie ist
 				// das, was die Redaktion beim nächsten Öffnen wiedererkennt.
-				// Bewusst NICHT durch esc_url_raw: Erlaubt ist auch die reine
-				// Parameterliste (form=online&thema=…), und esc_url_raw machte
-				// daraus eine „Adresse" mit vorangestelltem http://, die niemand
-				// mehr auswerten kann. Gefährlich ist das nicht – die Angabe wird
-				// nie zu einem Link, sondern nur nach Filterparametern
-				// durchsucht (BI_Filter::url_params).
+				//
+				// WEDER esc_url_raw NOCH sanitize_text_field – beide zerstören
+				// hier etwas. Warum, steht bei BI_Filter::url_saeubern; kurz:
+				// sanitize_text_field entfernt jede Prozentfolge, und aus einer
+				// kopierten Adresse besteht die halbe Anfrage daraus. Bis
+				// 1.126.0 wurde so aus ?q=%22BR+kompakt%3A%22 beim Speichern
+				// ?q=BR+kompakt und aus ?ort=Sprockh%C3%B6vel ein ?ort=Sprockhvel.
 				$chips[ (int) $idx ] = array(
 					'label' => $label,
-					'url'   => sanitize_text_field( $url ),
+					'url'   => BI_Filter::url_saeubern( $url ),
 				);
 			}
 

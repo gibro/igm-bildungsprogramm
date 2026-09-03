@@ -140,6 +140,56 @@ class BI_Filter {
 	 * @param string $url Adresse oder Parameterliste.
 	 * @return array Parametername => Wert (unkodiert), in der Reihenfolge von query_params().
 	 */
+	/**
+	 * Wie lang eine gespeicherte Such-Adresse höchstens sein darf.
+	 *
+	 * Großzügig, weil eine Adresse mit mehreren Mehrfachauswahlen schnell lang
+	 * wird – aber nicht unbegrenzt: Das Feld nimmt entgegen, was in der
+	 * Zwischenablage lag, und das war nicht immer eine Adresse.
+	 */
+	const URL_MAX = 2000;
+
+	/**
+	 * Eine eingegebene Such-Adresse so säubern, dass sie gespeichert werden kann.
+	 *
+	 * NICHT MIT sanitize_text_field – DAS WAR DER FEHLER BIS 1.126.1: Die
+	 * Funktion entfernt jede Prozentfolge aus dem Text (`%22`, `%20`,
+	 * `%C3%B6`), und genau daraus besteht eine aus dem Browser kopierte
+	 * Adresse. Aus `?q=%22BR+kompakt%3A%22` wurde beim Speichern
+	 * `?q=BR+kompakt`: Die Anführungszeichen der Wortgruppe verschwanden, und
+	 * aus `?ort=Sprockh%C3%B6vel` wurde `?ort=Sprockhvel`. Geprüft wurde vorher
+	 * die rohe Eingabe – deshalb sah die Zeile unter dem Feld beim Speichern
+	 * noch richtig aus und erst nach dem nächsten Öffnen falsch.
+	 *
+	 * NICHT MIT esc_url_raw: Angenommen wird auch die reine Parameterliste
+	 * (`form=online&thema=…`), und esc_url_raw machte daraus eine „Adresse" mit
+	 * vorangestelltem `http://`, die niemand mehr auswerten kann. Außerdem wirft
+	 * es genau das Zeichen weg, das eine Wortgruppe braucht: das
+	 * Anführungszeichen.
+	 *
+	 * WARUM DAS UNGEFÄHRLICH IST: Die Angabe wird nie zu einem Link. Sie wird
+	 * ausschließlich nach bekannten Filterparametern durchsucht (url_params),
+	 * und dort geht jeder Wert einzeln – nach dem Dekodieren – durch
+	 * sanitize_text_field. Im Formular steht sie hinter esc_attr. Hier bleibt
+	 * deshalb nur, was eine Zeichenkette unbrauchbar machen würde: kaputtes
+	 * UTF-8, Steuerzeichen, HTML und Länge.
+	 */
+	public static function url_saeubern( $url ) {
+		$url = wp_check_invalid_utf8( (string) $url, true );
+		if ( false !== strpos( $url, '<' ) ) {
+			$url = wp_strip_all_tags( $url, false );
+		}
+		// Steuerzeichen raus; Zeilenumbrüche stammen aus der Zwischenablage,
+		// nicht aus der Adresse. Ein einfaches Leerzeichen darf bleiben: Wer die
+		// Adresse von Hand tippt, schreibt `?q="BR kompakt:"` ohne %20.
+		$url = (string) preg_replace( '/[\x00-\x1F\x7F]+/u', '', $url );
+		$url = trim( (string) preg_replace( '/\s+/u', ' ', $url ) );
+
+		return function_exists( 'mb_substr' )
+			? mb_substr( $url, 0, self::URL_MAX, 'UTF-8' )
+			: substr( $url, 0, self::URL_MAX );
+	}
+
 	public static function url_params( $url ) {
 		$url = trim( (string) $url );
 		if ( '' === $url ) {
