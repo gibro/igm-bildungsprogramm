@@ -167,16 +167,55 @@
     });
   }
 
+  /**
+   * Bedingung: Die Werteliste gehört zur gewählten Taxonomie. Beim Wechsel wird
+   * sie aus data-terms neu aufgebaut. Der gespeicherte Wert (data-current) bleibt
+   * wählbar, auch wenn er zu keinem Begriff passt – dann sichtbar markiert, damit
+   * ein Tippfehler aus alten Beständen nicht stumm verschwindet, sondern auffällt.
+   */
+  function syncCondValue(form) {
+    var tax = form.querySelector('#bi_cond_tax');
+    var sel = form.querySelector('.bi-cond-value');
+    if (!tax || !sel) return;
+
+    var lists = {};
+    try { lists = JSON.parse(sel.dataset.terms || '{}'); } catch (e) { lists = {}; }
+    var names = lists[tax.value] || [];
+    var chosen = sel.value;
+    var current = sel.dataset.current || '';
+
+    sel.innerHTML = '';
+    sel.appendChild(new Option('— Wert wählen —', ''));
+    if (current && names.indexOf(current) === -1) {
+      sel.appendChild(new Option(current + ' (kein solcher Begriff!)', current));
+    }
+    names.forEach(function (name) {
+      sel.appendChild(new Option(name, name));
+    });
+
+    // Bisherige Auswahl behalten, wenn es sie in der neuen Liste gibt – sonst
+    // den gespeicherten Wert, sonst leer.
+    var keep = [chosen, current].filter(function (v) {
+      return v && (names.indexOf(v) !== -1 || v === current);
+    });
+    sel.value = keep.length ? keep[0] : '';
+    sel.disabled = !tax.value;
+  }
+
   function initForm() {
     var form = document.querySelector('.bi-trigger-form');
     if (!form) return;
 
     syncRows(form);
+    syncCondValue(form);
     form.addEventListener('change', function (ev) {
       if (!ev.target.classList) return;
       if (ev.target.classList.contains('bi-trigger-type') ||
           ev.target.classList.contains('bi-trigger-schedule')) {
         syncRows(form);
+      }
+      if (ev.target.id === 'bi_cond_tax') {
+        syncCondValue(form);
       }
     });
   }

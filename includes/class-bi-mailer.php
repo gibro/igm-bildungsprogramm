@@ -16,7 +16,8 @@
  *   subject        Betreff (mit Platzhaltern)
  *   body           Text (mit Platzhaltern)
  *   cond_tax       Bedingung: Taxonomie-Slug (optional)
- *   cond_value     Bedingung: Term-Name (optional)
+ *   cond_value     Bedingung: Term-Name (optional). Verglichen wird nachsichtig
+ *                  über BI_Settings::norm(), siehe cond_value_matches().
  *   cond_op        Bedingung: 'is' = Seminar muss den Wert haben, 'not' = darf ihn nicht haben
  *   schedule       'instant' = sofort eine Mail je Anmeldung (Standard)
  *                  'weekly'  = Anmeldung wird gesammelt und einmal pro Woche als
@@ -623,8 +624,73 @@ class BI_Mailer {
 			return true;
 		}
 		$terms = wp_get_object_terms( $submission['seminar_id'], $trigger['cond_tax'], array( 'fields' => 'names' ) );
-		$has   = is_array( $terms ) && in_array( $trigger['cond_value'], $terms, true );
+		$has   = is_array( $terms ) && self::cond_value_matches( $trigger['cond_value'], $terms );
 		return ( 'not' === ( $trigger['cond_op'] ?? 'is' ) ) ? ! $has : $has;
+	}
+
+	/**
+	 * Trifft der Bedingungswert einen der Begriffsnamen?
+	 *
+	 * Verglichen wird nachsichtig – in derselben Vergleichsform, die das Plugin
+	 * überall dort benutzt, wo Freistellungen verglichen werden (BI_Settings::norm):
+	 * „§ 37,6 BetrVG", „§ 37 Abs. 6 BetrVG" und „§37.6 BetrVG" gelten als derselbe
+	 * Wert; Groß-/Kleinschreibung und Leerraum spielen keine Rolle. § 37,6 und
+	 * § 37,7 bleiben verschieden.
+	 *
+	 * Bis 1.127.1 wurde buchstäblich verglichen. Ein Wert, der vom Begriffsnamen
+	 * auch nur um ein Leerzeichen abwich, traf dann nie – die Benachrichtigung
+	 * blieb bei „hat" still aus und ging bei „nicht hat" immer raus. Der Fehler
+	 * war unsichtbar: nichts Falsches passierte, es fehlte nur eine Mail.
+	 *
+	 * Bewusst KEIN „enthält": „Betriebsrat" soll nicht auch „Betriebsratsvorsitzende"
+	 * treffen. Bruchstücke wie „37,6" fängt stattdessen die Auswahlliste in der
+	 * Bearbeiten-Maske ab, und die Warnung beim Speichern bzw. im Konsistenz-Check.
+	 *
+	 * @param string   $value Bedingungswert des Triggers.
+	 * @param string[] $names Begriffsnamen (des Seminars oder der ganzen Taxonomie).
+	 */
+	public static function cond_value_matches( $value, $names ) {
+		$key = BI_Settings::norm( $value );
+		if ( '' === $key ) {
+			return false;
+		}
+		foreach ( (array) $names as $name ) {
+			if ( BI_Settings::norm( $name ) === $key ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Alle Begriffsnamen einer Taxonomie – auch die, an denen gerade kein Seminar
+	 * hängt. Je Seitenaufruf einmal geladen; die Listentabelle fragt sonst für
+	 * jede Zeile neu.
+	 *
+	 * @return string[]
+	 */
+	public static function term_names( $tax ) {
+		static $cache = array();
+		if ( ! isset( $cache[ $tax ] ) ) {
+			$names = function_exists( 'get_terms' )
+				? get_terms( array( 'taxonomy' => $tax, 'hide_empty' => false, 'fields' => 'names' ) )
+				: array();
+			$cache[ $tax ] = is_array( $names ) ? array_values( $names ) : array();
+		}
+		return $cache[ $tax ];
+	}
+
+	/**
+	 * Gibt es zum Bedingungswert eines Triggers überhaupt einen Begriff?
+	 * Ohne Bedingung: true. Ein Trigger, dessen Wert keinem Begriff entspricht,
+	 * ist fast immer ein Tippfehler – und einer, der sich nur durch fehlende
+	 * Mails bemerkbar macht.
+	 */
+	public static function cond_term_exists( $t ) {
+		if ( empty( $t['cond_tax'] ) || empty( $t['cond_value'] ) ) {
+			return true;
+		}
+		return self::cond_value_matches( $t['cond_value'], self::term_names( $t['cond_tax'] ) );
 	}
 
 	/**
@@ -1545,7 +1611,6 @@ class BI_Mailer {
 
 		$triggers = self::get_triggers();
 		$taxes    = BI_CPT::taxonomies();
-		$notice   = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
 
 		$table = new BI_Mail_Table();
 		$table->prepare_items();
@@ -1555,9 +1620,7 @@ class BI_Mailer {
 			<a href="<?php echo esc_url( self::page_url( array( 'action' => 'new' ) ) ); ?>" class="page-title-action">Neu hinzufügen</a>
 			<hr class="wp-header-end">
 
-			<?php if ( $notice ) : ?>
-				<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
-			<?php endif; ?>
+			<?php echo self::url_notices(); // phpcs:ignore – intern escaped ?>
 
 			<p>Jede Benachrichtigung ist ein eigener Eintrag. Sie wird nach einer Anmeldung verschickt, sofern
 				sie aktiv ist und ihre Bedingung zutrifft – entweder <strong>sofort</strong> oder gesammelt als
@@ -1598,7 +1661,6 @@ class BI_Mailer {
 	private static function render_edit( $id ) {
 		$id     = (int) $id;
 		$taxes  = BI_CPT::taxonomies();
-		$notice = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
 		$t      = $id ? self::get_trigger( $id ) : null;
 
 		if ( $id && ! $t ) {
@@ -1621,9 +1683,7 @@ class BI_Mailer {
 			<a href="<?php echo esc_url( self::page_url() ); ?>" class="page-title-action">Zur Übersicht</a>
 			<hr class="wp-header-end">
 
-			<?php if ( $notice ) : ?>
-				<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
-			<?php endif; ?>
+			<?php echo self::url_notices(); // phpcs:ignore – intern escaped ?>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="bi-trigger-form">
 				<input type="hidden" name="action" value="bi_save_trigger">
@@ -1729,13 +1789,38 @@ class BI_Mailer {
 								<?php endforeach; ?>
 							</select>
 							den Wert
-							<input type="text" name="cond_value" value="<?php echo esc_attr( $t['cond_value'] ); ?>" placeholder="z. B. Datenschutz">
+							<?php
+							// Auswahlliste statt Freitext: Der Wert muss ein Begriffsname sein –
+							// bis 1.127.1 stand hier ein Textfeld, und ein Tippfehler („37,6" statt
+							// „§ 37,6 BetrVG") fiel erst auf, wenn Mails ausblieben. Die Listen
+							// aller Taxonomien kommen als JSON mit; mail-editor.js tauscht sie
+							// beim Wechsel der Taxonomie aus.
+							$term_lists = array();
+							foreach ( $taxes as $slug => $cfg ) {
+								$term_lists[ $slug ] = self::term_names( $slug );
+							}
+							$cur_list = $term_lists[ $t['cond_tax'] ] ?? array();
+							$cur_val  = (string) $t['cond_value'];
+							$cur_ok   = '' === $cur_val || in_array( $cur_val, $cur_list, true );
+							?>
+							<select name="cond_value" id="bi_cond_value" class="bi-cond-value"
+								data-terms="<?php echo esc_attr( wp_json_encode( $term_lists ) ); ?>"
+								data-current="<?php echo esc_attr( $cur_val ); ?>">
+								<option value="">— Wert wählen —</option>
+								<?php if ( ! $cur_ok ) : ?>
+									<option value="<?php echo esc_attr( $cur_val ); ?>" selected><?php echo esc_html( $cur_val ); ?> (kein solcher Begriff!)</option>
+								<?php endif; ?>
+								<?php foreach ( $cur_list as $name ) : ?>
+									<option value="<?php echo esc_attr( $name ); ?>" <?php selected( $cur_val, $name ); ?>><?php echo esc_html( $name ); ?></option>
+								<?php endforeach; ?>
+							</select>
 							<select name="cond_op">
 								<option value="is" <?php selected( $t['cond_op'] ?? 'is', 'is' ); ?>>hat</option>
 								<option value="not" <?php selected( $t['cond_op'] ?? 'is', 'not' ); ?>>nicht hat</option>
 							</select>
 							<p class="description">Ohne Bedingung wird diese Benachrichtigung bei <strong>jeder</strong> Anmeldung verschickt.
-								Sollen sich zwei Benachrichtigungen an denselben Empfänger gegenseitig ausschließen, gib ihnen
+								Die Liste zeigt die Begriffe, die es unter der gewählten Taxonomie gibt – genau so, wie sie an den
+								Seminaren stehen. Sollen sich zwei Benachrichtigungen an denselben Empfänger gegenseitig ausschließen, gib ihnen
 								gegenteilige Bedingungen auf denselben Wert – z. B. eine mit Bildungszentrum <em>hat</em>
 								„Kritische Akademie" und eine mit <em>nicht hat</em>. So greift bei jeder Anmeldung genau eine
 								der beiden.</p>
@@ -1947,7 +2032,8 @@ class BI_Mailer {
 		if ( ! empty( $t['cond_tax'] ) && ! empty( $t['cond_value'] ) ) {
 			$tax     = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
 			$op      = ( 'not' === ( $t['cond_op'] ?? 'is' ) ) ? '≠' : '=';
-			$parts[] = $tax . ' ' . $op . ' „' . $t['cond_value'] . '“';
+			$parts[] = $tax . ' ' . $op . ' „' . $t['cond_value'] . '“'
+				. ( self::cond_term_exists( $t ) ? '' : ' – Begriff nicht vorhanden!' );
 		}
 
 		return implode( ' · ', $parts );
@@ -2005,6 +2091,19 @@ class BI_Mailer {
 			}
 		}
 
+		// Ein Bedingungswert, zu dem es keinen Begriff gibt, ist fast immer ein
+		// Tippfehler – und einer, der sich nur durch fehlende Mails bemerkbar macht.
+		foreach ( $triggers as $t ) {
+			if ( empty( $t['active'] ) || self::cond_term_exists( $t ) ) {
+				continue;
+			}
+			$tax = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
+			$notices[] = sprintf(
+				'Wert nicht gefunden bei %s: Unter „%s“ gibt es keinen Begriff „%s“. Diese Benachrichtigung wird bei „hat“ nie und bei „nicht hat“ immer verschickt. In der Bearbeiten-Maske einen Wert aus der Liste wählen.',
+				$names( array( $t ) ), $tax, $t['cond_value']
+			);
+		}
+
 		foreach ( $groups as $gkey => $list ) {
 			list( $form, $key ) = array_pad( explode( '||', $gkey, 2 ), 2, '' );
 			$type  = strtok( $key, ':' );
@@ -2047,7 +2146,8 @@ class BI_Mailer {
 					for ( $j = $i + 1; $j < $n; $j++ ) {
 						$a = $cond[ $i ];
 						$b = $cond[ $j ];
-						if ( $a['cond_tax'] !== $b['cond_tax'] || $a['cond_value'] !== $b['cond_value'] ) {
+						// Dieselbe Nachsicht wie beim Versand: „§ 37,6 BetrVG“ und „§37.6 BetrVG“ sind ein Wert.
+						if ( $a['cond_tax'] !== $b['cond_tax'] || ! self::cond_value_matches( $a['cond_value'], array( $b['cond_value'] ) ) ) {
 							continue;
 						}
 						if ( ( $a['cond_op'] ?? 'is' ) === ( $b['cond_op'] ?? 'is' ) ) {
@@ -2115,12 +2215,24 @@ class BI_Mailer {
 			$data['active'] ? 'aktiv' : 'inaktiv'
 		);
 
+		// Gespeichert wird trotzdem – aber nicht stillschweigend: Ein Wert ohne
+		// Begriff fiele sonst erst auf, wenn Mails ausbleiben.
+		$warn = '';
+		if ( ! self::cond_term_exists( $data ) ) {
+			$taxes = BI_CPT::taxonomies();
+			$warn  = sprintf(
+				'Achtung: Unter „%s“ gibt es keinen Begriff „%s“. Diese Benachrichtigung wird bei „hat“ nie und bei „nicht hat“ immer verschickt. Bitte einen Wert aus der Liste wählen.',
+				$taxes[ $data['cond_tax'] ]['single'] ?? $data['cond_tax'],
+				$data['cond_value']
+			);
+		}
+
 		// „Speichern" bleibt in der Maske, „Speichern und zurück" geht in die Übersicht.
 		$after = sanitize_key( wp_unslash( $_POST['bi_after'] ?? 'stay' ) );
 		if ( 'list' === $after ) {
-			self::redirect_msg( $msg );
+			self::redirect_msg( $msg, array(), $warn );
 		}
-		self::redirect_msg( $msg, array( 'action' => 'edit', 'id' => $id ) );
+		self::redirect_msg( $msg, array( 'action' => 'edit', 'id' => $id ), $warn );
 	}
 
 	/** Darstellung (HTML-Fassung an/aus) – eigene Karte im Hero */
@@ -2470,9 +2582,28 @@ class BI_Mailer {
 	 *
 	 * @param string $msg  Meldung.
 	 * @param array  $args Zusätzliche Parameter, z. B. zurück in die Bearbeiten-Maske.
+	 * @param string $warn Zusätzliche Warnung (gelber Kasten), leer = keine.
 	 */
-	private static function redirect_msg( $msg, $args = array() ) {
-		wp_safe_redirect( self::page_url( array_merge( $args, array( 'bi_msg' => rawurlencode( $msg ) ) ) ) );
+	private static function redirect_msg( $msg, $args = array(), $warn = '' ) {
+		$args['bi_msg'] = rawurlencode( $msg );
+		if ( '' !== $warn ) {
+			$args['bi_warn'] = rawurlencode( $warn );
+		}
+		wp_safe_redirect( self::page_url( $args ) );
 		exit;
+	}
+
+	/** Meldungen aus der URL (nach einem Redirect) als Hinweiskästen. */
+	private static function url_notices() {
+		$msg  = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
+		$warn = isset( $_GET['bi_warn'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_warn'] ) ) : '';
+		$html = '';
+		if ( '' !== $msg ) {
+			$html .= '<div class="notice notice-success is-dismissible"><p>' . esc_html( $msg ) . '</p></div>';
+		}
+		if ( '' !== $warn ) {
+			$html .= '<div class="notice notice-warning"><p>' . esc_html( $warn ) . '</p></div>';
+		}
+		return $html;
 	}
 }
