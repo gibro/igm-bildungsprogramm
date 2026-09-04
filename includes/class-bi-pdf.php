@@ -153,7 +153,14 @@ class BI_PDF {
 
 		$terms = function ( $tax ) use ( $seminar_id ) {
 			$names = wp_get_object_terms( $seminar_id, $tax, array( 'fields' => 'names' ) );
-			return ( is_array( $names ) && $names ) ? implode( ', ', $names ) : '';
+			if ( ! is_array( $names ) || ! $names ) {
+				return '';
+			}
+			// Dieselbe Reihenfolge der Freistellungen wie auf der Detailseite.
+			if ( BI_TAX_FREI === $tax ) {
+				$names = BI_CPT::frei_sortiert( $names );
+			}
+			return implode( ', ', $names );
 		};
 
 		return array(

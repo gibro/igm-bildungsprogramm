@@ -363,6 +363,64 @@ class BI_CPT {
 	}
 
 	/**
+	 * Freistellungen in der Reihenfolge, in der sie einem Menschen gezeigt
+	 * werden – Detailseite und Seminardetails-PDF.
+	 *
+	 * Die Datenbank liefert die Begriffe alphabetisch, und alphabetisch steht
+	 * „Bildungsurlaub" vor jedem Paragrafen. Fachlich ist es andersherum:
+	 * § 37,6 BetrVG ist der Regelfall der Betriebsratsarbeit, § 179,4 SGB IX
+	 * sein Gegenstück für die Schwerbehindertenvertretung, dann Bildungsurlaub
+	 * bzw. Bildungszeit, dann § 37,7 BetrVG. Alles andere hängt sich dahinter
+	 * an, alphabetisch, damit die Ausgabe bei gleichen Daten gleich bleibt.
+	 *
+	 * Fest verdrahtet mit Absicht: Die Reihenfolge ist eine Aussage über das
+	 * Betriebsverfassungsrecht, keine Redaktionsentscheidung. Verglichen wird
+	 * über BI_Settings::norm() und „enthält", damit „§ 37,6 BetrVG",
+	 * „§ 37 Abs. 6 BetrVG" und „§ 37(6) BetrVG" dieselbe Stufe treffen – an
+	 * genau dieser Schreibweise ist der Vergleich im Regelwerk schon einmal
+	 * auseinandergelaufen.
+	 *
+	 * @param string[] $names Begriffsnamen, wie wp_get_object_terms sie liefert.
+	 * @return string[] Dieselben Namen, sortiert.
+	 */
+	public static function frei_sortiert( $names ) {
+		$names = array_values( (array) $names );
+		if ( count( $names ) < 2 ) {
+			return $names;
+		}
+
+		// Je Stufe alle Schreibweisen, die dort landen sollen. „Bildungsurlaub"
+		// findet auch „Bildungsurlaub/-zeit"; „Bildungszeit" steht daneben,
+		// weil manche Länder das Wort ohne „Urlaub" führen.
+		$stufen = array(
+			array( '§ 37,6 BetrVG' ),
+			array( '§ 179,4 SGB IX' ),
+			array( 'Bildungsurlaub', 'Bildungszeit' ),
+			array( '§ 37,7 BetrVG' ),
+		);
+		$hinten = count( $stufen );
+
+		$rang = function ( $name ) use ( $stufen, $hinten ) {
+			$key = BI_Settings::norm( $name );
+			foreach ( $stufen as $i => $schreibweisen ) {
+				foreach ( $schreibweisen as $s ) {
+					if ( false !== strpos( $key, BI_Settings::norm( $s ) ) ) {
+						return $i;
+					}
+				}
+			}
+			return $hinten;
+		};
+
+		usort( $names, function ( $a, $b ) use ( $rang ) {
+			$ra = $rang( $a );
+			$rb = $rang( $b );
+			return ( $ra === $rb ) ? strcasecmp( $a, $b ) : $ra - $rb;
+		} );
+		return $names;
+	}
+
+	/**
 	 * Welche Begriffe im Auswahlfeld „Zuständiges Bildungszentrum" stehen dürfen.
 	 *
 	 * Bei Präsenz-Seminaren führt bi_ort das zuständige Bildungszentrum. Hotels,

@@ -1304,6 +1304,14 @@ class BI_Detail {
 
 	private static function term_list( $post_id, $tax, $sep = ', ' ) {
 		$names = wp_get_object_terms( $post_id, $tax, array( 'fields' => 'names' ) );
-		return ( is_array( $names ) && $names ) ? implode( $sep, $names ) : '';
+		if ( ! is_array( $names ) || ! $names ) {
+			return '';
+		}
+		// Freistellungen nicht alphabetisch, sondern in der fachlichen
+		// Reihenfolge – siehe BI_CPT::frei_sortiert().
+		if ( BI_TAX_FREI === $tax ) {
+			$names = BI_CPT::frei_sortiert( $names );
+		}
+		return implode( $sep, $names );
 	}
 }

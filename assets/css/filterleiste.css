@@ -161,6 +161,19 @@
   color: var(--bi-text) !important;
 }
 
+/* Elementor-Kit setzt auf alle Buttons einen Textschatten (rgba(0,0,0,.3) 0 0 10px) –
+   in der Such-/Filterbox wirkt der wie ein Schleier hinter den Wörtern, daher aus */
+.bi-filter button,
+.bi-filter input[type="button"],
+.bi-filter input[type="submit"],
+.bi-filter .bi-quick-btn,
+.bi-filter .bi-trigger,
+.bi-filter .bi-opt,
+.bi-filter .bi-preset,
+.bi-filter .bi-submit-btn {
+  text-shadow: none !important;
+}
+
 /* Mehrzeilige Beschriftungen zulassen (z. B. lange Bildungszentrum-Namen) */
 .bi-trigger,
 .bi-opt {
