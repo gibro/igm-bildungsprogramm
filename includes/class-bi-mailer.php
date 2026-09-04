@@ -15,10 +15,13 @@
  *                  gehen an den Absender. Mehrere Adressen mit Komma trennen.
  *   subject        Betreff (mit Platzhaltern)
  *   body           Text (mit Platzhaltern)
- *   cond_tax       Bedingung: Taxonomie-Slug (optional)
- *   cond_value     Bedingung: Term-Name (optional). Verglichen wird nachsichtig
+ *   cond_tax       Bedingung: Quelle (optional) – ein Taxonomie-Slug (Begriffe am
+ *                  Seminar) oder COND_ANMELDUNG_FREI (die Freistellung, die die
+ *                  Person im Anmeldeformular gewählt hat).
+ *   cond_value     Bedingung: ein oder mehrere Werte, mit „|" getrennt (optional).
+ *                  Mehrere Werte sind ein „oder". Verglichen wird nachsichtig
  *                  über BI_Settings::norm(), siehe cond_value_matches().
- *   cond_op        Bedingung: 'is' = Seminar muss den Wert haben, 'not' = darf ihn nicht haben
+ *   cond_op        Bedingung: 'is' = mindestens ein Wert trifft zu, 'not' = keiner
  *   schedule       'instant' = sofort eine Mail je Anmeldung (Standard)
  *                  'weekly'  = Anmeldung wird gesammelt und einmal pro Woche als
  *                              Zusammenfassung verschickt
@@ -614,22 +617,60 @@ class BI_Mailer {
 		}
 	}
 
+	/**
+	 * Quelle einer Bedingung, die nicht am Seminar hängt, sondern an der Anmeldung:
+	 * die Freistellung, die die Person im Formular gewählt hat. Ein Seminar kann
+	 * § 37,6 UND Bildungsurlaub anbieten – erst die Wahl im Formular sagt, wer
+	 * die Kosten trägt und wer deshalb informiert werden muss.
+	 */
+	const COND_ANMELDUNG_FREI = 'anmeldung:freistellung';
+
 	private static function condition_met( $trigger, $submission ) {
 		// Seminarform: leer = beide. Ohne diese Prüfung würde jede Präsenz-Vorlage
 		// auch bei Online-Anmeldungen feuern (und umgekehrt).
 		if ( ! self::form_matches( $trigger, $submission ) ) {
 			return false;
 		}
-		if ( empty( $trigger['cond_tax'] ) || empty( $trigger['cond_value'] ) ) {
+		$values = self::cond_values( $trigger );
+		if ( empty( $trigger['cond_tax'] ) || ! $values ) {
 			return true;
 		}
-		$terms = wp_get_object_terms( $submission['seminar_id'], $trigger['cond_tax'], array( 'fields' => 'names' ) );
-		$has   = is_array( $terms ) && self::cond_value_matches( $trigger['cond_value'], $terms );
+		$has = self::cond_value_matches( $values, self::cond_actual( $trigger['cond_tax'], $submission ) );
 		return ( 'not' === ( $trigger['cond_op'] ?? 'is' ) ) ? ! $has : $has;
 	}
 
 	/**
-	 * Trifft der Bedingungswert einen der Begriffsnamen?
+	 * Die Werte einer Bedingung als Liste. Gespeichert wird „A|B|C“ – ein
+	 * einzelner Wert aus dem Altbestand ist schlicht eine Liste mit einem Eintrag.
+	 *
+	 * @return string[]
+	 */
+	public static function cond_values( $t ) {
+		$raw  = $t['cond_value'] ?? '';
+		$list = is_array( $raw ) ? $raw : explode( '|', (string) $raw );
+		return array_values( array_unique( array_filter( array_map( 'trim', $list ), 'strlen' ) ) );
+	}
+
+	/**
+	 * Was hat die Anmeldung (bzw. ihr Seminar) für diese Quelle tatsächlich?
+	 *
+	 * @return string[] Begriffsnamen am Seminar oder die gewählte Freistellung (0–1 Einträge).
+	 */
+	private static function cond_actual( $source, $submission ) {
+		if ( self::COND_ANMELDUNG_FREI === $source ) {
+			$d = $submission['data'] ?? array();
+			if ( is_string( $d ) ) {
+				$d = json_decode( $d, true );
+			}
+			$v = is_array( $d ) ? trim( (string) ( $d['freistellung'] ?? '' ) ) : '';
+			return '' === $v ? array() : array( $v );
+		}
+		$terms = wp_get_object_terms( (int) $submission['seminar_id'], $source, array( 'fields' => 'names' ) );
+		return is_array( $terms ) ? $terms : array();
+	}
+
+	/**
+	 * Trifft mindestens einer der Bedingungswerte einen der vorhandenen Namen?
 	 *
 	 * Verglichen wird nachsichtig – in derselben Vergleichsform, die das Plugin
 	 * überall dort benutzt, wo Freistellungen verglichen werden (BI_Settings::norm):
@@ -646,16 +687,22 @@ class BI_Mailer {
 	 * treffen. Bruchstücke wie „37,6" fängt stattdessen die Auswahlliste in der
 	 * Bearbeiten-Maske ab, und die Warnung beim Speichern bzw. im Konsistenz-Check.
 	 *
-	 * @param string   $value Bedingungswert des Triggers.
-	 * @param string[] $names Begriffsnamen (des Seminars oder der ganzen Taxonomie).
+	 * @param string|string[] $values Bedingungswert(e) des Triggers.
+	 * @param string[]        $names  Vorhandene Namen (am Seminar, in der Anmeldung, in der Taxonomie).
 	 */
-	public static function cond_value_matches( $value, $names ) {
-		$key = BI_Settings::norm( $value );
-		if ( '' === $key ) {
+	public static function cond_value_matches( $values, $names ) {
+		$keys = array();
+		foreach ( (array) $values as $v ) {
+			$k = BI_Settings::norm( $v );
+			if ( '' !== $k ) {
+				$keys[ $k ] = true;
+			}
+		}
+		if ( ! $keys ) {
 			return false;
 		}
 		foreach ( (array) $names as $name ) {
-			if ( BI_Settings::norm( $name ) === $key ) {
+			if ( isset( $keys[ BI_Settings::norm( $name ) ] ) ) {
 				return true;
 			}
 		}
@@ -681,18 +728,63 @@ class BI_Mailer {
 	}
 
 	/**
-	 * Gibt es zum Bedingungswert eines Triggers überhaupt einen Begriff?
-	 * Ohne Bedingung: true. Ein Trigger, dessen Wert keinem Begriff entspricht,
-	 * ist fast immer ein Tippfehler – und einer, der sich nur durch fehlende
-	 * Mails bemerkbar macht.
+	 * Welche Werte kann eine Quelle überhaupt annehmen? Für Taxonomien die
+	 * Begriffe; für die Freistellung laut Anmeldung die Begriffe plus die feste
+	 * Liste, auf die das Formular zurückfällt, wenn am Seminar nichts gepflegt ist.
+	 *
+	 * @return string[]
 	 */
-	public static function cond_term_exists( $t ) {
-		if ( empty( $t['cond_tax'] ) || empty( $t['cond_value'] ) ) {
-			return true;
+	public static function cond_options( $source ) {
+		if ( self::COND_ANMELDUNG_FREI === $source ) {
+			$list = self::term_names( BI_TAX_FREI );
+			if ( method_exists( 'BI_Registration', 'freistellung_kanon' ) ) {
+				$list = array_merge( $list, BI_Registration::freistellung_kanon() );
+			}
+			return array_values( array_unique( $list ) );
 		}
-		return self::cond_value_matches( $t['cond_value'], self::term_names( $t['cond_tax'] ) );
+		return self::term_names( $source );
 	}
 
+	/** Alle Quellen für die Auswahl „nur senden, wenn …“: Anmeldung zuerst, dann die Taxonomien. */
+	public static function cond_sources( $taxes ) {
+		$out = array( self::COND_ANMELDUNG_FREI => 'Freistellung laut Anmeldung' );
+		foreach ( $taxes as $slug => $cfg ) {
+			$out[ $slug ] = $cfg['single'];
+		}
+		return $out;
+	}
+
+	/** Lesbarer Name einer Quelle. */
+	public static function cond_source_label( $source, $taxes ) {
+		$all = self::cond_sources( $taxes );
+		return $all[ $source ] ?? (string) $source;
+	}
+
+	/**
+	 * Bedingungswerte, zu denen es keinen Begriff gibt. Ein solcher Wert ist fast
+	 * immer ein Tippfehler – und einer, der sich nur durch fehlende Mails
+	 * bemerkbar macht.
+	 *
+	 * @return string[] leer = alles in Ordnung (auch ohne Bedingung).
+	 */
+	public static function cond_unknown_values( $t ) {
+		if ( empty( $t['cond_tax'] ) ) {
+			return array();
+		}
+		$known = self::cond_options( $t['cond_tax'] );
+		$bad   = array();
+		foreach ( self::cond_values( $t ) as $v ) {
+			if ( ! self::cond_value_matches( $v, $known ) ) {
+				$bad[] = $v;
+			}
+		}
+		return $bad;
+	}
+
+	/** Gibt es zu jedem Bedingungswert einen Begriff? Ohne Bedingung: true. */
+	public static function cond_term_exists( $t ) {
+		return ! self::cond_unknown_values( $t );
+	}
 	/**
 	 * Gilt diese Benachrichtigung für die Seminarform der Anmeldung?
 	 * Feld cond_form: leer = beide Formen, sonst der Beitragstyp.
@@ -1781,49 +1873,57 @@ class BI_Mailer {
 					<tr>
 						<th><label for="bi_cond_tax">Bedingung</label></th>
 						<td>
-							nur senden, wenn Seminar in
+							nur senden, wenn
 							<select id="bi_cond_tax" name="cond_tax">
 								<option value="">— keine Bedingung —</option>
+								<optgroup label="Aus der Anmeldung">
+									<option value="<?php echo esc_attr( self::COND_ANMELDUNG_FREI ); ?>" <?php selected( $t['cond_tax'], self::COND_ANMELDUNG_FREI ); ?>>Freistellung laut Anmeldung</option>
+								</optgroup>
+								<optgroup label="Am Seminar">
 								<?php foreach ( $taxes as $slug => $cfg ) : ?>
 									<option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $t['cond_tax'], $slug ); ?>><?php echo esc_html( $cfg['single'] ); ?></option>
 								<?php endforeach; ?>
+								</optgroup>
 							</select>
-							den Wert
+							<select name="cond_op">
+								<option value="is" <?php selected( $t['cond_op'] ?? 'is', 'is' ); ?>>einen dieser Werte hat</option>
+								<option value="not" <?php selected( $t['cond_op'] ?? 'is', 'not' ); ?>>keinen dieser Werte hat</option>
+							</select>
 							<?php
 							// Auswahlliste statt Freitext: Der Wert muss ein Begriffsname sein –
 							// bis 1.127.1 stand hier ein Textfeld, und ein Tippfehler („37,6" statt
 							// „§ 37,6 BetrVG") fiel erst auf, wenn Mails ausblieben. Die Listen
-							// aller Taxonomien kommen als JSON mit; mail-editor.js tauscht sie
-							// beim Wechsel der Taxonomie aus.
+							// aller Quellen kommen als JSON mit; mail-editor.js tauscht sie
+							// beim Wechsel der Quelle aus. Mehrfachauswahl = „oder“.
 							$term_lists = array();
-							foreach ( $taxes as $slug => $cfg ) {
-								$term_lists[ $slug ] = self::term_names( $slug );
+							foreach ( array_keys( self::cond_sources( $taxes ) ) as $src ) {
+								$term_lists[ $src ] = self::cond_options( $src );
 							}
 							$cur_list = $term_lists[ $t['cond_tax'] ] ?? array();
-							$cur_val  = (string) $t['cond_value'];
-							$cur_ok   = '' === $cur_val || in_array( $cur_val, $cur_list, true );
+							$cur_vals = self::cond_values( $t );
+							$cur_bad  = array_values( array_diff( $cur_vals, $cur_list ) );
 							?>
-							<select name="cond_value" id="bi_cond_value" class="bi-cond-value"
+							<br>
+							<select name="cond_value[]" id="bi_cond_value" class="bi-cond-value" multiple size="8" style="min-width:320px;margin-top:6px"
 								data-terms="<?php echo esc_attr( wp_json_encode( $term_lists ) ); ?>"
-								data-current="<?php echo esc_attr( $cur_val ); ?>">
-								<option value="">— Wert wählen —</option>
-								<?php if ( ! $cur_ok ) : ?>
-									<option value="<?php echo esc_attr( $cur_val ); ?>" selected><?php echo esc_html( $cur_val ); ?> (kein solcher Begriff!)</option>
-								<?php endif; ?>
+								data-current="<?php echo esc_attr( wp_json_encode( $cur_vals ) ); ?>">
+								<?php foreach ( $cur_bad as $v ) : ?>
+									<option value="<?php echo esc_attr( $v ); ?>" selected><?php echo esc_html( $v ); ?> (kein solcher Begriff!)</option>
+								<?php endforeach; ?>
 								<?php foreach ( $cur_list as $name ) : ?>
-									<option value="<?php echo esc_attr( $name ); ?>" <?php selected( $cur_val, $name ); ?>><?php echo esc_html( $name ); ?></option>
+									<option value="<?php echo esc_attr( $name ); ?>" <?php selected( in_array( $name, $cur_vals, true ) ); ?>><?php echo esc_html( $name ); ?></option>
 								<?php endforeach; ?>
 							</select>
-							<select name="cond_op">
-								<option value="is" <?php selected( $t['cond_op'] ?? 'is', 'is' ); ?>>hat</option>
-								<option value="not" <?php selected( $t['cond_op'] ?? 'is', 'not' ); ?>>nicht hat</option>
-							</select>
 							<p class="description">Ohne Bedingung wird diese Benachrichtigung bei <strong>jeder</strong> Anmeldung verschickt.
-								Die Liste zeigt die Begriffe, die es unter der gewählten Taxonomie gibt – genau so, wie sie an den
-								Seminaren stehen. Sollen sich zwei Benachrichtigungen an denselben Empfänger gegenseitig ausschließen, gib ihnen
-								gegenteilige Bedingungen auf denselben Wert – z. B. eine mit Bildungszentrum <em>hat</em>
-								„Kritische Akademie" und eine mit <em>nicht hat</em>. So greift bei jeder Anmeldung genau eine
-								der beiden.</p>
+								Mehrere Werte mit Strg- bzw. Cmd-Klick wählen: Bei „einen dieser Werte hat“ genügt es, wenn <em>einer</em>
+								zutrifft („oder“); bei „keinen dieser Werte hat“ darf keiner zutreffen.
+								<strong>Freistellung laut Anmeldung</strong> ist das, was die Person im Formular gewählt hat – bietet ein
+								Seminar § 37,6 <em>und</em> Bildungsurlaub an, entscheidet erst diese Wahl, wer die Kosten trägt.
+								Die Werte „am Seminar“ sind dagegen die Begriffe, die am Seminar selbst gepflegt sind.
+								Sollen sich zwei Benachrichtigungen an denselben Empfänger gegenseitig ausschließen, gib ihnen
+								gegenteilige Bedingungen auf dieselben Werte – z. B. eine mit „einen dieser Werte hat“
+								„§ 37,6 BetrVG“, „§ 179,4 SGB IX“ und eine mit „keinen dieser Werte hat“ auf dieselben beiden.
+								So greift bei jeder Anmeldung genau eine der beiden.</p>
 						</td>
 					</tr>
 					<tr>
@@ -2029,11 +2129,20 @@ class BI_Mailer {
 			$parts[] = ( BI_ONLINE === $form ) ? 'nur Online-Seminare' : 'nur Präsenz-Seminare';
 		}
 
-		if ( ! empty( $t['cond_tax'] ) && ! empty( $t['cond_value'] ) ) {
-			$tax     = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
-			$op      = ( 'not' === ( $t['cond_op'] ?? 'is' ) ) ? '≠' : '=';
-			$parts[] = $tax . ' ' . $op . ' „' . $t['cond_value'] . '“'
-				. ( self::cond_term_exists( $t ) ? '' : ' – Begriff nicht vorhanden!' );
+		$values = self::cond_values( $t );
+		if ( ! empty( $t['cond_tax'] ) && $values ) {
+			$src  = self::cond_source_label( $t['cond_tax'], $taxes );
+			$not  = ( 'not' === ( $t['cond_op'] ?? 'is' ) );
+			$q    = array_map( function ( $v ) { return '„' . $v . '“'; }, $values );
+			// Mehrere Werte: „hat A oder B“ bzw. „hat weder A noch B“.
+			$list = ( count( $q ) > 1 )
+				? implode( $not ? ' noch ' : ' oder ', $q )
+				: $q[0];
+			$parts[] = $src . ' ' . ( $not ? ( count( $q ) > 1 ? 'weder ' : '≠ ' ) : '= ' ) . $list;
+			$bad = self::cond_unknown_values( $t );
+			if ( $bad ) {
+				$parts[] = 'kein solcher Begriff: „' . implode( '“, „', $bad ) . '“!';
+			}
 		}
 
 		return implode( ' · ', $parts );
@@ -2094,13 +2203,16 @@ class BI_Mailer {
 		// Ein Bedingungswert, zu dem es keinen Begriff gibt, ist fast immer ein
 		// Tippfehler – und einer, der sich nur durch fehlende Mails bemerkbar macht.
 		foreach ( $triggers as $t ) {
-			if ( empty( $t['active'] ) || self::cond_term_exists( $t ) ) {
+			if ( empty( $t['active'] ) ) {
 				continue;
 			}
-			$tax = isset( $taxes[ $t['cond_tax'] ] ) ? $taxes[ $t['cond_tax'] ]['single'] : $t['cond_tax'];
+			$bad = self::cond_unknown_values( $t );
+			if ( ! $bad ) {
+				continue;
+			}
 			$notices[] = sprintf(
-				'Wert nicht gefunden bei %s: Unter „%s“ gibt es keinen Begriff „%s“. Diese Benachrichtigung wird bei „hat“ nie und bei „nicht hat“ immer verschickt. In der Bearbeiten-Maske einen Wert aus der Liste wählen.',
-				$names( array( $t ) ), $tax, $t['cond_value']
+				'Wert nicht gefunden bei %s: Unter „%s“ gibt es keinen Begriff „%s“. Ein solcher Wert trifft nie zu – bei „hat“ fehlt die Mail, bei „nicht hat“ kommt sie immer. In der Bearbeiten-Maske die Werte aus der Liste wählen.',
+				$names( array( $t ) ), self::cond_source_label( $t['cond_tax'], $taxes ), implode( '“, „', $bad )
 			);
 		}
 
@@ -2139,39 +2251,168 @@ class BI_Mailer {
 				);
 			}
 			if ( ! $uncond && $cond ) {
-				$covered = false;
-				$dupes   = array();
-				$n       = count( $cond );
-				for ( $i = 0; $i < $n; $i++ ) {
-					for ( $j = $i + 1; $j < $n; $j++ ) {
-						$a = $cond[ $i ];
-						$b = $cond[ $j ];
-						// Dieselbe Nachsicht wie beim Versand: „§ 37,6 BetrVG“ und „§37.6 BetrVG“ sind ein Wert.
-						if ( $a['cond_tax'] !== $b['cond_tax'] || ! self::cond_value_matches( $a['cond_value'], array( $b['cond_value'] ) ) ) {
-							continue;
-						}
-						if ( ( $a['cond_op'] ?? 'is' ) === ( $b['cond_op'] ?? 'is' ) ) {
-							$dupes = array( $a, $b );
-						} else {
-							$covered = true; // komplementäres Paar: hat / nicht hat auf denselben Wert
-						}
-					}
+				$notices = array_merge( $notices, self::coverage_notices( $label, $cond, $names, $taxes ) );
+			}
+		}
+		return $notices;
+	}
+
+	/**
+	 * Lücken und Überschneidungen zwischen Benachrichtigungen MIT Bedingung an
+	 * denselben Empfänger – gerechnet je möglichem Wert.
+	 *
+	 * Beispiel: „hat § 37,6 oder § 179,4“ und „hat § 37,7 oder Bildungsurlaub“ –
+	 * dann bleibt „keine Freistellung“ ohne Mail, und genau das steht im Hinweis.
+	 * Ein Paar „hat X“ / „nicht hat X“ deckt alles ab; das war bis 1.128.0 die
+	 * einzige Form, die der Check als vollständig erkannte.
+	 *
+	 * Gerechnet wird je Wert, als hätte jede Anmeldung genau einen. Für die
+	 * Freistellung laut Anmeldung stimmt das (ein Auswahlfeld). Für Begriffe am
+	 * Seminar ist es eine Näherung: Ein Seminar mit zwei Begriffen kann zwei
+	 * „hat“-Bedingungen zugleich treffen.
+	 *
+	 * Haben die Bedingungen verschiedene Quellen, lässt sich nichts je Wert
+	 * rechnen – dann bleibt nur der allgemeine Hinweis.
+	 *
+	 * @param string   $label Empfänger (für den Text).
+	 * @param array[]  $cond  Aktive Trigger mit Bedingung an diesen Empfänger.
+	 * @param callable $names Formatiert Trigger-Namen.
+	 * @return string[]
+	 */
+	private static function coverage_notices( $label, $cond, $names, $taxes ) {
+		$out     = array();
+		$sources = array_unique( array_map( function ( $t ) { return $t['cond_tax']; }, $cond ) );
+
+		if ( 1 !== count( $sources ) ) {
+			$out[] = sprintf(
+				'Lücke möglich bei %s: Alle Benachrichtigungen an diesen Empfänger (%s) haben Bedingungen aus verschiedenen Quellen. Anmeldungen, bei denen keine davon zutrifft, lösen keine Mail an ihn aus.',
+				$label, $names( $cond )
+			);
+			return $out;
+		}
+
+		$source = reset( $sources );
+		// Wertebereich: alle bekannten Werte plus die Werte der Bedingungen selbst
+		// (falls einer nicht bekannt ist, meldet das schon „Wert nicht gefunden“).
+		$domain = array(); // norm-Schlüssel => Anzeigename
+		foreach ( self::cond_options( $source ) as $v ) {
+			$domain[ BI_Settings::norm( $v ) ] = $v;
+		}
+		foreach ( $cond as $t ) {
+			foreach ( self::cond_values( $t ) as $v ) {
+				$k = BI_Settings::norm( $v );
+				if ( '' !== $k && ! isset( $domain[ $k ] ) ) {
+					$domain[ $k ] = $v;
 				}
-				if ( $dupes ) {
-					$notices[] = sprintf(
-						'Doppelte Bedingung bei %s: %s haben dieselbe Bedingung und werden immer gemeinsam verschickt.',
-						$label, $names( $dupes )
-					);
+			}
+		}
+		unset( $domain[''] );
+
+		// Je Trigger: welche Schlüssel deckt er ab?
+		$covers = array(); // trigger-index => [key => true]
+		foreach ( $cond as $i => $t ) {
+			$own = array();
+			foreach ( self::cond_values( $t ) as $v ) {
+				$own[ BI_Settings::norm( $v ) ] = true;
+			}
+			$not = ( 'not' === ( $t['cond_op'] ?? 'is' ) );
+			$set = array();
+			foreach ( $domain as $k => $name ) {
+				if ( isset( $own[ $k ] ) !== $not ) {
+					$set[ $k ] = true;
 				}
-				if ( ! $covered ) {
-					$notices[] = sprintf(
-						'Lücke möglich bei %s: Alle Benachrichtigungen an diesen Empfänger (%s) haben Bedingungen. Anmeldungen, bei denen keine davon zutrifft, lösen keine Mail an ihn aus. Falls ungewollt: ein Paar mit „hat“ / „nicht hat“ auf denselben Wert anlegen.',
-						$label, $names( $cond )
+			}
+			$covers[ $i ] = $set;
+		}
+
+		// Doppel: zwei Trigger decken exakt dasselbe ab.
+		$n = count( $cond );
+		for ( $i = 0; $i < $n; $i++ ) {
+			for ( $j = $i + 1; $j < $n; $j++ ) {
+				if ( $covers[ $i ] === $covers[ $j ] && $covers[ $i ] ) {
+					$out[] = sprintf(
+						'Doppelte Bedingung bei %s: %s decken dieselben Werte ab und werden immer gemeinsam verschickt.',
+						$label, $names( array( $cond[ $i ], $cond[ $j ] ) )
 					);
 				}
 			}
 		}
-		return $notices;
+
+		// Überschneidung: ein Wert, den mehrere (nicht identische) Trigger treffen.
+		$overlap = array();
+		foreach ( $domain as $k => $name ) {
+			$hits = array();
+			foreach ( $covers as $i => $set ) {
+				if ( isset( $set[ $k ] ) ) {
+					$hits[] = $i;
+				}
+			}
+			if ( count( $hits ) > 1 ) {
+				$identical = true;
+				foreach ( $hits as $h ) {
+					if ( $covers[ $h ] !== $covers[ $hits[0] ] ) {
+						$identical = false;
+					}
+				}
+				if ( ! $identical ) {
+					$overlap[] = '„' . $name . '“';
+				}
+			}
+		}
+		if ( $overlap ) {
+			$out[] = sprintf(
+				'Überschneidung bei %s: Bei %s treffen mehrere Bedingungen zu – es gehen mehrere Mails an denselben Empfänger.',
+				$label, implode( ', ', $overlap )
+			);
+		}
+
+		// Lücke: Werte, die kein Trigger trifft.
+		$gap = array();
+		foreach ( $domain as $k => $name ) {
+			$hit = false;
+			foreach ( $covers as $set ) {
+				if ( isset( $set[ $k ] ) ) {
+					$hit = true;
+					break;
+				}
+			}
+			if ( ! $hit ) {
+				$gap[] = $name;
+			}
+		}
+		if ( $gap ) {
+			// Ein „nicht hat“ fängt Anmeldungen ohne Wert mit ab – der Nachsatz
+			// gilt nur, wenn alle Bedingungen „hat“ sind.
+			$ohne = '';
+			if ( ! self::has_not_trigger( $cond ) ) {
+				$ohne = ( self::COND_ANMELDUNG_FREI === $source )
+					? ' Dasselbe gilt für Anmeldungen ohne Freistellungsangabe.'
+					: ' Dasselbe gilt für Seminare ohne einen solchen Begriff.';
+			}
+			$out[] = sprintf(
+				'Lücke bei %s: Bei %s „%s“ bekommt dieser Empfänger keine Mail – keine Bedingung von %s trifft dann zu.%s',
+				$label, self::cond_source_label( $source, $taxes ), implode( '“, „', $gap ), $names( $cond ), $ohne
+			);
+		} elseif ( ! self::has_not_trigger( $cond ) ) {
+			// Alles abgedeckt, aber nur über „hat“: Eine Anmeldung ganz ohne Wert
+			// fällt trotzdem durch. Bei der Freistellung laut Anmeldung ist das nur
+			// möglich, wenn das Formular das Feld nicht verlangt.
+			$out[] = sprintf(
+				'Hinweis zu %s: Alle Werte sind abgedeckt. Nur %s lösen keine Mail aus – dafür bräuchte eine der Bedingungen ein „nicht hat“.',
+				$label,
+				( self::COND_ANMELDUNG_FREI === $source ) ? 'Anmeldungen ohne Freistellungsangabe (falls das Formular das Feld nicht verlangt)' : 'Seminare ohne einen solchen Begriff'
+			);
+		}
+		return $out;
+	}
+
+	private static function has_not_trigger( $cond ) {
+		foreach ( $cond as $t ) {
+			if ( 'not' === ( $t['cond_op'] ?? 'is' ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Eine Benachrichtigung speichern (Bearbeiten-Maske) */
@@ -2198,7 +2439,8 @@ class BI_Mailer {
 			'subject'        => sanitize_text_field( $row['subject'] ?? '' ),
 			'body'           => sanitize_textarea_field( $row['body'] ?? '' ),
 			'cond_tax'       => sanitize_text_field( $row['cond_tax'] ?? '' ),
-			'cond_value'     => sanitize_text_field( $row['cond_value'] ?? '' ),
+			// Mehrere Werte (Auswahlliste mit Mehrfachauswahl) werden als „A|B“ abgelegt.
+			'cond_value'     => implode( '|', array_filter( array_map( 'sanitize_text_field', (array) ( $row['cond_value'] ?? array() ) ), 'strlen' ) ),
 			'cond_op'        => ( 'not' === ( $row['cond_op'] ?? 'is' ) ) ? 'not' : 'is',
 			'cond_form'      => in_array( $row['cond_form'] ?? '', bi_seminar_post_types(), true ) ? $row['cond_form'] : '',
 			'schedule'       => ( 'weekly' === ( $row['schedule'] ?? 'instant' ) ) ? 'weekly' : 'instant',
@@ -2218,12 +2460,12 @@ class BI_Mailer {
 		// Gespeichert wird trotzdem – aber nicht stillschweigend: Ein Wert ohne
 		// Begriff fiele sonst erst auf, wenn Mails ausbleiben.
 		$warn = '';
-		if ( ! self::cond_term_exists( $data ) ) {
-			$taxes = BI_CPT::taxonomies();
-			$warn  = sprintf(
-				'Achtung: Unter „%s“ gibt es keinen Begriff „%s“. Diese Benachrichtigung wird bei „hat“ nie und bei „nicht hat“ immer verschickt. Bitte einen Wert aus der Liste wählen.',
-				$taxes[ $data['cond_tax'] ]['single'] ?? $data['cond_tax'],
-				$data['cond_value']
+		$bad  = self::cond_unknown_values( $data );
+		if ( $bad ) {
+			$warn = sprintf(
+				'Achtung: Unter „%s“ gibt es keinen Begriff „%s“. Ein solcher Wert trifft nie zu – bei „hat“ fehlt die Mail, bei „nicht hat“ kommt sie immer. Bitte die Werte aus der Liste wählen.',
+				self::cond_source_label( $data['cond_tax'], BI_CPT::taxonomies() ),
+				implode( '“, „', $bad )
 			);
 		}
 

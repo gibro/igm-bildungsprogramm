@@ -168,10 +168,12 @@
   }
 
   /**
-   * Bedingung: Die Werteliste gehört zur gewählten Taxonomie. Beim Wechsel wird
-   * sie aus data-terms neu aufgebaut. Der gespeicherte Wert (data-current) bleibt
-   * wählbar, auch wenn er zu keinem Begriff passt – dann sichtbar markiert, damit
-   * ein Tippfehler aus alten Beständen nicht stumm verschwindet, sondern auffällt.
+   * Bedingung: Die Werteliste gehört zur gewählten Quelle (Taxonomie oder
+   * „Freistellung laut Anmeldung“). Beim Wechsel wird sie aus data-terms neu
+   * aufgebaut; die Auswahl ist mehrfach (= „oder“). Gespeicherte Werte
+   * (data-current) bleiben wählbar, auch wenn sie zu keinem Begriff passen –
+   * dann sichtbar markiert, damit ein Tippfehler aus alten Beständen nicht
+   * stumm verschwindet, sondern auffällt.
    */
   function syncCondValue(form) {
     var tax = form.querySelector('#bi_cond_tax');
@@ -179,29 +181,26 @@
     if (!tax || !sel) return;
 
     var lists = {};
+    var current = [];
     try { lists = JSON.parse(sel.dataset.terms || '{}'); } catch (e) { lists = {}; }
+    try { current = JSON.parse(sel.dataset.current || '[]'); } catch (e) { current = []; }
     var names = lists[tax.value] || [];
-    var chosen = sel.value;
-    var current = sel.dataset.current || '';
+
+    // Bisherige Auswahl merken, damit ein Hin- und Herschalten nichts löscht.
+    var chosen = Array.prototype.slice.call(sel.selectedOptions).map(function (o) { return o.value; });
+    if (!chosen.length) chosen = current;
 
     sel.innerHTML = '';
-    sel.appendChild(new Option('— Wert wählen —', ''));
-    if (current && names.indexOf(current) === -1) {
-      sel.appendChild(new Option(current + ' (kein solcher Begriff!)', current));
-    }
+    current.forEach(function (v) {
+      if (v && names.indexOf(v) === -1) {
+        sel.appendChild(new Option(v + ' (kein solcher Begriff!)', v, false, chosen.indexOf(v) !== -1));
+      }
+    });
     names.forEach(function (name) {
-      sel.appendChild(new Option(name, name));
+      sel.appendChild(new Option(name, name, false, chosen.indexOf(name) !== -1));
     });
-
-    // Bisherige Auswahl behalten, wenn es sie in der neuen Liste gibt – sonst
-    // den gespeicherten Wert, sonst leer.
-    var keep = [chosen, current].filter(function (v) {
-      return v && (names.indexOf(v) !== -1 || v === current);
-    });
-    sel.value = keep.length ? keep[0] : '';
     sel.disabled = !tax.value;
   }
-
   function initForm() {
     var form = document.querySelector('.bi-trigger-form');
     if (!form) return;

@@ -857,6 +857,24 @@ class BI_Registration {
 	}
 
 	/**
+	 * Die feste Liste, auf die das Formular zurückfällt, wenn am Seminar keine
+	 * Freistellung gepflegt ist. Öffentlich, weil die Benachrichtigungen (BI_Mailer)
+	 * wissen müssen, welche Werte „Freistellung laut Anmeldung“ annehmen kann.
+	 *
+	 * @return string[]
+	 */
+	public static function freistellung_kanon() {
+		return array(
+			'Bildungsurlaub',
+			'Bildungsurlaubsgesetz',
+			'§ 37,6 BetrVG',
+			'§ 37,7 BetrVG',
+			'§ 179,4 SGB IX',
+			'keine Freistellung',
+		);
+	}
+
+	/**
 	 * Freistellungs-Optionen im Anmeldeformular.
 	 *
 	 * Primärquelle sind die Seminardaten: die Terme der Taxonomie bi_freistellung
@@ -872,14 +890,7 @@ class BI_Registration {
 	 * @param int|int[] $seminar_id Ein Seminar oder mehrere (Reihenanmeldung).
 	 */
 	private static function freistellung_options( $seminar_id = 0 ) {
-		$canonical = array(
-			'Bildungsurlaub',
-			'Bildungsurlaubsgesetz',
-			'§ 37,6 BetrVG',
-			'§ 37,7 BetrVG',
-			'§ 179,4 SGB IX',
-			'keine Freistellung',
-		);
+		$canonical = self::freistellung_kanon();
 
 		$ids = array_values( array_filter( array_map( 'intval', (array) $seminar_id ) ) );
 		if ( ! $ids ) {
