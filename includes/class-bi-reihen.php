@@ -1099,6 +1099,8 @@ class BI_Reihen {
 			wp_enqueue_script( 'bi-reihe' );
 			wp_enqueue_script( 'bi-gs-anfrage' );
 			wp_enqueue_script( 'bi-zurueck' );
+			// Tabs und Aktionsleiste der mobilen Darstellung (bis 640px)
+			wp_enqueue_script( 'bi-mobil' );
 		}
 	}
 
@@ -1117,7 +1119,7 @@ class BI_Reihen {
 	 * zentrum Sprockhövel" wird zu „Sprockhövel": In einer Spalte, in der jede
 	 * Zeile mit demselben Wort beginnt, trägt das Wort nichts bei.
 	 */
-	private static function ort_kurz( $ort ) {
+	public static function ort_kurz( $ort ) {
 		$ort = trim( (string) $ort );
 		foreach ( array( 'IG Metall Bildungszentrum ', 'Bildungszentrum ', 'Bildungsstätte ', 'Parkhotel ', 'Hotel ' ) as $vorsatz ) {
 			if ( 0 === stripos( $ort, $vorsatz ) ) {
@@ -1160,30 +1162,53 @@ class BI_Reihen {
 			$badges .= BI_Detail::badge( esc_html( $aufbau ) );
 		}
 
+		$kennzahlen = self::kennzahlen( $gruppen, $teile, $komplett );
+
 		$html .= BI_Detail::hero( array(
 			'brotkrumen' => BI_Detail::zurueck_link(),
 			'overline'   => 'Ausbildungsreihe',
 			'titel'      => get_the_title( $reihe_id ),
+			'subline'    => self::mobil_subline( $kennzahlen ),
 			'badges'     => $badges,
 			'bild_id'    => $reihe_id,
 		) );
 
+		/* ---- Tabs der mobilen Darstellung (siehe BI_Detail::mobil_tabs) ---- */
+		// Die Marken (data-bi-mobil) sitzen an den Bausteinen unten. Ein Tab
+		// erscheint nur, wenn sein Baustein etwas zeigt: „Termine" gibt es nur
+		// mit festen Gruppen, „Die 5 Teile" nur mit Teilen.
+		$tabs = array( 'ueberblick' => 'Überblick' );
+		if ( $teile ) {
+			$tabs['teile'] = 1 === count( $teile )
+				? 'Inhalt'
+				: sprintf( 'Die %d Teile', count( $teile ) );
+			if ( self::hat_durchgaenge( $gruppen ) ) {
+				$tabs['gruppen'] = 'Termine';
+			}
+		}
+		$tabs['details'] = 'Details';
+		$html .= BI_Detail::mobil_tabs( $tabs );
+
 		/* ---- Kennzahlenband ---- */
-		$html .= BI_Detail::fakten( self::kennzahlen( $gruppen, $teile, $komplett ) );
+		$html .= BI_Detail::fakten( $kennzahlen );
 
 		/* ---- Zwei Spalten ---- */
 		$html .= '<div class="igm-layout igm-breite"><main class="igm-layout__main">';
 
 		$einleitung = get_post_field( 'post_content', $reihe_id );
 		if ( '' !== trim( (string) $einleitung ) ) {
-			$html .= '<div class="igm-fliesstext">' . apply_filters( 'the_content', $einleitung ) . '</div>';
+			$html .= '<div class="igm-fliesstext" data-bi-mobil="ueberblick">' . apply_filters( 'the_content', $einleitung ) . '</div>';
 		}
 
 		if ( $teile ) {
+			// Nur mobil: Vom Überblick weiter zu den Inhalten – der Tab dafür
+			// ist nach drei Absätzen Einleitung aus dem Blick.
+			$html .= '<button type="button" class="igm-btn igm-btn--rahmen igm-mobil-nur igm-mobil-js" data-bi-tab-ziel="teile" data-bi-mobil="ueberblick">'
+				. 'Inhalte der Reihe ansehen</button>';
 			$html .= self::inhalte_block( $teile, isset( $gruppen[0] ) ? $gruppen[0] : array() );
 			$html .= self::gruppen_block( $reihe_id, $gruppen, $teile, $komplett );
 		} else {
-			$html .= '<p class="igm-termine__leer">Für diese Reihe sind derzeit keine Termine ausgeschrieben.</p>';
+			$html .= '<p class="igm-termine__leer" data-bi-mobil="ueberblick">Für diese Reihe sind derzeit keine Termine ausgeschrieben.</p>';
 		}
 
 		$html .= '</main>';
@@ -1199,8 +1224,38 @@ class BI_Reihen {
 		// Prozess, gehört er hierher – bis dahin lieber kein Angebot als ein
 		// falsches. Der Weg zur Anmeldung steht im Fuß jeder Gruppe.
 		$html .= '</aside>';
+		$html .= '</div>';
 
-		return $html . '</div></div>';
+		/* ---- Aktionsleiste der mobilen Darstellung ---- */
+		// „Reihe buchen" führt dorthin, wo gebucht wird: zu den festen Gruppen,
+		// sonst zu den Teilen mit ihren einzeln buchbaren Terminen. Ohne
+		// Termine gibt es nichts zu buchen – dann bleibt die Leiste weg.
+		if ( $teile ) {
+			$ziel = isset( $tabs['gruppen'] ) ? 'gruppen' : 'teile';
+			$info = '';
+			$wert = trim( $kennzahlen['Nächster Start'] . ( '' !== $kennzahlen['Orte'] ? ' · ' . $kennzahlen['Orte'] : '' ), ' ·' );
+			if ( '' !== $wert ) {
+				$info = '<div class="igm-mobil-aktion__info"><span class="igm-mobil-aktion__label">Nächster Start</span>'
+					. '<span class="igm-mobil-aktion__wert">' . esc_html( $wert ) . '</span></div>';
+			}
+			$knopf = '<button type="button" class="igm-btn-buchen igm-mobil-aktion__btn igm-mobil-js" data-bi-tab-ziel="' . esc_attr( $ziel ) . '">'
+				. 'Reihe buchen</button>';
+			$html .= BI_Detail::mobil_leiste( $knopf, $info );
+		}
+
+		return $html . '</div>';
+	}
+
+	/** „Nächster Start 15.02.2027 · Bad Orb" fürs Kopfband der mobilen Darstellung. */
+	private static function mobil_subline( $kennzahlen ) {
+		$teile = array();
+		if ( '' !== $kennzahlen['Nächster Start'] ) {
+			$teile[] = 'Nächster Start ' . $kennzahlen['Nächster Start'];
+		}
+		if ( '' !== $kennzahlen['Orte'] ) {
+			$teile[] = $kennzahlen['Orte'];
+		}
+		return implode( ' · ', $teile );
 	}
 
 	/** Die vier Angaben des Kennzahlenbands einer Reihe. */
@@ -1277,7 +1332,7 @@ class BI_Reihen {
 	 * @param array $ohne_durchgang Termine ohne feste Gruppe: [ teil => [posts] ]
 	 */
 	private static function inhalte_block( $teile, $ohne_durchgang ) {
-		$html = '<div>' . BI_Detail::abschnitt(
+		$html = '<div data-bi-mobil="teile">' . BI_Detail::abschnitt(
 			'Inhalte der Reihe',
 			count( $teile ) > 1 ? 'Die Teile bauen aufeinander auf und werden in dieser Reihenfolge durchlaufen' : ''
 		);
@@ -1337,7 +1392,7 @@ class BI_Reihen {
 			return '';
 		}
 
-		$html = '<div>' . BI_Detail::abschnitt(
+		$html = '<div data-bi-mobil="gruppen">' . BI_Detail::abschnitt(
 			'Termine der festen Gruppen',
 			'Jede Gruppe durchläuft die Teile gemeinsam. Du buchst eine Gruppe, nicht einen einzelnen Termin.'
 		);
@@ -1675,6 +1730,10 @@ class BI_Reihen {
 			return trim( (string) get_post_meta( $reihe_id, $key, true ) );
 		};
 
+		// Das Piktogramm vor jedem Label ist nur in der mobilen Darstellung zu
+		// sehen (Tab „Details" des Entwurfs); am Schreibtisch blendet
+		// detailseiten.css es aus. Es steht trotzdem im Markup, weil sich ein
+		// Inline-SVG nicht per CSS nachreichen lässt.
 		$zeilen = '';
 		foreach ( array(
 			'Zielgruppe'      => $meta( '_bir_zielgruppe' ),
@@ -1685,18 +1744,21 @@ class BI_Reihen {
 			if ( '' === $text ) {
 				continue;
 			}
-			$zeilen .= '<div class="igm-daten__zeile"><dt>' . esc_html( $label ) . '</dt>'
+			$zeilen .= '<div class="igm-daten__zeile"><dt>' . BI_Icons::get( BI_Icons::fuer_label( $label ), 20 )
+				. '<span>' . esc_html( $label ) . '</span></dt>'
 				. '<dd>' . nl2br( esc_html( $text ) ) . '</dd></div>';
 		}
 		$info = $meta( '_bir_info' );
 		if ( '' !== $info ) {
-			$zeilen .= '<div class="igm-daten__zeile"><dt>Weitere Informationen</dt>'
+			$zeilen .= '<div class="igm-daten__zeile"><dt>' . BI_Icons::get( 'info', 20 )
+				. '<span>Weitere Informationen</span></dt>'
 				. '<dd>' . wp_kses_post( $info ) . '</dd></div>';
 		}
-		$zeilen .= '<div class="igm-daten__zeile"><dt>Kosten</dt>'
+		// Mobil ein eigener Kasten mit rotem Strich (Entwurf), deshalb die Marke.
+		$zeilen .= '<div class="igm-daten__zeile igm-daten__zeile--kosten"><dt><span>Kosten</span></dt>'
 			. '<dd>Seminarkosten, Unterkunft und Verpflegung sind beim jeweiligen Termin ausgewiesen.</dd></div>';
 
-		return '<div class="igm-box igm-box--akzent">'
+		return '<div class="igm-box igm-box--akzent" data-bi-mobil="details">'
 			. '<h2 class="igm-box__titel">Angaben zur Reihe</h2>'
 			. '<dl class="igm-daten igm-daten--block" lang="de">' . $zeilen . '</dl>'
 			. '</div>';

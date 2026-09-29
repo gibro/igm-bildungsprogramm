@@ -79,6 +79,15 @@
 
 .igm-icon { flex: 0 0 auto; display: block; }
 
+/* Bausteine, die es nur in der mobilen Darstellung gibt (Tableiste,
+   Kopfband-Subline, Aktionsleiste, „Ausgewählt"-Kasten): am Schreibtisch
+   nicht vorhanden. Der Abschnitt „Mobil (bis 640px)" am Ende dieser Datei
+   holt sie herein. Das Piktogramm vor den Labels der Reihen-Angaben gehört
+   dazu – es steht immer im Markup, weil sich ein Inline-SVG nicht per CSS
+   nachreichen lässt. */
+.igm-mobil-nur { display: none; }
+.igm-daten dt .igm-icon { display: none; }
+
 /* ---------------- Kopfbereich ---------------- */
 
 .igm-brotkrumen {
@@ -543,6 +552,18 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 }
 .igm-btn--download .igm-icon { flex: 0 0 auto; }
 
+/* „Link kopieren" – nutzt die Gestaltung der Download-Box. Das Feld erscheint
+   nur, wenn die Zwischenablage gesperrt ist (fremder Rahmen ohne Freigabe). */
+.igm-link__feld {
+	display: block; width: 100%; box-sizing: border-box; margin-top: 12px;
+	font-size: 13px; padding: 8px 10px; border: 1px solid var(--bi-lichtgrau); border-radius: 0;
+	color: var(--bi-anthrazit); background: #fff;
+}
+.igm-link__feld[hidden] { display: none; }
+.igm-link__status { margin: 8px 0 0; font-size: 13px; color: var(--bi-grau); min-height: 0; }
+.igm-link__status:empty { display: none; }
+.igm-btn--download.is-kopiert .igm-icon { color: var(--bi-gruen, #5a9c5a); }
+
 /* Kontaktzeilen */
 .igm-kontakt { display: flex; flex-direction: column; gap: 9px; font-size: 15px; }
 .igm-kontakt a,
@@ -605,6 +626,9 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 
 .igm-buchen-hinweis { margin: 12px 0 0; font-size: 14px; color: var(--bi-grau); }
 .igm-buchen-hinweis strong { color: var(--bi-anthrazit); }
+/* Hinweis ÜBER dem Buchen-Button (Beschluss-Satz): gleicher Abstand nach oben wie
+   der Reihen-Verweis, der Button bringt seinen eigenen Abstand nach unten mit. */
+.igm-buchen-hinweis--oben { margin-top: 18px; }
 .igm-box .igm-btn-buchen { margin-top: 20px; }
 
 /* Verweis auf die Reihe – steht an der Stelle des Buchen-Buttons, wenn die
@@ -902,8 +926,26 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
    ============================================================ */
 
 @media (max-width: 980px) {
-	.igm-layout { gap: 40px; padding-bottom: 60px; }
+	.igm-layout { gap: 32px; padding-bottom: 60px; }
 	.igm-layout__side { position: static; }
+
+	/* Zwei Spalten so lange wie möglich. Der Umbruch hängt nicht an einer
+	   Fensterabfrage, sondern an den Grundbreiten der Flex-Kinder: Passen
+	   main + side + Lücke nicht mehr nebeneinander, rutscht die Sidebar nach
+	   unten. Mit 560 + 320 + 52 brauchte das 932px – im Rahmen auf igmetall.de
+	   (578 bis 857px breit, je nach Fenster) stand die Detailseite deshalb
+	   immer einspaltig, wie auf dem Handy. Mit 330 + 260 + 32 = 622px plus
+	   Rand hält das Nebeneinander bis etwa 660px Fensterbreite; darunter ist
+	   es wirklich ein Handy. Die Sidebar bleibt gedeckelt, damit bei 857px
+	   nicht sie, sondern der Text den gewonnenen Platz bekommt. */
+	.igm-layout__main { flex: 1 1 330px; }
+	.igm-layout__side { flex: 1 1 260px; max-width: 320px; }
+}
+
+/* Einspaltig darf die Sidebar wieder die ganze Breite haben – der Deckel
+   oben gilt nur dem Nebeneinander. */
+@media (max-width: 659px) {
+	.igm-layout__side { max-width: none; }
 }
 
 @media (max-width: 760px) {
@@ -970,4 +1012,393 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 	   Box mit Überschrift und Erklärung ohne Knopf stehen. */
 	.igm-box--download { display: none !important; }
 	.igm-teil__inhalt[hidden] { display: block !important; }
+	.igm-mobil-nur { display: none !important; }
+}
+
+/* ============================================================
+   Mobil (bis 640px)
+   ------------------------------------------------------------
+   Entwurf: handoff/design_handoff_igm_bildung_mobil – Seminardetail in
+   Variante 1b (Kopfband + Tabs + feste Aktionsleiste) und Ausbildungsreihe
+   in derselben Sprache. Umgesetzt auf DEMSELBEN Markup wie am Schreibtisch:
+
+     Kopfband     .igm-hero wird `display: contents`, seine Textspalte das
+                  anthrazitfarbene Band mit dem Sunrise-Dreieck; das Bild
+                  rutscht per `order` unter die Tableiste (Reihe) oder
+                  entfällt (Seminar, wie im Entwurf).
+     Tableiste    .igm-mobil-tabs, serverseitig im Markup, hier eingeblendet,
+                  sobald mobil.js die Klasse igm-seite--tabs gesetzt hat.
+     Tabs         Jeder Abschnitt trägt data-bi-mobil="<tab>"; sichtbar ist,
+                  was mobil.js mit is-aktiv markiert. Ohne Skript steht alles
+                  untereinander – nichts verschwindet hinter einem Skript.
+     Aktionsleiste .igm-mobil-aktion klebt unten (sticky). Im Rahmen einer
+                  Fremdseite, der mit dem Inhalt wächst, gibt es nichts zu
+                  kleben – dort steht sie am Ende der Seite. Das ist die
+                  Grenze eines Rahmens, nicht dieser Regel.
+
+   WARUM 640px: Im Rahmen auf igmetall.de hält das Nebeneinander von Text und
+   Sidebar bis etwa 660px (siehe „Schmale Schirme"). Darunter ist es ein
+   Handy – und ab da gilt nicht mehr „dieselbe Seite, nur schmaler", sondern
+   dieser Entwurf. Die Schwelle ist die Rahmenbreite, nicht der Bildschirm:
+   im iframe misst @media den Rahmen. Genau das ist hier gemeint.
+
+   SPEZIFITÄT: Viele Regeln oben tragen zwei Klassen (Container-Abfragen,
+   „Schmale Schirme"). Die Regeln hier stehen später in der Datei und sind
+   mit .igm-seite vorangestellt mindestens gleich stark – so gewinnen sie
+   über die Reihenfolge, ohne !important.
+   ============================================================ */
+
+@media (max-width: 640px) {
+	.igm-seite--seminar,
+	.igm-seite--reihe {
+		--bi-rand: 16px;
+		--bi-sunrise: var(--igm-sunrise, linear-gradient(110deg, #882a30 0%, #e3051b 50%, #eab500 100%));
+		display: flex; flex-direction: column;
+		font-size: 15.5px; line-height: 1.55;
+	}
+
+	/* Mobile Bausteine herein; was nur mit Skript einen Sinn hat, erst mit
+	   der Klasse, die mobil.js setzt (Tab-Sprünge, Klappen-Knopf, Tableiste). */
+	.igm-seite--seminar .igm-mobil-nur,
+	.igm-seite--reihe .igm-mobil-nur { display: block; }
+	.igm-seite .igm-mobil-js { display: none; }
+	.igm-seite--tabs .igm-mobil-js { display: block; }
+	.igm-seite .igm-mobil-tabs { display: none; }
+	.igm-seite--tabs .igm-mobil-tabs { display: flex; }
+
+	/* Der Kern der Tabs: Ohne is-aktiv ist ein markierter Abschnitt weg –
+	   aber nur, solange die Seite als Tab-Seite läuft. */
+	.igm-seite--tabs [data-bi-mobil]:not(.is-aktiv) { display: none !important; }
+
+	/* ---------------- Kopfband ---------------- */
+
+	.igm-seite .igm-hero { display: contents; }
+	.igm-seite .igm-hero__text {
+		order: 0; flex: none; position: relative; overflow: hidden;
+		background: var(--bi-anthrazit); color: #fff;
+		/* Rechts Platz fürs Dreieck: Es reicht am oberen Rand 146px ins Band,
+		   in Titelhöhe noch gut 60px. */
+		padding: 18px 110px 20px var(--bi-rand);
+	}
+	/* Das Hauptgestaltungselement des Handbuchs: Sunrise-Verlauf, als Dreieck
+	   oben rechts angeschnitten. Als Pseudo-Element, damit das Markup davon
+	   nichts wissen muss. Die Kinder stehen `position: relative`, sonst läge
+	   das (positionierte) Dreieck über ihnen. */
+	.igm-seite .igm-hero__text::before {
+		content: ""; position: absolute; right: -34px; top: -24px; width: 180px; height: 180px;
+		background: var(--bi-sunrise); clip-path: polygon(100% 0, 100% 100%, 0 0);
+	}
+	.igm-seite .igm-hero__text > * { position: relative; }
+	.igm-seite .igm-hero__text .igm-brotkrumen { margin: 0 0 14px; font-size: 13px; }
+	.igm-seite .igm-hero__text .igm-zurueck,
+	.igm-seite .igm-hero__text .igm-zurueck:hover { color: #fff; min-height: 0; padding: 0; }
+	.igm-seite .igm-hero__overline {
+		color: #fff; font-weight: 900; font-size: 11px; letter-spacing: .06em; margin: 0 0 9px;
+	}
+	.igm-seite .igm-hero__titel {
+		color: #fff; font-size: 26px; line-height: 1.02; margin: 0; hyphens: manual;
+	}
+	.igm-seite .igm-hero__untertitel {
+		color: rgba(255, 255, 255, .85); font-size: 15px; line-height: 1.3; margin: 9px 0 0;
+	}
+	.igm-seite .igm-hero__subline { font-size: 13.5px; line-height: 1.35; opacity: .85; margin: 9px 0 0; }
+	.igm-seite .igm-hero__badges { margin-top: 12px; }
+	.igm-seite .igm-hero__text .igm-badge {
+		background: transparent; border-color: rgba(255, 255, 255, .55); color: #fff;
+	}
+	.igm-seite .igm-hero__text .igm-badge--rot-voll { background: var(--bi-rot); border-color: var(--bi-rot); }
+	.igm-seite .igm-hero__text .igm-badge a { color: #fff; }
+
+	/* Bild: bei der Reihe unter der Tableiste im Tab „Überblick" (16:9-
+	   Ausschnitt, 164px), beim Seminar keines – das Kopfband trägt dort. */
+	/* `align-self: stretch`: Am Schreibtisch steht der Kasten `flex-end`, in
+	   der Spalte hieße das rechtsbündig mit Weißraum links. */
+	.igm-seite .igm-hero__bild { order: 2; flex: none; align-self: stretch; }
+	.igm-seite .igm-hero__bild img { height: 164px; }
+	.igm-seite .igm-hero__dreieck { display: none; }
+	.igm-seite--seminar .igm-hero__bild { display: none !important; }
+
+	/* ---------------- Tableiste ---------------- */
+
+	.igm-seite .igm-mobil-tabs {
+		order: 1; flex: none; position: sticky; top: 0; z-index: 5;
+		background: #fff; border-bottom: 1px solid var(--bi-lichtgrau);
+	}
+	.igm-seite .igm-mobil-tabs button {
+		flex: 1 1 0; min-width: 0; margin: 0; padding: 13px 2px 11px; min-height: 44px;
+		background: transparent; border: 0; border-bottom: 4px solid transparent; border-radius: 0;
+		color: var(--bi-grau) !important;
+		font-family: var(--bi-head); font-weight: 900; font-size: 12.5px; line-height: 1.1;
+		text-transform: uppercase; letter-spacing: .03em; white-space: normal; cursor: pointer;
+		transition: color .15s, border-color .15s;
+	}
+	.igm-seite .igm-mobil-tabs button.is-aktiv { color: var(--bi-rot) !important; border-bottom-color: var(--bi-rot); }
+	.igm-seite .igm-mobil-tabs button:focus-visible { outline: 2px solid var(--bi-rot); outline-offset: -2px; }
+
+	/* ---------------- Kennzahlen-Raster (Reihe) ---------------- */
+
+	.igm-seite .igm-trennstrich { display: none; }
+	.igm-seite .igm-fakten { order: 3; }
+	/* Beim Seminar sagt das Kopfband Zeitraum und Ort, der Kasten im
+	   Überblick Freistellung und Zielgruppe – das Band wäre die dritte Stelle. */
+	.igm-seite--seminar .igm-fakten { display: none !important; }
+	.igm-seite .igm-fakten__inner {
+		display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		gap: 18px 14px; padding: 18px var(--bi-rand); margin: 0; max-width: none;
+	}
+	.igm-seite .igm-fakten__item { display: block; }
+	.igm-seite .igm-fakten__item .igm-icon { display: none; }
+	.igm-seite .igm-fakten__label {
+		font-family: var(--bi-body); font-weight: 700; font-size: 10.5px; letter-spacing: .06em;
+	}
+	.igm-seite .igm-fakten__wert { margin: 2px 0 0; font-size: 15px; line-height: 1.25; }
+
+	/* ---------------- Inhalt: eine Spalte, Tabs ---------------- */
+
+	/* Haupt- und Seitenspalte lösen sich auf; ihre Kinder werden Kinder des
+	   Layouts und lassen sich damit je Tab zeigen und ordnen. Beim Seminar
+	   gilt das auch für die Box „Seminardetails": Ihre Teile gehen in
+	   verschiedene Tabs. */
+	/* `align-items: stretch` ausdrücklich: Am Schreibtisch stehen die Spalten
+	   `flex-start`, und das erbte hier jeder Kasten – ein „Ausgewählt"-Kasten
+	   war dann nur so breit wie sein Ortsname. */
+	.igm-seite .igm-layout {
+		order: 4; display: flex; flex-direction: column; align-items: stretch; gap: 22px;
+		padding: 18px var(--bi-rand) 30px; margin: 0; max-width: none;
+	}
+	/* Auf der eigenen Website füllt die Seite mindestens den Bildschirm, damit
+	   die Leiste auch bei einem kurzen Tab („Kontakt") unten steht. NICHT im
+	   Rahmen einer Fremdseite (body.bi-embed): Dort ist die Fensterhöhe die
+	   Rahmenhöhe, und die soll ja erst aus dem Inhalt berechnet werden
+	   (embed.css). */
+	body:not(.bi-embed) .igm-seite--tabs { min-height: 100vh; min-height: 100dvh; }
+	body:not(.bi-embed) .igm-seite--tabs .igm-layout { flex: 1 0 auto; }
+	.igm-seite .igm-layout__main,
+	.igm-seite .igm-layout__side { display: contents; }
+	.igm-seite--seminar .igm-box--akzent { display: contents; }
+	.igm-seite--seminar .igm-box--akzent > .igm-box__titel { display: none; }
+	.igm-seite--reihe .igm-box--akzent { border: 0; padding: 0; }
+	.igm-seite--reihe .igm-box--akzent > .igm-box__titel { display: none; }
+
+	.igm-seite .igm-lead,
+	.igm-seite .igm-fliesstext,
+	.igm-seite .igm-fliesstext > p:first-of-type { font-size: 15.5px; line-height: 1.55; max-width: none; }
+	.igm-seite .igm-fliesstext p { margin: 0 0 14px; }
+
+	.igm-seite .igm-abschnitt__titel { font-size: 20px; color: var(--bi-anthrazit); }
+	.igm-seite .igm-abschnitt__strich { width: 44px; margin-top: 8px; }
+	.igm-seite .igm-abschnitt__subline { font-size: 13.5px; margin-top: 10px; max-width: none; }
+	.igm-seite .igm-abschnitt__inhalt { margin-top: 14px; }
+	.igm-seite .igm-themen { font-size: 15px; max-width: none; }
+	.igm-seite .igm-liste li,
+	.igm-seite .igm-themen li { font-size: 15px; line-height: 1.5; margin-bottom: 11px; padding-left: 20px; }
+
+	/* Vom Überblick zu den Inhalten (Reihe): Rahmen-Knopf, der das Handbuch
+	   für die zweite Aktion vorsieht. */
+	.igm-seite .igm-btn--rahmen {
+		background: #fff; color: var(--bi-rot) !important; border: 2px solid var(--bi-rot);
+		padding: 13px; min-height: 46px; font-size: 14px; margin-top: -8px;
+	}
+	.igm-seite .igm-btn--rahmen:hover { background: var(--bi-rot); border-color: var(--bi-rot); color: #fff !important; }
+
+	/* ---------------- Angaben-Kasten (Seminar, Tab Überblick) ---------------- */
+
+	.igm-seite .igm-box__teil--info {
+		border-top: 4px solid var(--bi-rot); background: var(--bi-grau-tint); padding: 14px;
+	}
+	.igm-seite .igm-box__teil--info .igm-ampelbox { margin: 0 0 14px; padding: 10px 12px; }
+	.igm-seite .igm-daten__zeile { display: block; padding: 0; border: 0; margin: 0 0 12px; }
+	.igm-seite .igm-daten__zeile:last-child { margin-bottom: 0; }
+	.igm-seite .igm-daten dt {
+		font-family: var(--bi-body); font-weight: 700; font-size: 10.5px; letter-spacing: .06em;
+		padding: 0; hyphens: manual;
+	}
+	.igm-seite .igm-daten dd { font-size: 15px; font-weight: 700; line-height: 1.3; }
+
+	/* ---------------- Angaben zur Reihe (Tab Details) ---------------- */
+
+	.igm-seite--reihe .igm-daten__zeile { margin-bottom: 18px; }
+	.igm-seite--reihe .igm-daten dt { display: flex; gap: 12px; align-items: flex-start; }
+	.igm-seite--reihe .igm-daten dt .igm-icon { display: block; color: var(--bi-anthrazit); margin-top: -3px; }
+	.igm-seite--reihe .igm-daten dd { padding-left: 32px; }
+	.igm-seite--reihe .igm-daten__zeile--kosten {
+		border-top: 4px solid var(--bi-rot); background: var(--bi-grau-tint); padding: 16px; margin-top: 4px;
+	}
+	.igm-seite--reihe .igm-daten__zeile--kosten dt {
+		font-family: var(--bi-head); font-weight: 900; font-size: 17px; letter-spacing: .03em;
+		color: var(--bi-anthrazit); margin-bottom: 6px;
+	}
+	.igm-seite--reihe .igm-daten__zeile--kosten dd {
+		padding-left: 0; font-weight: 400; font-size: 14.5px; line-height: 1.5;
+	}
+
+	/* ---------------- Termine ---------------- */
+
+	/* Der gezeigte Termin über den weiteren: rot hinterlegt, roter Strich. */
+	.igm-seite .igm-mobil-aktuell {
+		display: flex; flex-direction: column; padding: 13px 12px; margin-bottom: -14px;
+		background: var(--bi-rot-tint); border-left: 4px solid var(--bi-rot);
+	}
+	.igm-seite .igm-mobil-aktuell__label {
+		font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--bi-rot);
+	}
+	.igm-seite .igm-mobil-aktuell__ort { font-size: 15px; font-weight: 700; line-height: 1.2; }
+	.igm-seite .igm-mobil-aktuell__datum { font-size: 13.5px; color: var(--bi-grau); }
+
+	/* Über der Liste nur die Unterzeile – der Tab heißt schon „Termine". */
+	.igm-seite .igm-weitere-termine .igm-abschnitt__titel,
+	.igm-seite .igm-weitere-termine .igm-abschnitt__strich { display: none; }
+	.igm-seite .igm-weitere-termine .igm-abschnitt__subline { margin: 0; font-size: 13px; }
+	.igm-seite .igm-weitere-termine .igm-abschnitt__inhalt { margin-top: 8px; }
+
+	/* Terminzeile: Ort fett, Datum grau darunter, rechts der Weg als Text –
+	   kein Rahmen, nur die Haarlinie darunter (Entwurf). */
+	.igm-seite .igm-termine { gap: 0; }
+	.igm-seite .igm-termin--link,
+	.igm-seite .igm-termine--ohne-ampel .igm-termin--link {
+		border: 0; border-bottom: 1px solid var(--bi-lichtgrau); padding: 12px 0;
+		grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px; align-items: center;
+	}
+	.igm-seite .igm-termin--link .igm-termin__ort {
+		grid-column: 1; grid-row: 1; font-size: 15px; font-weight: 700; line-height: 1.2; color: var(--bi-anthrazit);
+	}
+	.igm-seite .igm-termin--link .igm-termin__datum {
+		grid-column: 1; grid-row: 2; font-size: 13.5px; font-weight: 400; color: var(--bi-grau);
+	}
+	.igm-seite .igm-termin--link .igm-termin__ampel { grid-column: 1; grid-row: 3; justify-self: start; }
+	.igm-seite .igm-termin--link .igm-termin__ampel:empty { display: none; }
+	.igm-seite .igm-termin--link .igm-termin__aktion,
+	.igm-seite .igm-termine--ohne-ampel .igm-termin--link .igm-termin__aktion {
+		grid-column: 2; grid-row: 1 / span 3; justify-self: end; align-self: center;
+		margin: 0; max-width: 112px; text-align: right;
+	}
+	.igm-seite .igm-termin__aktion .igm-btn-buchen {
+		display: inline; width: auto; background: none; border: 0; padding: 0;
+		color: var(--bi-rot) !important; font-size: 12.5px; line-height: 1.15; hyphens: manual;
+	}
+	.igm-seite .igm-termin__aktion .igm-btn-buchen:hover {
+		background: none; color: var(--bi-rot-dark) !important; text-decoration: underline;
+	}
+	.igm-seite .igm-termin__aus {
+		font-family: var(--bi-head); font-weight: 900; text-transform: uppercase; letter-spacing: .03em;
+		font-size: 12.5px; line-height: 1.15;
+	}
+	.igm-seite .igm-termin--aus .igm-termin__ort { color: var(--bi-grau); }
+	/* Ausgebucht: nur die Schrift tritt zurück, keine graue Fläche – in einer
+	   Liste ohne Rahmen wäre sie ein Fremdkörper (Entwurf). */
+	.igm-seite .igm-termin--link.igm-termin--aus { background: none; }
+	.igm-seite .igm-termine__stand { font-size: 12.5px; }
+
+	/* ---------------- Inhalte der Reihe (Akkordeon) ---------------- */
+
+	.igm-seite--reihe [data-bi-mobil="teile"] .igm-abschnitt__titel,
+	.igm-seite--reihe [data-bi-mobil="teile"] .igm-abschnitt__strich { display: none; }
+	.igm-seite--reihe [data-bi-mobil="teile"] .igm-abschnitt__subline { margin: 0 0 14px; color: var(--bi-grau); }
+	.igm-seite--reihe [data-bi-mobil="teile"] .igm-abschnitt__inhalt { margin-top: 0; }
+
+	.igm-seite .igm-teile { gap: 0; border-bottom: 1px solid var(--bi-lichtgrau); }
+	.igm-seite .igm-teil { border: 0; border-top: 1px solid var(--bi-lichtgrau); }
+	.igm-seite .igm-teil__kopf { gap: 12px; padding: 15px 0; min-height: 56px; align-items: flex-start; }
+	.igm-seite .igm-teil__kopf:hover { background: none; }
+	.igm-seite .igm-teil__nr { width: 34px; padding: 5px 0; transition: background .15s, color .15s; }
+	.igm-seite .igm-teil__nr-wort { display: none; }
+	.igm-seite .igm-teil__nr-zahl { font-size: 15px; }
+	/* Zu: graue Kachel, offen: rote (Entwurf) */
+	.igm-seite .igm-teil__kopf[aria-expanded="false"] .igm-teil__nr { background: var(--bi-lichtgrau); color: var(--bi-anthrazit); }
+	.igm-seite .igm-teil__titel { padding: 4px 0 0; align-self: auto; font-size: 16px; }
+	.igm-seite .igm-teil__zeichen { align-self: flex-start; font-weight: 900; font-size: 22px; margin-top: 1px; }
+	.igm-seite .igm-teil__inhalt { padding: 0 0 20px 46px; }
+	/* text-transform ausdrücklich: Das Theme setzt es an h4 zurück, und die
+	   Grundregel oben verliert gegen dessen Spezifität. */
+	.igm-seite .igm-teil__themen-titel { font-size: 13px; color: var(--bi-grau); margin: 0 0 9px; text-transform: uppercase; }
+	.igm-seite .igm-teil .igm-themen li,
+	.igm-seite .igm-teil .igm-liste li { font-size: 14.5px; line-height: 1.45; margin-bottom: 9px; padding-left: 18px; }
+	.igm-seite .igm-teil__termine { margin-top: 16px; }
+
+	/* ---------------- Feste Gruppen (Tab Termine) ---------------- */
+
+	.igm-seite .igm-gruppe__kopf { padding: 14px 16px 12px; }
+	.igm-seite .igm-gruppe__name { font-size: 20px; }
+	.igm-seite .igm-gruppe__orte { padding: 0 16px 14px; }
+	.igm-seite .igm-gruppe__plan { padding: 18px 12px 0; }
+	.igm-seite .igm-gruppe__fuss { padding: 16px; }
+	.igm-seite .igm-gruppe__gs { padding: 0 16px 18px; }
+
+	/* ---------------- Kosten ---------------- */
+
+	.igm-seite .igm-kosten { margin: 0; }
+	.igm-seite .igm-kosten__titel { display: none; }
+	.igm-seite .igm-kosten td { padding: 11px 12px; border: 0; font-size: 14.5px; }
+	.igm-seite .igm-kosten tbody tr:nth-child(odd) td { background: var(--bi-lichtgrau); }
+	.igm-seite .igm-kosten__gesamt td { border-top: 2px solid var(--bi-anthrazit); padding-top: 11px; }
+	.igm-seite .igm-kosten__hinweis,
+	.igm-seite .igm-kosten__text { margin: 12px 0 0; font-size: 13.5px; line-height: 1.5; }
+	.igm-seite .igm-mobil-beschluss { margin: 18px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--bi-grau); }
+
+	.igm-seite .igm-box--download {
+		border: 0; border-top: 4px solid var(--bi-rot); background: var(--bi-grau-tint); padding: 16px;
+	}
+	.igm-seite .igm-box--download .igm-box__titel { font-size: 17px; margin-bottom: 6px; }
+	.igm-seite .igm-box--download .igm-box__text {
+		font-size: 14px; line-height: 1.5; margin-bottom: 12px; color: var(--bi-anthrazit);
+	}
+	.igm-seite .igm-btn--download {
+		display: inline-flex; width: auto; background: none; border: 0; padding: 0; gap: 8px;
+		color: var(--bi-rot) !important; font-size: 14px;
+	}
+	.igm-seite .igm-btn--download:hover { background: none; color: var(--bi-rot-dark) !important; text-decoration: underline; }
+	.igm-seite .igm-btn--download .igm-icon { width: 18px; height: 18px; }
+
+	/* ---------------- Kontakt ---------------- */
+
+	.igm-seite .igm-box--kontakt { border: 0; padding: 0; }
+	.igm-seite .igm-box--kontakt .igm-box__titel {
+		font-family: var(--bi-body); font-weight: 700; font-size: 10.5px; letter-spacing: .06em;
+		color: var(--bi-grau); margin-bottom: 4px;
+	}
+	.igm-seite .igm-kontakt { gap: 0; }
+	.igm-seite .igm-kontakt a,
+	.igm-seite .igm-kontakt__name { min-height: 44px; font-size: 15px; gap: 10px; }
+	.igm-seite .igm-kontakt .igm-icon { width: 20px; height: 20px; }
+
+	/* ---------------- Buchungsklappe ---------------- */
+
+	/* Der Buchungsblock der Sidebar: Am Ende des Inhalts, direkt über der
+	   Leiste (order), sichtbar nur, wenn die Leiste ihn aufgeklappt hat –
+	   oder ohne Skript, dann immer. */
+	.igm-seite .igm-box__teil--buchen {
+		order: 50; border-top: 4px solid var(--bi-rot); background: var(--bi-grau-tint); padding: 16px;
+	}
+	.igm-seite .igm-box__teil--buchen:empty { display: none; }
+	.igm-seite .igm-box__teil--buchen .igm-buchen-hinweis { margin-top: 0; }
+	.igm-seite .igm-box__teil--buchen .igm-buchen-hinweis + .igm-btn-buchen { margin-top: 14px; }
+	.igm-seite .igm-box__teil--buchen .igm-gs-anfrage,
+	.igm-seite .igm-box__teil--buchen .igm-reihe-verweis { margin-top: 0; }
+	.igm-seite .igm-box__teil--buchen .igm-gs-anfrage__form { flex-wrap: wrap; }
+	.igm-seite .igm-box__teil--buchen .igm-gs-anfrage__find { flex: 1 1 160px; }
+	.igm-seite .igm-box__teil--buchen .igm-stoerer-block { text-align: left; }
+
+	/* ---------------- Aktionsleiste ---------------- */
+
+	.igm-seite .igm-mobil-aktion {
+		order: 60; position: sticky; bottom: 0; z-index: 6;
+		display: flex; align-items: center; gap: 12px;
+		padding: 12px var(--bi-rand); background: #fff;
+		border-top: 1px solid var(--bi-lichtgrau); box-shadow: 0 -6px 18px rgba(0, 0, 0, .10);
+	}
+	.igm-seite .igm-mobil-aktion__info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+	.igm-seite .igm-mobil-aktion__label {
+		font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--bi-grau);
+	}
+	.igm-seite .igm-mobil-aktion__wert {
+		font-family: var(--bi-head); font-weight: 900; font-size: 21px; line-height: 1.05; color: var(--bi-anthrazit);
+		overflow-wrap: break-word;
+	}
+	.igm-seite .igm-mobil-aktion__btn {
+		flex: 1 1 auto; width: auto; margin: 0; padding: 12px 22px; min-height: 46px; font-size: 16px;
+	}
+	/* Neben einer Info-Spalte nimmt der Knopf nur seinen Text. */
+	.igm-seite .igm-mobil-aktion__info + .igm-mobil-aktion__btn { flex: 0 0 auto; }
+	.igm-seite--tabs .igm-mobil-aktion__btn.igm-mobil-js { display: block; }
+	.igm-seite--tabs .igm-mobil-aktion__btn[aria-expanded="true"] { background: var(--bi-anthrazit); border-color: var(--bi-anthrazit); }
 }

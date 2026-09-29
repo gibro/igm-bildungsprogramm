@@ -61,6 +61,8 @@ class BI_Datenpflege {
 		add_action( 'admin_post_bi_begriffe_umbenennen', array( __CLASS__, 'handle_begriffe_umbenennen' ) );
 		add_action( 'admin_post_bi_begriffe_zusammenfuehren', array( __CLASS__, 'handle_begriffe_zusammenfuehren' ) );
 		add_action( 'admin_post_bi_begriffe_leeren', array( __CLASS__, 'handle_begriffe_leeren' ) );
+		add_action( 'admin_post_bi_dubletten_zusammenfuehren', array( __CLASS__, 'handle_dubletten_zusammenfuehren' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'dubletten_notice' ) );
 
 		// Freitextsuche der Arbeitsmenge zusätzlich über die Seminarnummer.
 		// Greift nur bei Abfragen, die bi_dp_search gesetzt haben – BI_CPT macht
@@ -645,7 +647,7 @@ class BI_Datenpflege {
 		@set_time_limit( 0 );
 
 		$status_wahl = sanitize_key( bi_post( 'post_status', 'original' ) );
-		$dedupe      = ! empty( $_POST['dedupe'] );
+		$dedupe      = true; // Seminarnummer ist Schlüssel – immer, nicht wählbar
 		$bilder      = ! empty( $_POST['bilder'] );
 		$aufraeumen  = ! empty( $_POST['begriffe_aufraeumen'] );
 
@@ -688,15 +690,7 @@ class BI_Datenpflege {
 			$existing = 0;
 			$nummer   = trim( (string) ( $meta['_bi_seminarnummer'] ?? '' ) );
 			if ( $dedupe && '' !== $nummer ) {
-				$found = get_posts( array(
-					'post_type'   => $pt,
-					'post_status' => 'any',
-					'numberposts' => 1,
-					'fields'      => 'ids',
-					'meta_key'    => '_bi_seminarnummer',
-					'meta_value'  => $nummer,
-				) );
-				$existing = $found ? (int) $found[0] : 0;
+				$existing = BI_CPT::post_zu_nummer( $nummer, $pt );
 			}
 
 			$postarr = array(
@@ -1927,6 +1921,210 @@ class BI_Datenpflege {
 		<?php
 	}
 
+	/* ===================================================================
+	 *  Doppelte Seminarnummern
+	 *
+	 *  Zwei Einträge mit derselben Nummer sind dasselbe Seminar. So etwas
+	 *  entsteht nicht durch Pflege, sondern durch Pannen – Berlin, 25.08.2026:
+	 *  zwei Import-Schleifen auf derselben Datei, 152 Seminare doppelt. Die
+	 *  Importe sind seitdem gesperrt und schlagen immer über die Nummer nach;
+	 *  dieser Reiter räumt auf, was vorher entstanden ist, und ist der Ort,
+	 *  an dem eine spätere Panne sichtbar würde.
+	 *
+	 *  Zusammenführen heißt: Der älteste Eintrag (kleinste ID) bleibt, die
+	 *  Anmeldungen der übrigen wandern zu ihm, die übrigen gehen in den
+	 *  Papierkorb – nicht gelöscht, ein Irrtum lässt sich zurückholen.
+	 * =================================================================== */
+
+	/**
+	 * Gruppen doppelter Nummern: [ [pt, nummer, ids => [..]], ... ]
+	 * Papierkorb und Auto-Entwürfe zählen nicht mit, Nummern getrimmt.
+	 */
+	public static function dubletten() {
+		global $wpdb;
+		$pts   = bi_seminar_post_types();
+		$pt_in = implode( ',', array_fill( 0, count( $pts ), '%s' ) );
+		$zeilen = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			"SELECT p.post_type, TRIM(m.meta_value) AS nummer, GROUP_CONCAT(p.ID ORDER BY p.ID) AS ids, COUNT(*) AS n
+			   FROM {$wpdb->posts} p
+			   INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_bi_seminarnummer'
+			  WHERE p.post_type IN ({$pt_in})
+			    AND p.post_status NOT IN ('trash', 'auto-draft')
+			    AND TRIM(m.meta_value) <> ''
+			  GROUP BY p.post_type, TRIM(m.meta_value)
+			 HAVING n > 1
+			  ORDER BY p.post_type, nummer",
+			$pts
+		) );
+		$out = array();
+		foreach ( (array) $zeilen as $z ) {
+			$ids = array_values( array_unique( array_map( 'intval', explode( ',', (string) $z->ids ) ) ) );
+			sort( $ids );
+			if ( count( $ids ) < 2 ) {
+				continue;
+			}
+			$out[] = array( 'pt' => (string) $z->post_type, 'nummer' => (string) $z->nummer, 'ids' => $ids );
+		}
+		return $out;
+	}
+
+	/** Anmeldungen je Eintrag (seminar_id), für die Anzeige. */
+	private static function anmeldungen_je_post( $ids ) {
+		global $wpdb;
+		if ( ! $ids ) {
+			return array();
+		}
+		$in    = implode( ',', array_map( 'intval', $ids ) );
+		$table = BI_Registration::table();
+		$rows  = $wpdb->get_results( "SELECT seminar_id, COUNT(*) AS n FROM {$table} WHERE seminar_id IN ({$in}) GROUP BY seminar_id" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$out   = array();
+		foreach ( (array) $rows as $r ) {
+			$out[ (int) $r->seminar_id ] = (int) $r->n;
+		}
+		return $out;
+	}
+
+	private static function render_dubletten_section() {
+		$gruppen = self::dubletten();
+		$alle    = array();
+		foreach ( $gruppen as $g ) {
+			$alle = array_merge( $alle, $g['ids'] );
+		}
+		$anm = self::anmeldungen_je_post( $alle );
+		?>
+		<div class="card" style="max-width:100%;margin:0 0 20px">
+			<h2 style="margin-top:0">Doppelte Seminarnummern
+				<span style="font-weight:400;color:#646970">· <?php echo esc_html( number_format_i18n( count( $gruppen ) ) ); ?> Nummern mehrfach</span></h2>
+			<p>Eine Seminarnummer kommt je Seminarform genau einmal vor – zwei Einträge mit derselben Nummer
+			   sind <strong>dasselbe Seminar</strong>, nicht zwei Termine. Die Importe schlagen deshalb immer
+			   über die Nummer nach und legen nichts doppelt an. Was hier steht, ist vorher entstanden.</p>
+			<p><strong>Zusammenführen:</strong> Der älteste Eintrag jeder Gruppe bleibt (in der Tabelle markiert),
+			   Anmeldungen der übrigen wandern zu ihm, die übrigen gehen in den <strong>Papierkorb</strong> –
+			   von dort lassen sie sich zurückholen. Die Zentrale des Abgleichs kennt ohnehin nur einen Eintrag
+			   je Nummer; sie merkt vom Aufräumen nichts.</p>
+
+			<?php if ( ! $gruppen ) : ?>
+				<p style="color:#1a7f37;font-weight:600">Keine doppelten Seminarnummern – alles sauber.</p>
+			<?php else : ?>
+				<table class="widefat striped">
+					<thead><tr>
+						<th style="width:120px">Nummer</th>
+						<th style="width:90px">Form</th>
+						<th>Einträge</th>
+					</tr></thead>
+					<tbody>
+					<?php foreach ( $gruppen as $g ) : ?>
+						<tr>
+							<td><code><?php echo esc_html( $g['nummer'] ); ?></code></td>
+							<td><?php echo BI_ONLINE === $g['pt'] ? 'Online' : 'Präsenz'; ?></td>
+							<td>
+								<?php foreach ( $g['ids'] as $i => $id ) : ?>
+									<?php
+									$post   = get_post( $id );
+									$start  = (string) get_post_meta( $id, '_bi_startdatum', true );
+									$n_anm  = isset( $anm[ $id ] ) ? $anm[ $id ] : 0;
+									$bleibt = 0 === $i;
+									?>
+									<div style="margin:2px 0;<?php echo $bleibt ? 'font-weight:600' : ''; ?>">
+										<?php echo $bleibt ? '<span style="color:#1a7f37">bleibt</span>' : '<span style="color:#646970">→ Papierkorb</span>'; ?>
+										· <a href="<?php echo esc_url( (string) get_edit_post_link( $id, 'raw' ) ); ?>">#<?php echo (int) $id; ?>
+											<?php echo esc_html( $post ? $post->post_title : '' ); ?></a>
+										<span style="color:#646970">
+											· <?php echo esc_html( $start ?: 'ohne Startdatum' ); ?>
+											· <?php echo esc_html( $post ? get_post_status_object( $post->post_status )->label ?? $post->post_status : '' ); ?>
+											· angelegt <?php echo esc_html( $post ? mysql2date( 'd.m.Y H:i', $post->post_date ) : '' ); ?>
+											<?php if ( $n_anm ) : ?>· <strong><?php echo esc_html( number_format_i18n( $n_anm ) ); ?> Anmeldung<?php echo 1 === $n_anm ? '' : 'en'; ?></strong><?php endif; ?>
+										</span>
+									</div>
+								<?php endforeach; ?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+					</tbody>
+				</table>
+
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:14px">
+					<input type="hidden" name="action" value="bi_dubletten_zusammenfuehren">
+					<?php wp_nonce_field( 'bi_dubletten' ); ?>
+					<button type="submit" class="button button-primary"
+					        onclick="return confirm('Alle Gruppen zusammenführen? Der älteste Eintrag bleibt, die übrigen gehen in den Papierkorb, ihre Anmeldungen wandern mit.');">
+						Alle Dubletten zusammenführen
+					</button>
+				</form>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	public static function handle_dubletten_zusammenfuehren() {
+		if ( ! current_user_can( BI_CAP ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+		check_admin_referer( 'bi_dubletten' );
+		global $wpdb;
+
+		$gruppen  = self::dubletten();
+		$entsorgt = 0;
+		$umgehaengt = 0;
+		$table    = BI_Registration::table();
+
+		foreach ( $gruppen as $g ) {
+			$ids    = $g['ids'];
+			$bleibt = (int) array_shift( $ids ); // kleinste ID = ältester Eintrag
+			foreach ( $ids as $dup ) {
+				// Anmeldungen zuerst umhängen – dann erst der Papierkorb. Andersherum
+				// hinge eine Anmeldung kurz an einem Eintrag, den es nicht mehr gibt.
+				$n = $wpdb->update( $table, array( 'seminar_id' => $bleibt ), array( 'seminar_id' => (int) $dup ), array( '%d' ), array( '%d' ) );
+				$umgehaengt += (int) $n;
+				if ( wp_trash_post( (int) $dup ) ) {
+					$entsorgt++;
+				}
+			}
+		}
+
+		if ( $entsorgt && class_exists( 'BI_Cache' ) ) {
+			BI_Cache::leeren( true );
+		}
+
+		$msg = $gruppen
+			? sprintf(
+				'%s Nummern zusammengeführt: %s Dubletten in den Papierkorb verschoben, %s Anmeldungen umgehängt.',
+				number_format_i18n( count( $gruppen ) ),
+				number_format_i18n( $entsorgt ),
+				number_format_i18n( $umgehaengt )
+			)
+			: 'Keine doppelten Seminarnummern gefunden.';
+
+		wp_safe_redirect( add_query_arg(
+			array( 'page' => self::PAGE, 'tab' => 'dubletten', 'bi_msg' => rawurlencode( $msg ) ),
+			admin_url( 'admin.php' )
+		) );
+		exit;
+	}
+
+	/**
+	 * Hinweis in der Seminarliste, solange Nummern doppelt sind. Sonst fiele
+	 * eine Panne erst auf, wenn jemand zufällig zweimal denselben Termin sieht.
+	 */
+	public static function dubletten_notice() {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'edit' !== $screen->base || ! in_array( $screen->post_type, bi_seminar_post_types(), true ) ) {
+			return;
+		}
+		$n = count( self::dubletten() );
+		if ( ! $n ) {
+			return;
+		}
+		printf(
+			'<div class="notice notice-warning"><p><strong>%s Seminarnummer%s mehrfach vorhanden.</strong> '
+			. 'Zwei Einträge mit derselben Nummer sind dasselbe Seminar. Aufräumen unter '
+			. '<a href="%s">Datenpflege → Doppelte Nummern</a>.</p></div>',
+			esc_html( number_format_i18n( $n ) ),
+			1 === $n ? ' ist' : 'n sind',
+			esc_url( admin_url( 'admin.php?page=' . self::PAGE . '&tab=dubletten' ) )
+		);
+	}
+
 	/** Reiter-Navigation der Datenpflege. */
 	private static function render_tabs( $tabs, $aktiv, $base ) {
 		echo '<h2 class="nav-tab-wrapper">';
@@ -1945,17 +2143,18 @@ class BI_Datenpflege {
 		$notice = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
 		$tab    = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'auswahl';
 		$tabs   = array(
-			'auswahl' => 'Auswahl & Export',
-			'begriffe' => 'Begriffe',
-			'felder'   => 'Felder',
-			'reihen'   => 'Ausbildungsreihen',
+			'auswahl'   => 'Auswahl & Export',
+			'begriffe'  => 'Begriffe',
+			'felder'    => 'Felder',
+			'reihen'    => 'Ausbildungsreihen',
+			'dubletten' => 'Doppelte Nummern',
 		);
 		if ( ! isset( $tabs[ $tab ] ) ) {
 			$tab = 'auswahl';
 		}
 		$base = admin_url( 'admin.php?page=' . self::PAGE );
 
-		if ( in_array( $tab, array( 'felder', 'reihen', 'begriffe' ), true ) ) {
+		if ( in_array( $tab, array( 'felder', 'reihen', 'begriffe', 'dubletten' ), true ) ) {
 			echo '<div class="wrap"><h1>Datenpflege</h1>';
 			if ( $notice ) {
 				echo '<div class="notice notice-info"><p>' . esc_html( $notice ) . '</p></div>';
@@ -1965,6 +2164,8 @@ class BI_Datenpflege {
 				BI_Felder::render_section();
 			} elseif ( 'begriffe' === $tab ) {
 				self::render_begriffe_section();
+			} elseif ( 'dubletten' === $tab ) {
+				self::render_dubletten_section();
 			} else {
 				self::render_reihen_section();
 			}
@@ -2444,9 +2645,9 @@ class BI_Datenpflege {
 								</td>
 							</tr>
 							<tr>
-								<th>Duplikate</th>
-								<td><label><input type="checkbox" name="dedupe" value="1" checked>
-									vorhandene Einträge mit gleicher Seminarnummer aktualisieren statt doppelt anlegen</label></td>
+								<th>Seminarnummer</th>
+								<td>Vorhandene Einträge mit gleicher Seminarnummer werden aktualisiert, nie doppelt
+									angelegt – eine Nummer kommt je Seminarform nur einmal vor.</td>
 							</tr>
 							<tr>
 								<th>Beitragsbilder</th>

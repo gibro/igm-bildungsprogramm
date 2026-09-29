@@ -232,9 +232,10 @@ class BI_Import {
 					</td>
 				</tr>
 				<tr>
-					<th>Duplikate</th>
-					<td><label><input type="checkbox" name="dedupe" value="1" checked>
-						vorhandene Einträge mit gleicher Seminarnummer aktualisieren statt doppelt anlegen</label></td>
+					<th>Seminarnummer</th>
+					<td>Steht die Seminarnummer einer Zeile schon an einem Eintrag, wird dieser Eintrag
+						aktualisiert – nie ein zweiter angelegt. Eine Nummer kommt je Seminarform nur
+						einmal vor; das lässt sich nicht abschalten.</td>
 				</tr>
 			</table>
 			<?php submit_button( 'Import starten' ); ?>
@@ -328,7 +329,7 @@ class BI_Import {
 			'has_header'  => $has_header,
 			'date_format' => sanitize_text_field( wp_unslash( $_POST['date_format'] ?? 'auto' ) ),
 			'post_status' => ( ( $_POST['post_status'] ?? 'publish' ) === 'draft' ) ? 'draft' : 'publish',
-			'dedupe'      => ! empty( $_POST['dedupe'] ),
+			'dedupe'      => true, // Seminarnummer ist Schlüssel – immer, nicht wählbar
 			'offset'      => 0,
 			'zeile'       => 0,
 			'gesamt'      => self::zeilen_zaehlen( $path, $delim, $has_header ),
@@ -391,7 +392,8 @@ class BI_Import {
 			return;
 		}
 		?>
-		<p>Der Import läuft in Häppchen. Dieses Fenster bitte offen lassen, bis er durch ist.</p>
+		<p>Der Import läuft in Häppchen. Dieses Fenster bitte offen lassen, bis er durch ist.
+		   Neu laden oder ein zweites Fenster schadet nicht – es arbeitet immer nur eines, das andere schaut zu.</p>
 
 		<div style="max-width:640px">
 			<progress id="bi-imp-balken" value="0" max="<?php echo (int) $lauf['gesamt']; ?>" style="width:100%;height:22px"></progress>
@@ -435,7 +437,16 @@ class BI_Import {
 							detail.style.color = '#b32d2e';
 							return;
 						}
-						zeigen( antwort.data );
+						if ( antwort.data.warten ) {
+							// Ein anderes Fenster arbeitet – nur mitlesen, gleich wieder fragen.
+							zeigen( antwort.data );
+							detail.textContent = antwort.data.meldung;
+							setTimeout( schritt, 2500 );
+							return;
+						}
+						if ( ! antwort.data.anderswo ) {
+							zeigen( antwort.data );
+						}
 						if ( antwort.data.fertig ) {
 							balken.value = gesamt;
 							detail.textContent = antwort.data.meldung;
@@ -466,21 +477,74 @@ class BI_Import {
 		check_ajax_referer( 'bi_import_step' );
 
 		$token = sanitize_file_name( wp_unslash( $_POST['file'] ?? '' ) );
-		$lauf  = $token ? get_transient( self::lauf_key( $token ) ) : false;
-		if ( ! is_array( $lauf ) ) {
+		if ( '' === $token ) {
 			wp_send_json_error( 'Der Import-Lauf ist nicht mehr auffindbar.' );
+		}
+
+		/*
+		 * SPERRE JE LAUF. Die Fortschrittsseite startet ihre Schleife bei jedem
+		 * Laden – wird sie neu geladen oder in einem zweiten Fenster geöffnet,
+		 * laufen zwei Schleifen auf derselben Datei. Ohne Sperre verarbeiten
+		 * beide dieselben Zeilen zur selben Zeit, und die Nummernprüfung der
+		 * einen sieht den Eintrag der anderen noch nicht: jede Zeile zweimal,
+		 * mit aufeinanderfolgenden IDs in derselben Sekunde (Berlin, 25.08.2026,
+		 * 152 Dubletten). Jetzt darf nur eine Anfrage je Lauf Zeilen anfassen;
+		 * die andere schaut zu und fragt später wieder.
+		 */
+		if ( ! self::sperre_setzen( $token ) ) {
+			$lauf = get_transient( self::lauf_key( $token ) );
+			wp_send_json_success( array(
+				'warten'      => true,
+				'fertig'      => false,
+				'verarbeitet' => is_array( $lauf ) ? (int) $lauf['created'] + (int) $lauf['updated'] + (int) $lauf['skipped'] : 0,
+				'gesamt'      => is_array( $lauf ) ? (int) $lauf['gesamt'] : 0,
+				'created'     => is_array( $lauf ) ? (int) $lauf['created'] : 0,
+				'updated'     => is_array( $lauf ) ? (int) $lauf['updated'] : 0,
+				'skipped'     => is_array( $lauf ) ? (int) $lauf['skipped'] : 0,
+				'meldung'     => 'Ein anderes Fenster verarbeitet diesen Import gerade – hier wird nur zugeschaut.',
+			) );
+		}
+
+		// Ab hier gehört der Lauf dieser Anfrage. Kein wp_send_json_*() mehr vor
+		// dem Lösen: wp_die() beendet PHP, ein finally liefe nicht mehr.
+		$antwort = self::schritt( $token );
+		self::sperre_loesen( $token );
+
+		if ( empty( $antwort['ok'] ) ) {
+			wp_send_json_error( $antwort['data'] );
+		}
+		wp_send_json_success( $antwort['data'] );
+	}
+
+	/**
+	 * Ein Häppchen verarbeiten – unter der Sperre aus ajax_step().
+	 *
+	 * @return array ok (bool) + data (Antwort bzw. Fehlertext).
+	 */
+	private static function schritt( $token ) {
+		$lauf = get_transient( self::lauf_key( $token ) );
+		if ( ! is_array( $lauf ) ) {
+			// Kein Lauf mehr: Ein anderes Fenster hat ihn zu Ende gebracht, oder
+			// er ist verfallen. Für die Seite ist beides „fertig" – ein Fehler
+			// wäre falsch, es ist ja nichts kaputt.
+			return array( 'ok' => true, 'data' => array(
+				'fertig'      => true,
+				'anderswo'    => true,
+				'verarbeitet' => 0, 'gesamt' => 0, 'created' => 0, 'updated' => 0, 'skipped' => 0,
+				'meldung'     => 'Dieser Import ist bereits abgeschlossen – vermutlich in einem anderen Fenster. Die Zahlen stehen dort.',
+			) );
 		}
 
 		$path = self::dir() . '/' . $lauf['token'];
 		if ( ! file_exists( $path ) ) {
 			delete_transient( self::lauf_key( $token ) );
-			wp_send_json_error( 'Die hochgeladene Datei ist nicht mehr da.' );
+			return array( 'ok' => false, 'data' => 'Die hochgeladene Datei ist nicht mehr da.' );
 		}
 
 		@set_time_limit( 0 );
 		$handle = fopen( $path, 'r' );
 		if ( ! $handle ) {
-			wp_send_json_error( 'Die Datei lässt sich nicht lesen.' );
+			return array( 'ok' => false, 'data' => 'Die Datei lässt sich nicht lesen.' );
 		}
 		if ( $lauf['offset'] > 0 ) {
 			fseek( $handle, (int) $lauf['offset'] );
@@ -538,7 +602,7 @@ class BI_Import {
 			set_transient( self::lauf_key( $token ), $lauf, DAY_IN_SECONDS );
 		}
 
-		wp_send_json_success( array(
+		return array( 'ok' => true, 'data' => array(
 			'fertig'      => $fertig,
 			'verarbeitet' => $verarbeitet,
 			'gesamt'      => (int) $lauf['gesamt'],
@@ -547,6 +611,43 @@ class BI_Import {
 			'skipped'     => (int) $lauf['skipped'],
 			'meldung'     => $meldung,
 		) );
+	}
+
+	/** Schlüssel der Sperre eines Laufs (Zeile in wp_options, nicht autoload). */
+	private static function sperre_key( $token ) {
+		return 'bi_import_sperre_' . md5( (string) $token );
+	}
+
+	/**
+	 * Sperre nehmen. Ein INSERT auf den eindeutigen option_name: Von zwei
+	 * gleichzeitigen Anfragen gewinnt genau eine, die Datenbank entscheidet.
+	 * Transients taugen dafür nicht – get_transient/set_transient sind zwei
+	 * Schritte, und dazwischen passt die zweite Anfrage.
+	 *
+	 * Eine verwaiste Sperre (PHP mitten im Häppchen abgestürzt) verfällt nach
+	 * zehn Minuten; so lange braucht kein Häppchen von 40 Zeilen.
+	 */
+	private static function sperre_setzen( $token ) {
+		global $wpdb;
+		$key = self::sperre_key( $token );
+
+		$alt = $wpdb->get_var( $wpdb->prepare(
+			"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $key
+		) );
+		if ( null !== $alt && (int) $alt < time() - 10 * MINUTE_IN_SECONDS ) {
+			$wpdb->delete( $wpdb->options, array( 'option_name' => $key ) );
+		}
+
+		$ok = $wpdb->query( $wpdb->prepare(
+			"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+			$key, (string) time()
+		) );
+		return (bool) $ok; // 0 betroffene Zeilen = jemand anders hält sie
+	}
+
+	private static function sperre_loesen( $token ) {
+		global $wpdb;
+		$wpdb->delete( $wpdb->options, array( 'option_name' => self::sperre_key( $token ) ) );
 	}
 
 	/**
@@ -566,20 +667,16 @@ class BI_Import {
 			return;
 		}
 
-		// Vorhandenen Eintrag per Seminarnummer finden? Immer nur innerhalb
-		// desselben Beitragstyps – Präsenz und Online dürfen dieselbe Nummer führen.
+		// Vorhandenen Eintrag per Seminarnummer finden – immer, das ist nicht
+		// abschaltbar: Eine Seminarnummer kommt je Installation und Seminarform
+		// genau einmal vor. Nur innerhalb desselben Beitragstyps – Präsenz und
+		// Online dürfen dieselbe Nummer führen. Getrimmt, weil sanitize_text_field
+		// beim Speichern ebenfalls trimmt: „B00027462 " und „B00027462" sind
+		// dasselbe Seminar.
 		$existing = 0;
-		$nummer   = self::cell( $row, $map['_bi_seminarnummer'] ?? '' );
-		if ( $lauf['dedupe'] && '' !== trim( $nummer ) ) {
-			$found = get_posts( array(
-				'post_type'   => $post_type,
-				'post_status' => 'any',
-				'numberposts' => 1,
-				'fields'      => 'ids',
-				'meta_key'    => '_bi_seminarnummer',
-				'meta_value'  => $nummer,
-			) );
-			$existing = $found ? (int) $found[0] : 0;
+		$nummer   = trim( self::cell( $row, $map['_bi_seminarnummer'] ?? '' ) );
+		if ( '' !== $nummer ) {
+			$existing = BI_CPT::post_zu_nummer( $nummer, $post_type );
 		}
 
 		$postarr = array(

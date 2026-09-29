@@ -145,6 +145,7 @@ textarea.bi-wiz__input { resize: vertical; line-height: 1.5; }
 .bi-wiz__review-empty { font-size: 14px; color: #a1a1aa; margin: 0; }
 
 .bi-wiz__consent { display: flex; gap: 12px; align-items: flex-start; }
+.bi-wiz__consent + .bi-wiz__consent { margin-top: 14px; }
 .bi-wiz__consent input { accent-color: var(--accent); width: 18px; height: 18px; margin-top: 2px; flex: 0 0 auto; }
 .bi-wiz__consent span { font-size: 14px; color: #3f3f46; line-height: 1.5; }
 .bi-wiz__consent.bi-invalid span { color: #b32d2e; }

@@ -109,6 +109,10 @@
   rahmen.setAttribute('scrolling', 'no');
   rahmen.setAttribute('frameborder', '0');
   rahmen.setAttribute('allowtransparency', 'true');
+  // „Link kopieren" auf der Seminarseite schreibt in die Zwischenablage. Aus
+  // einem fremden Rahmen heraus erlaubt Chrome das nur mit dieser Freigabe;
+  // ohne sie bietet der Knopf den Link zum Markieren an.
+  rahmen.setAttribute('allow', 'clipboard-write');
   rahmen.style.cssText = 'display:block;width:100%;border:0;margin:0;height:' + START + 'px;';
 
   // Vor das Skript-Element setzen: So steht der Rahmen genau dort, wo im

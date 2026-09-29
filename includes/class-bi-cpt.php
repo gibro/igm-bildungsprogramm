@@ -853,6 +853,8 @@ class BI_CPT {
 			wp_enqueue_script( 'bi-gs-anfrage' );
 			// Zurück-Link auf die zuletzt gesehene Trefferliste führen
 			wp_enqueue_script( 'bi-zurueck' );
+			// Tabs, Aktionsleiste und Buchungsklappe der mobilen Darstellung
+			wp_enqueue_script( 'bi-mobil' );
 		}
 	}
 
@@ -943,6 +945,7 @@ class BI_CPT {
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'bulk_edit_post_texte' ), 10, 2 );
 		add_action( 'admin_notices', array( __CLASS__, 'bulk_text_notice' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'bulk_titel_notice' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'nummer_dublette_notice' ) );
 	}
 
 	/** CPT + Taxonomien registrieren */
@@ -1351,6 +1354,94 @@ class BI_CPT {
 		}
 
 		self::save_tax( $post_id, $post );
+		self::nummer_pruefen( $post_id, $post->post_type );
+	}
+
+	/* ===================================================================
+	 *  Seminarnummer als Schlüssel
+	 *
+	 *  Eine Seminarnummer kommt je Installation und Seminarform genau einmal
+	 *  vor. Zwei Einträge mit derselben Nummer SIND dasselbe Seminar – eine
+	 *  Dublette, kein zweiter Termin. Die Importe (CSV, JSON-Paket, Abgleich)
+	 *  schlagen deshalb immer zuerst hier nach; die Maske warnt, wenn von Hand
+	 *  eine schon vergebene Nummer gesetzt wird. Aufräumen, was trotzdem
+	 *  doppelt ist: Datenpflege → Doppelte Nummern.
+	 * =================================================================== */
+
+	/**
+	 * Eintrag zu einer Seminarnummer – oder 0.
+	 *
+	 * Getrimmt verglichen, Papierkorb und Auto-Entwürfe zählen nicht: Was dort
+	 * liegt, darf ein Import nicht wiederbeleben, sonst würde eine bewusst
+	 * entsorgte Nummer stillschweigend zurückkehren. Direkt in SQL statt über
+	 * WP_Query, damit keine Abfrage-Filter dazwischenfunken und ein gerade
+	 * angelegter Eintrag sofort gefunden wird.
+	 *
+	 * @param string $nummer    Seminarnummer.
+	 * @param string $post_type BI_CPT oder BI_ONLINE.
+	 * @param int    $ausser    Diese ID überspringen (der Eintrag selbst).
+	 */
+	public static function post_zu_nummer( $nummer, $post_type, $ausser = 0 ) {
+		global $wpdb;
+		$nummer = trim( (string) $nummer );
+		if ( '' === $nummer ) {
+			return 0;
+		}
+		return (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT p.ID FROM {$wpdb->posts} p
+			 INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_bi_seminarnummer'
+			 WHERE p.post_type = %s
+			   AND p.post_status NOT IN ('trash', 'auto-draft')
+			   AND TRIM(m.meta_value) = %s
+			   AND p.ID <> %d
+			 ORDER BY p.ID ASC
+			 LIMIT 1",
+			$post_type, $nummer, (int) $ausser
+		) );
+	}
+
+	/**
+	 * Nach dem Speichern aus der Maske: Steht die Nummer schon woanders, den
+	 * Hinweis für die nächste Seite merken. Gespeichert wird trotzdem – die
+	 * Maske ist der Ort, an dem jemand bewusst arbeitet, und ein hartes Nein
+	 * würde die übrigen Änderungen gleich mit verwerfen.
+	 */
+	private static function nummer_pruefen( $post_id, $post_type ) {
+		$nummer = trim( (string) get_post_meta( $post_id, '_bi_seminarnummer', true ) );
+		if ( '' === $nummer ) {
+			return;
+		}
+		$andere = self::post_zu_nummer( $nummer, $post_type, $post_id );
+		if ( $andere ) {
+			set_transient(
+				'bi_nummer_dublette_' . get_current_user_id(),
+				array( 'nummer' => $nummer, 'andere' => $andere ),
+				5 * MINUTE_IN_SECONDS
+			);
+		}
+	}
+
+	public static function nummer_dublette_notice() {
+		$key  = 'bi_nummer_dublette_' . get_current_user_id();
+		$info = get_transient( $key );
+		if ( ! is_array( $info ) ) {
+			return;
+		}
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'post' !== $screen->base || ! in_array( $screen->post_type, bi_seminar_post_types(), true ) ) {
+			return;
+		}
+		delete_transient( $key );
+		$andere = (int) $info['andere'];
+		printf(
+			'<div class="notice notice-warning is-dismissible"><p><strong>Die Seminarnummer %1$s ist schon vergeben:</strong> '
+			. '<a href="%2$s">%3$s</a> trägt sie bereits. Zwei Einträge mit derselben Nummer sind dasselbe Seminar – '
+			. 'bitte die Nummer prüfen oder die Dublette unter <a href="%4$s">Datenpflege → Doppelte Nummern</a> zusammenführen.</p></div>',
+			esc_html( $info['nummer'] ),
+			esc_url( (string) get_edit_post_link( $andere, 'raw' ) ),
+			esc_html( get_the_title( $andere ) ?: ( '#' . $andere ) ),
+			esc_url( admin_url( 'admin.php?page=' . BI_Datenpflege::PAGE . '&tab=dubletten' ) )
+		);
 	}
 
 	/**

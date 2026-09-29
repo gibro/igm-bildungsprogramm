@@ -567,6 +567,10 @@ class BI_Registration {
 								</div>
 								<?php echo $ist_reihe ? self::summary_card_reihe( $teile ) : self::summary_card( $info ); // phpcs:ignore ?>
 								<label class="bi-wiz__consent">
+									<input type="checkbox" name="gremienbeschluss" value="1" data-req="1">
+									<span>Ich habe den Hinweis zum Gremienbeschluss zur Kenntnis genommen und werde einen Beschluss herbeiführen. <span class="bi-wiz__req">*</span></span>
+								</label>
+								<label class="bi-wiz__consent">
 									<input type="checkbox" name="datenschutz" value="1" data-req="1">
 									<span><?php echo $ist_reihe
 										? 'Ich melde mich verbindlich zu <strong>allen oben genannten Teilen</strong> der Ausbildungsreihe an und habe die Hinweise zur Verarbeitung meiner personenbezogenen Daten zur Kenntnis genommen.'
@@ -1162,7 +1166,7 @@ class BI_Registration {
 		// wäre falsch herum.
 		$einzeln_gesperrt = ! $reihe_id && $seminar_id && BI_Reihen::nur_komplett( $seminar_id );
 
-		if ( '' === bi_post( 'datenschutz' ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
+		if ( '' === bi_post( 'datenschutz' ) || '' === bi_post( 'gremienbeschluss' ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
 			|| ! BI_CPT::is_bookable( $seminar_id ) || $einzeln_gesperrt ) {
 			$errors = true;
 		}

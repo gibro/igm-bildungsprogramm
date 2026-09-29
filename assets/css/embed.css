@@ -35,6 +35,47 @@ body.bi-embed #wpadminbar {
 	display: none !important;
 }
 
+/* ------------------------------------------------------------
+   Inhaltsbreite im Rahmen
+
+   Das Elementor-Kit von bildung.igmetall.de begrenzt jeden Container auf
+   850 Pixel (unter 1025 px Fensterbreite auf 1024, unter 768 auf 767).
+   Auf der eigenen Website passt das zum Theme; im Rahmen einer fremden
+   Seite bleibt davon eine schmale Spalte mit weißem Rand links und
+   rechts. Kurios obendrein: Ein Rahmen von 1025–1100 px zeigt weniger
+   Inhalt als einer von 1000 px, weil dort schon die Tablet-Grenze greift.
+
+   Hier gilt deshalb eine eigene Breite, die über die Vorgabe von
+   Elementor hinausgeht. Bis 1400 Pixel füllt der Inhalt den Rahmen,
+   darüber bleibt er mittig stehen – längere Zeilen liest niemand gern.
+
+   Gesetzt wird das direkt als max-width mit !important und nicht nur über
+   Elementors Variable --container-max-width: Einzelne Seiten dürfen in
+   Elementor ihre eigene Breite je Container festlegen, und die stünde
+   sonst wieder dagegen. Nur die oberste Ebene – innere Container
+   wollen oft bewusst schmal sein (Karten, Spalten).
+
+   Die Seminardetails bringen mit --bi-breite (1180 px) ihre eigene
+   Grenze mit; sie stehen innerhalb dieser Breite mittig.
+   ------------------------------------------------------------ */
+
+body.bi-embed {
+	--bi-embed-breite: 1400px;
+}
+
+/* Container (Flexbox-Container, Elementor ab 3.6) */
+body.bi-embed .e-con.e-parent {
+	--container-max-width: var(--bi-embed-breite);
+}
+body.bi-embed .e-con.e-parent.e-con-boxed > .e-con-inner {
+	max-width: min(100%, var(--bi-embed-breite)) !important;
+}
+
+/* Abschnitte (ältere Elementor-Seiten mit Section/Column) */
+body.bi-embed .elementor-top-section.elementor-section-boxed > .elementor-container {
+	max-width: min(100%, var(--bi-embed-breite)) !important;
+}
+
 body.bi-embed .bi-embed__leer {
 	padding: 2rem 1rem;
 	font-size: 1rem;

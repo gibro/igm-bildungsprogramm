@@ -59,6 +59,8 @@ class BI_Icons {
 			'pfeil-links' => '<path d="M20 12H4"/><path d="m10 6-6 6 6 6"/>',
 			// Pfeil nach rechts (weiter) – sitzt im Kreis am Ende einer Trefferzeile
 			'pfeil-rechts' => '<path d="M4 12h16"/><path d="m14 6 6 6-6 6"/>',
+			// Zwei Kettenglieder – „Link kopieren" auf der Seminarseite
+			'link' => '<path d="M10 14a4 4 0 0 0 5.7 0l3.6-3.6a4 4 0 0 0-5.7-5.7L12 6.3"/><path d="M14 10a4 4 0 0 0-5.7 0l-3.6 3.6a4 4 0 0 0 5.7 5.7l1.6-1.6"/>',
 		);
 	}
 
@@ -108,6 +110,8 @@ class BI_Icons {
 			'freistellung'  => 'paragraf',
 			'aufbau'        => 'unterlagen',
 			'kosten'        => 'geld',
+			'seminarleitung'  => 'person',
+			'voraussetzungen' => 'haken',
 		);
 		$key = mb_strtolower( trim( (string) $label ) );
 		return isset( $karte[ $key ] ) ? $karte[ $key ] : 'info';

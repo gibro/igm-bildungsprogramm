@@ -1759,6 +1759,63 @@ farbig hinterlegtem Kasten, der Datenliste, der Kostenaufstellung und dem
 Buchungsbereich, darunter die Box „Seminardetails als PDF" und die
 Ansprechperson.
 
+### Mobile Darstellung (bis 640px)
+
+Bis 640px Rahmenbreite zeigen Seminar- und Reihenseite nicht mehr „dieselbe
+Seite, nur schmaler", sondern den Entwurf aus
+`handoff/design_handoff_igm_bildung_mobil` (Seminar in Variante 1b, Reihe in
+derselben Sprache): ein anthrazitfarbenes **Kopfband** mit Sunrise-Dreieck,
+Titel und Subline („07.09.–11.09.2026 · Sprockhövel"), darunter eine
+**Tableiste**, darunter der Inhalt des gewählten Tabs, unten eine klebende
+**Aktionsleiste** mit dem einen Knopf, der zählt.
+
+| Seite | Tabs | Aktionsleiste |
+|---|---|---|
+| Seminar | Überblick (Text, Themen, Angaben-Kasten mit Ampel) · Termine (gezeigter Termin als „Ausgewählt", darunter die weiteren) · Kosten (Aufstellung, Beschluss-Satz, PDF) · Kontakt | „Jetzt buchen · 1.250,00 €" als Link; Geschäftsstellen-Variante: Knopf klappt die PLZ-Suche über der Leiste auf |
+| Reihe | Überblick (Bild, Kennzahlen-Raster, Einleitung, „Inhalte der Reihe ansehen") · Die N Teile (Akkordeon) · Termine (nur mit festen Gruppen) · Details (Angaben mit Piktogramm, Kosten-Kasten) | „Nächster Start 15.02.2027 · Bad Orb" und „Reihe buchen" – springt zu den Gruppen, sonst zu den Teilen |
+
+Ein Tab erscheint nur, wenn sein Inhalt etwas zeigt: Ohne weitere Termine kein
+„Termine", ohne Ansprechperson kein „Kontakt".
+
+**Warum 640px.** Im Rahmen auf igmetall.de hält das Nebeneinander von Text und
+Sidebar bis etwa 660px (Regel *Schmale Schirme* in `detailseiten.css`: 351/281px
+bei 700px Rahmenbreite, 331/261px bei 660px). Darunter fiele die Sidebar unter
+den Text – ab da ist es ein Handy, und ab da gilt der Entwurf. Die Schwelle
+misst die **Rahmenbreite**, nicht den Bildschirm: Im iframe sieht `@media` den
+Rahmen. Genau das ist gemeint.
+
+**Ein Markup, zwei Darstellungen.** Es gibt kein zweites Template. Jeder
+Abschnitt trägt eine Marke (`data-bi-mobil="ueberblick|termine|kosten|kontakt"`
+bzw. `teile|gruppen|details`), Tableiste, Subline und Aktionsleiste stehen mit
+der Klasse `igm-mobil-nur` immer im HTML und sind am Schreibtisch ausgeblendet.
+Unter 640px löst das Stylesheet die Spalten auf (`display: contents`), ordnet
+per `order` um und blendet je Tab ein, was `assets/js/mobil.js` mit `is-aktiv`
+markiert hat – aber nur, solange das Skript der Seite die Klasse
+`igm-seite--tabs` gegeben hat. **Ohne JavaScript steht alles untereinander**,
+nichts verschwindet hinter einem Skript. Warum kein zweites Markup: Die Buchung
+(PLZ-Suche, Dialog, Reihen-Auswahl) hängt an IDs und Skripten; zweimal
+ausgegeben gäbe es zwei Dialoge mit derselben ID.
+
+Die Box „Seminardetails" ist mobil keine Box mehr: Ihre Teile stehen in
+eigenen Hüllen (`.igm-box__teil--info|--kosten|--buchen`) und gehen in
+verschiedene Tabs. Der Buchungsblock (`--buchen`) ist die **Klappe**: Bei der
+Geschäftsstellen-Variante öffnet ihn der Knopf der Leiste (`data-bi-panel`),
+bei der Direktanmeldung bleibt er zu – der Link steht ja in der Leiste, samt
+Summe aus `kosten_daten()`.
+
+**Grenze des Rahmens.** Auf der eigenen Website klebt die Leiste am unteren
+Rand (`position: sticky`) und die Seite füllt mindestens den Bildschirm, damit
+sie auch bei einem kurzen Tab unten steht. Im Rahmen einer Fremdseite, der mit
+dem Inhalt wächst, gibt es nichts zu kleben – dort steht die Leiste am Ende
+der Seite. Ein Rahmen von einer anderen Domain kann seinen Inhalt nicht am
+Bildschirm des Besuchers ausrichten; das ist die Grenze des Rahmens, nicht
+dieser Regel. Ebenso bleibt `min-height: 100vh` dort aus (`body.bi-embed`),
+weil die Fensterhöhe im Rahmen die Rahmenhöhe ist, die `embed.js` erst aus dem
+Inhalt berechnet.
+
+Nicht Teil des Entwurfs und deshalb unverändert: Suchleiste und Trefferliste
+(`filterleiste.css`, `frontend.css`), das Anmeldeformular, die Reihenübersicht.
+
 ### Seminardetails als PDF herunterladen
 
 Unter der Box „Seminardetails" steht eine eigene kleine Box mit dem Knopf
@@ -2414,6 +2471,28 @@ Der Laufzustand (Dateizeiger, Zuordnung, Zähler) steht in einem Transient. Bric
 die Verbindung ab, setzt ein Neuladen der Seite dort fort, wo der Lauf stand –
 die Byte-Position in der Datei ist mitgespeichert. Die Häppchengröße lässt sich
 über den Filter `bi_import_haeppchen` ändern.
+
+**Nur eine Schleife je Lauf.** Die Fortschrittsseite startet ihre Schleife bei
+jedem Laden. Wird sie neu geladen oder in einem zweiten Fenster geöffnet, gäbe es
+zwei Schleifen auf derselben Datei – und genau das ist am 25.08.2026 in Berlin
+passiert: Beide verarbeiteten dieselben Zeilen zur selben Zeit, die Nummernprüfung
+der einen sah den Eintrag der anderen noch nicht, 152 Seminare standen doppelt da
+(aufeinanderfolgende IDs, dieselbe Sekunde). Seit 1.130.0 hält jeder Schritt eine
+Sperre je Lauf (`INSERT IGNORE` auf einen eindeutigen `option_name` – die
+Datenbank entscheidet, welche von zwei gleichzeitigen Anfragen gewinnt). Die
+andere Anfrage bekommt `warten` zurück, zeigt die Zahlen mit an und fragt nach
+2,5 Sekunden wieder. Eine verwaiste Sperre (PHP mitten im Häppchen gestorben)
+verfällt nach zehn Minuten.
+
+**Die Seminarnummer ist Schlüssel, nicht Option.** Eine Nummer kommt je
+Installation und Seminarform genau einmal vor; zwei Einträge mit derselben Nummer
+sind dasselbe Seminar. Der frühere Haken *Duplikate* ist deshalb weg – der Import
+schlägt immer über `BI_CPT::post_zu_nummer()` nach (getrimmt, direkt in SQL,
+Papierkorb und Auto-Entwürfe ausgenommen) und aktualisiert den Treffer, statt
+einen zweiten anzulegen. Dasselbe gilt für das JSON-Paket der Datenpflege. Wer in
+der Maske von Hand eine schon vergebene Nummer speichert, bekommt eine Warnung mit
+Link auf den anderen Eintrag; gespeichert wird trotzdem. Aufräumen, was vorher
+doppelt entstand: *Datenpflege → Doppelte Nummern*.
 
 ### Der Import blendet nichts aus
 
@@ -3344,9 +3423,9 @@ Ansprechpartner-Adresse), *Feld enthält* findet Altlasten und Schreibfehler.
 Eine Zeile je Eintrag, Semikolon als Trennzeichen, BOM für Excel. Die Kopfzeile
 entspricht exakt den Feldnamen, die `BI_Import::guess_mapping()` kennt – wer die
 Datei in einer anderen Installation unter *Einstellungen → Seminar-Import*
-hochlädt, findet die Spaltenzuordnung deshalb bereits ausgefüllt vor. Zusammen
-mit der Option *Duplikate* (Abgleich über die Seminarnummer) ist der Reimport
-wiederholbar, ohne Einträge zu verdoppeln.
+hochlädt, findet die Spaltenzuordnung deshalb bereits ausgefüllt vor. Weil der
+Import immer über die Seminarnummer nachschlägt, ist der Reimport wiederholbar,
+ohne Einträge zu verdoppeln.
 
 Ja/Nein-Felder stehen als `ja`/`nein` in der Datei, Auswahlfelder als Schlüssel,
 Mehrfachbegriffe mit `|` getrennt. Ein CSV-Export braucht **eine** Seminarform:
@@ -3522,8 +3601,26 @@ niemand rätseln muss.
 Ob ein Import gewirkt hat, zeigt der Reiter *Begriffe*: Die Spalten **Präsenz**
 und **Online** stehen je Begriff nebeneinander. Alte Begriffe mit `0 / 0` sind
 nur noch Karteileichen – ein Fall fürs Aufräumen. Stehen dort noch Zahlen, hat
-der Import die betreffenden Seminare nicht erreicht (andere Seminarform, oder
-die Option *Duplikate* war aus, sodass alles doppelt angelegt wurde).
+der Import die betreffenden Seminare nicht erreicht (andere Seminarform).
+
+### Doppelte Seminarnummern
+
+Reiter *Datenpflege → Doppelte Nummern*. Er listet jede Seminarnummer, die in
+derselben Seminarform mehr als einmal vorkommt (Papierkorb und Auto-Entwürfe
+zählen nicht, verglichen wird getrimmt), mit allen Einträgen: ID, Titel,
+Startdatum, Status, Anlagedatum und Zahl der Anmeldungen.
+
+**Alle Dubletten zusammenführen** behält je Gruppe den ältesten Eintrag (kleinste
+ID), hängt die Anmeldungen der übrigen auf ihn um (`seminar_id` in
+`wp_bi_anmeldungen`) und verschiebt die übrigen in den Papierkorb – nicht
+gelöscht, ein Irrtum lässt sich zurückholen. Die Zentrale des Abgleichs kennt
+ohnehin nur einen Eintrag je Nummer (ihr Schlüssel ist `<post_type>:<nummer>`),
+sie merkt vom Aufräumen nichts.
+
+Solange Nummern doppelt sind, steht über der Seminarliste ein Hinweis mit Link
+hierher. Entstehen können sie seit 1.130.0 nur noch von Hand (Maske, mit
+Warnung) – die Importe schlagen immer über die Nummer nach, und der Import-Lauf
+ist gegen parallele Schleifen gesperrt.
 
 ## Abgleich mehrerer Websites
 

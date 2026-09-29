@@ -74,6 +74,93 @@ class BI_Detail {
 			delete_transient( 'bi_anmeldung_page_url' );
 			delete_transient( 'bi_uebersicht_page_url' );
 		} );
+		// Dauerhafte Links (?bi_nr=…) auf die aktuelle Seminarseite umleiten
+		add_action( 'template_redirect', array( __CLASS__, 'dauerlink_aufloesen' ), 1 );
+	}
+
+	/* ===================================================================
+	 *  Dauerhafter Link („Link kopieren")
+	 * ===================================================================
+	 *
+	 *  Die Adresse einer Seminarseite taugt nicht zum Weitergeben: Im Rahmen
+	 *  (iframe) sieht niemand sie, auf den Satelliten führt sie zur falschen
+	 *  Website, und nach einem Neuimport kann sich der Slug ändern. Weitergegeben
+	 *  wird deshalb die Seminarnummer – sie ist je Seminarform eindeutig und auf
+	 *  allen drei Websites dieselbe, weil der Abgleich über sie läuft.
+	 *
+	 *  Der Link zeigt immer auf bildung.igmetall.de, dort liegt der ganze
+	 *  Bestand. Jede Installation kann ihn auflösen; die Zentrale muss es.
+	 */
+
+	/** Parameter der dauerhaften Adresse */
+	const DAUERLINK_PARAM = 'bi_nr';
+
+	/** Website, zu der ein kopierter Link führt (mit Schrägstrich am Ende). */
+	public static function dauerlink_basis() {
+		if ( class_exists( 'BI_Sync' ) && BI_Sync::ist_zentrale() ) {
+			return trailingslashit( home_url( '/' ) );
+		}
+		return trailingslashit( (string) apply_filters( 'bi_dauerlink_basis', 'https://bildung.igmetall.de/' ) );
+	}
+
+	/**
+	 * Dauerhafte Adresse eines Seminars. Ohne Seminarnummer bleibt nur der
+	 * eigene Permalink – ohne den Rahmen-Parameter, der Link wird außerhalb geöffnet.
+	 */
+	public static function dauerlink( $post_id ) {
+		$nummer = trim( (string) get_post_meta( $post_id, '_bi_seminarnummer', true ) );
+		if ( '' === $nummer ) {
+			return remove_query_arg( class_exists( 'BI_Embed' ) ? BI_Embed::PARAM : 'bi_embed', get_permalink( $post_id ) );
+		}
+		$args = array( self::DAUERLINK_PARAM => rawurlencode( $nummer ) );
+		if ( bi_is_online( $post_id ) ) {
+			$args['bi_form'] = 'online';
+		}
+		return add_query_arg( $args, self::dauerlink_basis() );
+	}
+
+	/**
+	 * ?bi_nr=… -> Seminarseite zur Nummer (302, denn das Ziel kann sich ändern).
+	 *
+	 * Gibt es das Seminar nicht (mehr), führt der Link auf die Übersicht mit der
+	 * Nummer als Filter – dort steht dann „keine Treffer" statt einer 404.
+	 */
+	public static function dauerlink_aufloesen() {
+		$nummer = trim( sanitize_text_field( bi_get( self::DAUERLINK_PARAM ) ) );
+		if ( '' === $nummer ) {
+			return;
+		}
+		$post_type = ( 'online' === bi_get( 'bi_form' ) ) ? BI_ONLINE : BI_CPT;
+		$post_id   = BI_CPT::post_zu_nummer( $nummer, $post_type );
+
+		if ( $post_id && 'publish' === get_post_status( $post_id ) ) {
+			$ziel = get_permalink( $post_id );
+		} else {
+			$uebersicht = class_exists( 'BI_Registration' ) ? BI_Registration::uebersicht_url() : home_url( '/' );
+			$ziel       = add_query_arg( 'nr', rawurlencode( $nummer ), $uebersicht );
+		}
+
+		wp_safe_redirect( $ziel, 302 );
+		exit;
+	}
+
+	/** Box „Link zu diesem Seminar" in der Sidebar */
+	private static function link_box( $post_id ) {
+		if ( 'publish' !== get_post_status( $post_id ) ) {
+			return '';
+		}
+		wp_enqueue_script( 'bi-link-kopieren' );
+		$url = self::dauerlink( $post_id );
+
+		return '<div class="igm-box igm-box--klein igm-box--download igm-box--link" data-bi-mobil="ueberblick">'
+			. '<h2 class="igm-box__titel">Link zu diesem Seminar</h2>'
+			. '<p class="igm-box__text">Zum Weitergeben oder Wiederfinden.</p>'
+			. '<a class="igm-btn igm-btn--sek igm-btn--download" href="' . esc_url( $url ) . '" target="_top" data-bi-link-kopieren>'
+			. BI_Icons::get( 'link', 20 )
+			. '<span>Link kopieren</span></a>'
+			. '<input type="text" class="igm-link__feld" value="' . esc_attr( $url ) . '" readonly hidden aria-label="Link zu diesem Seminar">'
+			. '<p class="igm-link__status" aria-live="polite"></p>'
+			. '</div>';
 	}
 
 	/**
@@ -93,6 +180,12 @@ class BI_Detail {
 		// Führt den Zurück-Link auf die zuletzt gesehene Trefferliste zurück
 		// (samt Filtern). Ohne das Skript zeigt der Link auf die Übersicht.
 		wp_register_script( 'bi-zurueck', BI_URL . 'assets/js/zurueck.js', array(), BI_VERSION, true );
+		// Tabs, Aktionsleiste und Buchungsklappe der mobilen Darstellung
+		// (bis 640px) – siehe mobil_tabs() und den Abschnitt „Mobil" in
+		// detailseiten.css.
+		wp_register_script( 'bi-mobil', BI_URL . 'assets/js/mobil.js', array(), BI_VERSION, true );
+		// „Link kopieren" – siehe link_box()
+		wp_register_script( 'bi-link-kopieren', BI_URL . 'assets/js/link-kopieren.js', array(), BI_VERSION, true );
 	}
 
 	/**
@@ -140,14 +233,18 @@ class BI_Detail {
 	/**
 	 * Kopfbereich: Overline, Titel, Untertitel, Badges, Bild mit Dreieck.
 	 *
-	 * @param array $args overline, titel, untertitel, badges (fertiges HTML),
-	 *                    bild_id, brotkrumen (fertiges HTML).
+	 * @param array $args overline, titel, untertitel, subline, badges (fertiges
+	 *                    HTML), bild_id, brotkrumen (fertiges HTML).
+	 *                    `subline` („07.09.–11.09.2026 · Sprockhövel") steht nur
+	 *                    im Kopfband der mobilen Darstellung; am Schreibtisch
+	 *                    sagt das Kennzahlenband dasselbe.
 	 */
 	public static function hero( $args ) {
 		$a = array_merge( array(
 			'overline'    => '',
 			'titel'       => '',
 			'untertitel'  => '',
+			'subline'     => '',
 			'badges'      => '',
 			'bild_id'     => 0,
 			'brotkrumen'  => '',
@@ -163,6 +260,9 @@ class BI_Detail {
 		if ( '' !== trim( (string) $a['untertitel'] ) ) {
 			$html .= '<p class="igm-hero__untertitel">' . esc_html( $a['untertitel'] ) . '</p>';
 		}
+		if ( '' !== trim( (string) $a['subline'] ) ) {
+			$html .= '<p class="igm-hero__subline igm-mobil-nur">' . esc_html( $a['subline'] ) . '</p>';
+		}
 		if ( '' !== $a['badges'] ) {
 			$html .= '<div class="igm-hero__badges">' . $a['badges'] . '</div>';
 		}
@@ -171,7 +271,9 @@ class BI_Detail {
 		if ( $a['bild_id'] && has_post_thumbnail( $a['bild_id'] ) ) {
 			// Das Dreieck ist reine Zier des Design-Systems und steht deshalb als
 			// leeres Element da – benannt wird es nicht, gelesen auch nicht.
-			$html .= '<div class="igm-hero__bild">'
+			// Mobil gehört das Bild in den Tab „Überblick" (unter die Tableiste,
+			// nicht ins Kopfband) – daher die Marke.
+			$html .= '<div class="igm-hero__bild" data-bi-mobil="ueberblick">'
 				. get_the_post_thumbnail( $a['bild_id'], 'large', array( 'alt' => '' ) )
 				. '<span class="igm-hero__dreieck" aria-hidden="true"></span>'
 				. '</div>';
@@ -198,8 +300,9 @@ class BI_Detail {
 		if ( '' === $items ) {
 			return '<div class="igm-trennstrich"></div>';
 		}
+		// Mobil steht das Band als Raster im Tab „Überblick" (Reihe) – daher die Marke.
 		return '<div class="igm-trennstrich"></div>'
-			. '<section class="igm-fakten"><dl class="igm-fakten__inner igm-breite">' . $items . '</dl></section>';
+			. '<section class="igm-fakten" data-bi-mobil="ueberblick"><dl class="igm-fakten__inner igm-breite">' . $items . '</dl></section>';
 	}
 
 	/** Abschnittsüberschrift mit rotem Strich und optionaler Unterzeile. */
@@ -419,47 +522,252 @@ class BI_Detail {
 			'overline'   => self::overline( $post_id ),
 			'titel'      => get_the_title( $post_id ),
 			'untertitel' => $untertitel,
+			'subline'    => self::mobil_subline( $post_id ),
 			'badges'     => $badges,
 			'bild_id'    => $post_id,
 		) );
+
+		/*
+		 * Erst die Bausteine einsammeln, dann zusammensetzen: Welche Tabs die
+		 * mobile Darstellung bekommt, hängt davon ab, was es zu zeigen gibt –
+		 * ein Tab „Kontakt" ohne Ansprechperson wäre eine leere Seite. Jeder
+		 * Baustein trägt seine Marke (data-bi-mobil) selbst; am Schreibtisch
+		 * sind die Marken ohne Wirkung.
+		 */
+		$fliesstext = '';
+		if ( '' !== trim( wp_strip_all_tags( $desc ) ) ) {
+			$fliesstext = '<div class="igm-fliesstext" data-bi-mobil="ueberblick">' . wp_kses_post( $desc ) . '</div>';
+		}
+		$themen_html = self::themen_html( $themen );
+		if ( '' !== $themen_html ) {
+			$themen_html = '<div data-bi-mobil="ueberblick">' . self::abschnitt( 'Themen des Seminars' )
+				. '<div class="igm-abschnitt__inhalt">' . $themen_html . '</div></div>';
+		}
+		$weitere = self::weitere_termine( $post_id );
+		$kosten  = self::kosten_block( $post_id ) . self::mobil_beschluss( $post_id );
+		$pdf     = self::pdf_box( $post_id );
+		$kontakt = self::kontakt_box( $post_id );
+		$aktion  = self::mobil_aktion( $post_id );
+
+		$tabs = array( 'ueberblick' => 'Überblick' );
+		if ( '' !== $weitere ) {
+			$tabs['termine'] = 'Termine';
+		}
+		if ( '' !== $kosten || '' !== $pdf ) {
+			$tabs['kosten'] = 'Kosten';
+		}
+		if ( '' !== $kontakt ) {
+			$tabs['kontakt'] = 'Kontakt';
+		}
+		$html .= self::mobil_tabs( $tabs );
 
 		/* ---- Kennzahlenband ---- */
 		$html .= self::fakten( self::kennzahlen( $post_id ) );
 
 		/* ---- Zwei Spalten ---- */
 		$html .= '<div class="igm-layout igm-breite"><main class="igm-layout__main">';
-
-		if ( '' !== trim( wp_strip_all_tags( $desc ) ) ) {
-			$html .= '<div class="igm-fliesstext">' . wp_kses_post( $desc ) . '</div>';
+		$html .= $fliesstext . $themen_html;
+		if ( '' !== $weitere ) {
+			// Der gezeigte Termin steht mobil als „Ausgewählt" über den weiteren
+			// – am Schreibtisch sagt das die Sidebar daneben.
+			$html .= self::mobil_aktuell( $post_id ) . $weitere;
 		}
-
-		$themen_html = self::themen_html( $themen );
-		if ( '' !== $themen_html ) {
-			$html .= '<div>' . self::abschnitt( 'Themen des Seminars' )
-				. '<div class="igm-abschnitt__inhalt">' . $themen_html . '</div></div>';
-		}
-
-		$html .= self::weitere_termine( $post_id );
 		$html .= '</main>';
 
 		/* ---- Sidebar ---- */
+		// Die Box „Seminardetails" ist mobil keine Box mehr: Ihre Teile gehen in
+		// verschiedene Tabs (Angaben → Überblick, Kosten → Kosten, Buchung →
+		// Klappe über der Aktionsleiste). Deshalb je Teil ein eigener Kasten
+		// mit Marke; am Schreibtisch sind die Kästen unsichtbare Hüllen.
 		$html .= '<aside class="igm-layout__side">';
 		$html .= '<div class="igm-box igm-box--akzent">';
 		$html .= '<h2 class="igm-box__titel">Seminardetails</h2>';
+		$html .= '<div class="igm-box__teil igm-box__teil--info" data-bi-mobil="ueberblick">';
 		$html .= self::ampel_box( $post_id );
 		// lang="de" damit die Silbentrennung des Browsers greift (hyphens: auto):
 		// „Schwerbehindertenvertretung" passt nie in die schmale Wertespalte und
 		// soll an einer Silbengrenze brechen, nicht dort, wo der Platz endet.
 		$html .= '<dl class="igm-daten" lang="de">' . self::sidebar_rows( $post_id ) . '</dl>';
-		$html .= self::kosten_block( $post_id );
-		$html .= self::booking_block( $post_id );
 		$html .= '</div>';
-		$html .= self::pdf_box( $post_id );
-		$html .= self::kontakt_box( $post_id );
+		if ( '' !== $kosten ) {
+			$html .= '<div class="igm-box__teil igm-box__teil--kosten" data-bi-mobil="kosten">' . $kosten . '</div>';
+		}
+		$html .= '<div class="igm-box__teil igm-box__teil--buchen" id="igm-mobil-buchen" data-bi-mobil="buchen">'
+			. self::booking_block( $post_id ) . '</div>';
+		$html .= '</div>';
+		// Reihenfolge der Sidebar: Seminardetails, Ansprechpartner*in, PDF, Link.
+		$html .= $kontakt;
+		$html .= $pdf;
+		$html .= self::link_box( $post_id );
 		$html .= '</aside>';
 
-		$html .= '</div></div>';
-		return $html;
+		$html .= '</div>';
+		$html .= $aktion;
+		return $html . '</div>';
+	}
+
+	/* ===================================================================
+	 *  Mobile Darstellung (bis 640px)
+	 *
+	 *  Dasselbe Markup wie am Schreibtisch – nur mit Marken. Jeder Abschnitt
+	 *  trägt data-bi-mobil="<tab>"; Tableiste, Kopfband-Subline und
+	 *  Aktionsleiste stehen immer im Markup und sind am Schreibtisch
+	 *  ausgeblendet (.igm-mobil-nur). Bis 640px ordnet detailseiten.css alles
+	 *  zu Kopfband, Tabs und fester Leiste um, mobil.js schaltet die Tabs.
+	 *  Ohne JavaScript bleibt alles sichtbar, nur eben untereinander.
+	 *
+	 *  Warum kein zweites Markup: Die Buchung (PLZ-Suche, Dialog, Reihen-
+	 *  Auswahl) hängt an IDs und Skripten. Zweimal ausgegeben gäbe es zwei
+	 *  Dialoge mit derselben ID und ein Skript, das den falschen fände.
+	 *
+	 *  Entwurf: handoff/design_handoff_igm_bildung_mobil (Variante 1b).
+	 * =================================================================== */
+
+	/**
+	 * Tableiste. [ key => Beschriftung ]; die Reihenfolge ist die Anzeige-
+	 * reihenfolge, der erste Tab ist offen. Leer, wenn es nur einen Tab gäbe.
+	 */
+	public static function mobil_tabs( $tabs ) {
+		if ( count( $tabs ) < 2 ) {
+			return '';
+		}
+		$html  = '<nav class="igm-mobil-tabs igm-mobil-nur" role="tablist" aria-label="Abschnitte dieser Seite">';
+		$erste = true;
+		foreach ( $tabs as $key => $label ) {
+			$html .= '<button type="button" role="tab" data-bi-tab="' . esc_attr( $key ) . '"'
+				. ' aria-selected="' . ( $erste ? 'true' : 'false' ) . '"'
+				. ( $erste ? ' class="is-aktiv"' : '' ) . '>'
+				. esc_html( $label ) . '</button>';
+			$erste = false;
+		}
+		return $html . '</nav>';
+	}
+
+	/**
+	 * Aktionsleiste am unteren Rand.
+	 *
+	 * @param string $knopf Fertiges HTML des Knopfs (oder der Ersatz-Aussage).
+	 * @param string $info  Fertiges HTML links neben dem Knopf, optional.
+	 */
+	public static function mobil_leiste( $knopf, $info = '' ) {
+		if ( '' === trim( (string) $knopf ) ) {
+			return '';
+		}
+		return '<div class="igm-mobil-aktion igm-mobil-nur">' . $info . $knopf . '</div>';
+	}
+
+	/** „07.09.–11.09.2026 · Sprockhövel" unter dem Titel im Kopfband. */
+	private static function mobil_subline( $post_id ) {
+		$teile    = array();
+		$zeitraum = self::zeitraum( $post_id, true );
+		if ( '' !== $zeitraum ) {
+			$teile[] = $zeitraum;
+		}
+		if ( bi_is_online( $post_id ) ) {
+			$teile[] = 'Online';
+		} else {
+			$ort = BI_Reihen::ort_kurz( BI_CPT::ort_anzeige( $post_id ) );
+			if ( '' !== $ort ) {
+				$teile[] = $ort;
+			}
+		}
+		return implode( ' · ', $teile );
+	}
+
+	/** Kasten „Ausgewählt" über den weiteren Terminen (Tab „Termine"). */
+	private static function mobil_aktuell( $post_id ) {
+		$ort = bi_is_online( $post_id ) ? 'Online-Seminar' : BI_Reihen::ort_kurz( BI_CPT::ort_anzeige( $post_id ) );
+		return '<div class="igm-mobil-aktuell igm-mobil-nur" data-bi-mobil="termine">'
+			. '<span class="igm-mobil-aktuell__label">Ausgewählt</span>'
+			. '<span class="igm-mobil-aktuell__ort">' . esc_html( $ort ) . '</span>'
+			. '<span class="igm-mobil-aktuell__datum">' . esc_html( self::zeitraum( $post_id, true ) ) . '</span>'
+			. '</div>';
+	}
+
+	/**
+	 * Beschluss-Satz im Tab „Kosten". Am Schreibtisch steht er über dem
+	 * Buchen-Button (booking_block); mobil ist der Button in der Leiste und
+	 * die Klappe zu, also gehört der Satz dorthin, wo über Geld gelesen wird.
+	 * Nur dort, wo er auch am Schreibtisch steht: Präsenz, Direktanmeldung.
+	 */
+	private static function mobil_beschluss( $post_id ) {
+		if ( bi_is_online( $post_id ) || BI_CPT::meta_bool( $post_id, '_bi_ausgebucht' ) ) {
+			return '';
+		}
+		if ( BI_Reihen::nur_komplett( $post_id ) || 'direct' !== BI_Settings::variant_for( $post_id ) ) {
+			return '';
+		}
+		return '<p class="igm-mobil-beschluss igm-mobil-nur">Das Gremium muss die Seminarteilnahme beschließen und sie dem Arbeitgeber melden.</p>';
+	}
+
+	/**
+	 * Aktionsleiste des Seminars: ein Knopf über die ganze Breite.
+	 *
+	 * Dieselbe Weiche wie booking_block(), nur auf einen Knopf verdichtet.
+	 * Wo der Weg ein Link ist (Direktanmeldung, Reihe, Webinar), führt der
+	 * Knopf hin. Die Geschäftsstellen-Variante ist kein Link, sondern die
+	 * PLZ-Suche – der Knopf klappt dann den Buchungsblock der Sidebar über
+	 * der Leiste auf (mobil.js, data-bi-panel). Ohne JavaScript ist der Block
+	 * ohnehin sichtbar und der Knopf ausgeblendet (.igm-mobil-js).
+	 */
+	private static function mobil_aktion( $post_id ) {
+		$rid = BI_Reihen::nur_komplett( $post_id );
+		if ( $rid ) {
+			$knopf = '<a class="igm-btn-buchen igm-mobil-aktion__btn" href="' . esc_url( (string) get_permalink( $rid ) ) . '">Zur Ausbildungsreihe</a>';
+			return self::mobil_leiste( $knopf );
+		}
+		if ( BI_CPT::meta_bool( $post_id, '_bi_ausgebucht' ) ) {
+			$knopf = '<span class="igm-btn-buchen igm-btn-buchen--disabled igm-mobil-aktion__btn" aria-disabled="true">Ausgebucht</span>';
+			return self::mobil_leiste( $knopf );
+		}
+
+		if ( bi_is_online( $post_id ) ) {
+			$variante = BI_Online::variante( $post_id );
+			if ( 'extern' === $variante ) {
+				$knopf = '<a class="igm-btn-buchen igm-mobil-aktion__btn" href="' . esc_url( BI_Online::anmeldelink( $post_id ) )
+					. '" target="_blank" rel="noopener">Zur Anmeldung</a>';
+				return self::mobil_leiste( $knopf );
+			}
+			if ( 'offen' === $variante ) {
+				$knopf = '<a class="igm-btn-buchen igm-mobil-aktion__btn" href="' . esc_url( BI_Online::online_link( $post_id ) )
+					. '" target="_blank" rel="noopener">Direkt teilnehmen</a>';
+				return self::mobil_leiste( $knopf );
+			}
+		}
+
+		$variante = BI_Settings::variant_for( $post_id );
+		if ( 'keine' === $variante ) {
+			$knopf = '<span class="igm-btn-buchen igm-btn-buchen--disabled igm-mobil-aktion__btn" aria-disabled="true">'
+				. esc_html( BI_Settings::get( 'keine_label' ) ) . '</span>';
+			return self::mobil_leiste( $knopf );
+		}
+		if ( 'direct' === $variante ) {
+			// „Jetzt buchen · 1.250,00 €": Der Preis steht am Knopf, wie im
+			// Entwurf – aber nur, wenn es eine Summe gibt, die jemand zahlt.
+			$label = BI_Settings::get( 'direct_label' );
+			$summe = self::kosten_summe( $post_id );
+			if ( '' !== $summe ) {
+				$label .= ' · ' . $summe;
+			}
+			$knopf = '<a class="igm-btn-buchen igm-mobil-aktion__btn" href="' . esc_url( self::direct_url( $post_id ) ) . '">'
+				. esc_html( $label ) . '</a>';
+			return self::mobil_leiste( $knopf );
+		}
+
+		// Geschäftsstelle: Klappe statt Link.
+		$knopf = '<button type="button" class="igm-btn-buchen igm-mobil-aktion__btn igm-mobil-js"'
+			. ' data-bi-panel="igm-mobil-buchen" aria-controls="igm-mobil-buchen" aria-expanded="false">'
+			. 'Anmeldung über Geschäftsstelle</button>';
+		return self::mobil_leiste( $knopf );
+	}
+
+	/** Gesamtbetrag für den Knopf der Aktionsleiste, formatiert – oder ''. */
+	private static function kosten_summe( $post_id ) {
+		$k = self::kosten_daten( $post_id );
+		if ( ! $k['liste'] || null === $k['gesamt'] || $k['gesamt'] <= 0 ) {
+			return '';
+		}
+		return BI_CPT::money_format( $k['gesamt'] );
 	}
 
 	/**
@@ -654,7 +962,7 @@ class BI_Detail {
 	 * denn es heißt „Kosten / Hinweis" und trägt Hinweise wie „Kostenübernahme
 	 * durch den Arbeitgeber", die keine Zahl sind.
 	 */
-	private static function kosten_block( $post_id ) {
+	private static function kosten_daten( $post_id ) {
 		$freitext = trim( (string) get_post_meta( $post_id, '_bi_kosten', true ) );
 		$felder   = BI_CPT::kosten_posten( $post_id );
 
@@ -696,6 +1004,21 @@ class BI_Detail {
 		// Kalkulation und beantwortet auf der Detailseite keine Frage – die Dauer
 		// steht im Kennzahlenband, der Preis in der Aufstellung darüber.
 		$rest = BI_CPT::ohne_kategorie( $rest );
+
+		return array( 'liste' => $liste, 'gesamt' => $gesamt, 'rest' => $rest, 'freitext' => $freitext );
+	}
+
+	/**
+	 * Kostenaufstellung als Markup. Die Auswertung selbst steckt in
+	 * kosten_daten(), weil die Aktionsleiste der mobilen Darstellung dieselbe
+	 * Summe an ihren Knopf schreibt.
+	 */
+	private static function kosten_block( $post_id ) {
+		$k        = self::kosten_daten( $post_id );
+		$liste    = $k['liste'];
+		$gesamt   = $k['gesamt'];
+		$rest     = $k['rest'];
+		$freitext = $k['freitext'];
 
 		if ( ! $liste ) {
 			$nur_text = BI_CPT::ohne_kategorie( $freitext );
@@ -747,7 +1070,7 @@ class BI_Detail {
 			return '';
 		}
 
-		return '<div class="igm-box igm-box--klein igm-box--download">'
+		return '<div class="igm-box igm-box--klein igm-box--download" data-bi-mobil="kosten">'
 			. '<h2 class="igm-box__titel">Seminardetails als PDF</h2>'
 			. '<p class="igm-box__text">Alle Daten zu diesem Seminar auf einem Blatt – zum Ausdrucken und Weitergeben.</p>'
 			. '<a class="igm-btn igm-btn--sek igm-btn--download" href="' . esc_url( BI_PDF::download_url( $post_id ) ) . '" download>'
@@ -790,7 +1113,7 @@ class BI_Detail {
 				. BI_Icons::get( 'telefon', 17 ) . '<span>' . esc_html( $tel ) . '</span></a>';
 		}
 
-		return '<div class="igm-box igm-box--klein">'
+		return '<div class="igm-box igm-box--klein igm-box--kontakt" data-bi-mobil="kontakt">'
 			. '<h2 class="igm-box__titel">Ansprechpartner*in</h2>'
 			. '<div class="igm-kontakt">' . implode( '', $zeilen ) . '</div>'
 			. '</div>';
@@ -949,10 +1272,14 @@ class BI_Detail {
 			// Störer statt Button, mit dem erklärenden Satz darunter.
 			$html .= self::stoerer( BI_Settings::get( 'keine_label' ), BI_Settings::get( 'keine_hinweis' ) );
 		} elseif ( 'direct' === BI_Settings::variant_for( $post_id ) ) {
-			$html .= self::booking_button( $post_id );
-			if ( ! $is_online ) {
-				$html .= '<p class="igm-buchen-hinweis">Der Betriebsrat beschließt die Teilnahme und meldet sie dem Arbeitgeber.</p>';
+			// Erst der Grund, dann der Weg: der Beschluss-Satz steht über dem Button
+			// (wie beim Reihen-Verweis), nicht als Fußnote darunter. Er gilt nur
+			// für § 37,6 BetrVG – bei reinem § 37,7 oder Bildungsurlaub/-zeit
+			// beschließt kein Gremium, also bleibt der Satz weg.
+			if ( ! $is_online && self::hat_frei_37_6( $post_id ) ) {
+				$html .= '<p class="igm-buchen-hinweis igm-buchen-hinweis--oben"><strong>Bitte beachten: Das Gremium muss die Seminarteilnahme beschließen und sie dem Arbeitgeber melden.</strong></p>';
 			}
+			$html .= self::booking_button( $post_id );
 		} else {
 			$html .= self::gs_anfrage_widget( $post_id );
 		}
@@ -1283,7 +1610,7 @@ class BI_Detail {
 			$zeilen .= self::termin_zeile( $p->ID, isset( $ampeln[ $p->ID ] ) ? $ampeln[ $p->ID ] : null );
 		}
 
-		$html = '<div class="igm-weitere-termine">';
+		$html = '<div class="igm-weitere-termine" data-bi-mobil="termine">';
 		$html .= self::abschnitt(
 			'Weitere Termine zu diesem Seminar',
 			bi_is_online( $post_id )
@@ -1300,6 +1627,28 @@ class BI_Detail {
 			$html .= '<p class="igm-termine__stand">Verfügbarkeit – Stand: ' . esc_html( $erste['stand'] ) . '</p>';
 		}
 		return $html . '</div>';
+	}
+
+	/**
+	 * Ist § 37,6 BetrVG eine der Freistellungen des Seminars?
+	 *
+	 * Eine reicht: Ein Seminar, das § 37,6 UND Bildungsurlaub anbietet, zählt.
+	 * Verglichen wird nachsichtig über BI_Settings::norm(), damit „§ 37,6
+	 * BetrVG", „§ 37 Abs. 6 BetrVG" und „§ 37(6) BetrVG" dasselbe treffen –
+	 * und § 37,7 („377…") gerade nicht.
+	 */
+	private static function hat_frei_37_6( $post_id ) {
+		$names = wp_get_object_terms( $post_id, BI_TAX_FREI, array( 'fields' => 'names' ) );
+		if ( ! is_array( $names ) || ! $names ) {
+			return false;
+		}
+		$needle = BI_Settings::norm( '37,6' );
+		foreach ( $names as $name ) {
+			if ( false !== strpos( BI_Settings::norm( $name ), $needle ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static function term_list( $post_id, $tax, $sep = ', ' ) {
