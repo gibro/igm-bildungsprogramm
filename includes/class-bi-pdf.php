@@ -194,6 +194,7 @@ class BI_PDF {
 			'frei'        => $terms( BI_TAX_FREI ),
 			'programm'    => $terms( BI_TAX_PROGRAMM ),
 			'themen'      => self::html_to_lines( $meta( '_bi_themen' ) ),
+			'voraussetzungen' => $meta( '_bi_voraussetzungen' ),
 			'beschreibung' => self::html_to_text( get_post_field( 'post_content', $seminar_id ) ),
 			'permalink'   => get_permalink( $seminar_id ),
 			'dauer'       => self::dauer( $start, $end ),
@@ -311,6 +312,8 @@ class BI_PDF {
 			$pdf->row( 'Themenfeld', $d['thema'] );
 			$pdf->row( 'Zielgruppe', $d['ziel'] );
 			$pdf->row( 'Freistellung', $d['frei'] );
+			// Klartext ohne Links – das PDF soll für sich stehen (siehe unten).
+			$pdf->row( 'Voraussetzungen', $d['voraussetzungen'] );
 
 			// Ab Programm 2027 stehen die Kosten aufgeschlüsselt samt errechneter
 			// Summe; ältere Jahrgänge haben nur die Freitextzeile.

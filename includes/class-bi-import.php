@@ -31,6 +31,7 @@ class BI_Import {
 		add_action( 'admin_post_bi_import_run', array( __CLASS__, 'handle_run' ) );
 		add_action( 'wp_ajax_bi_import_step', array( __CLASS__, 'ajax_step' ) );
 		add_action( 'admin_post_bi_delete_all_seminars', array( __CLASS__, 'handle_delete_all' ) );
+		add_action( 'admin_post_bi_teilimport', array( __CLASS__, 'handle_teilimport' ) );
 	}
 
 	/** ---------- Beitragstyp-Helfer ---------- */
@@ -145,6 +146,8 @@ class BI_Import {
 			<?php submit_button( 'Weiter zur Zuordnung' ); ?>
 		</form>
 
+		<?php self::render_teilimport( $post_type ); ?>
+
 		<?php $total = self::seminar_total( $post_type ); ?>
 		<hr style="margin:28px 0">
 		<div style="border:1px solid #d63638;border-left-width:4px;background:#fcf0f1;padding:14px 18px;max-width:760px">
@@ -164,6 +167,206 @@ class BI_Import {
 			</form>
 		</div>
 		<?php
+	}
+
+	/* ===================================================================
+	 *  Teil-Import: einzelne Felder vorhandener Einträge nachtragen
+	 * =================================================================== */
+
+	/**
+	 * WARUM ES DEN TEIL-IMPORT GIBT
+	 *
+	 * Der Import oben ist ein Voll-Import: Er schreibt bei einem vorhandenen
+	 * Seminar immer auch Titel, Beschreibung und Status – aus der Spalte, die
+	 * zugeordnet ist, und LEER, wenn keine zugeordnet ist. Eine Datei mit nur
+	 * „Seminarnummer; Voraussetzungen" hätte damit jede Beschreibung gelöscht.
+	 *
+	 * Der Teil-Import fasst dagegen nur an, was in der Datei steht:
+	 *   - Schlüssel ist die Seminarnummer; angelegt wird NIE etwas.
+	 *   - Geschrieben werden nur Meta-Felder, deren Spalte erkannt wird (gleiche
+	 *     Namen und Aliasse wie beim Voll-Import). Titel, Beschreibung, Status
+	 *     und Begriffe bleiben unberührt, auch wenn die Datei solche Spalten hat.
+	 *   - Leere Zellen lassen den vorhandenen Wert stehen – außer, der Haken
+	 *     „Leere Zellen leeren das Feld" ist gesetzt.
+	 *   - Eine Spalte „Form" (Präsenz / Online) lenkt jede Zeile in ihren
+	 *     Beitragstyp. Ohne sie gilt der Reiter, in dem hochgeladen wird.
+	 *
+	 * Angelegt für das einmalige Nachtragen der Voraussetzungen 2027, aber für
+	 * jedes Feld brauchbar.
+	 */
+	private static function render_teilimport( $post_type ) {
+		?>
+		<hr style="margin:28px 0">
+		<h3>Nur einzelne Felder nachtragen (Teil-Import)</h3>
+		<p style="max-width:820px">Aktualisiert <strong>vorhandene</strong> Einträge über die <strong>Seminarnummer</strong>
+		   und schreibt <strong>nur</strong> die Felder, die als Spalte in der Datei stehen – zum Beispiel
+		   <code>Seminarnummer;Voraussetzungen</code>. Titel, Beschreibung, Status und Begriffe bleiben unberührt,
+		   neue Einträge werden nicht angelegt. Eine Spalte <code>Form</code> (Präsenz/Online) verteilt die Zeilen
+		   auf beide Seminarformen; ohne sie gilt dieser Reiter.</p>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+			<input type="hidden" name="action" value="bi_teilimport">
+			<input type="hidden" name="post_type" value="<?php echo esc_attr( $post_type ); ?>">
+			<?php wp_nonce_field( 'bi_teilimport' ); ?>
+			<table class="form-table">
+				<tr><th><label for="bi_teil_csv">CSV-Datei</label></th>
+					<td><input type="file" name="bi_csv" id="bi_teil_csv" accept=".csv,text/csv" required>
+						<p class="description">Erste Zeile = Spaltennamen, Trennzeichen <code>;</code> oder <code>,</code>, UTF-8.</p></td></tr>
+				<tr><th>Leere Zellen</th>
+					<td><label><input type="checkbox" name="leere" value="1"> leeren das Feld (sonst bleibt der vorhandene Wert stehen)</label></td></tr>
+				<tr><th>Probelauf</th>
+					<td><label><input type="checkbox" name="probe" value="1" checked> nur zählen, nichts speichern</label></td></tr>
+			</table>
+			<?php submit_button( 'Teil-Import starten', 'secondary' ); ?>
+		</form>
+		<?php
+	}
+
+	public static function handle_teilimport() {
+		if ( ! current_user_can( BI_CAP ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+		check_admin_referer( 'bi_teilimport' );
+
+		$post_type = self::sanitize_pt( wp_unslash( $_POST['post_type'] ?? '' ) );
+		$zurueck   = array( 'page' => 'bi-einstellungen', 'tab' => self::tab_for( $post_type ) );
+
+		if ( empty( $_FILES['bi_csv']['tmp_name'] ) || ! is_uploaded_file( $_FILES['bi_csv']['tmp_name'] ) ) {
+			self::redirect( $zurueck, 'Teil-Import: Keine Datei hochgeladen.' );
+		}
+
+		@set_time_limit( 0 );
+		$ergebnis = self::teilimport_datei(
+			$_FILES['bi_csv']['tmp_name'],
+			$post_type,
+			! empty( $_POST['leere'] ),
+			! empty( $_POST['probe'] )
+		);
+		self::redirect( $zurueck, $ergebnis );
+	}
+
+	/**
+	 * Die Arbeit des Teil-Imports; liefert die Meldung für die Seite.
+	 *
+	 * @param string $path      CSV-Datei.
+	 * @param string $post_type Beitragstyp, wenn die Datei keine Spalte „Form" hat.
+	 * @param bool   $leere     Leere Zellen leeren das Feld.
+	 * @param bool   $probe     Nichts speichern, nur zählen.
+	 */
+	public static function teilimport_datei( $path, $post_type, $leere, $probe ) {
+		list( $delim, $headers ) = self::peek( $path );
+		if ( ! $headers ) {
+			return 'Teil-Import: Die Datei ist leer.';
+		}
+
+		// Spalten je Beitragstyp erkennen – die Feldsets von Präsenz und Online
+		// unterscheiden sich, die Schlüssel der gemeinsamen Felder nicht.
+		$spalten = array();
+		$felder  = array();
+		foreach ( bi_seminar_post_types() as $pt ) {
+			$map = self::guess_mapping( self::targets( $pt ), $headers, true );
+			if ( ! isset( $map['_bi_seminarnummer'] ) ) {
+				return 'Teil-Import: Keine Spalte „Seminarnummer" gefunden – sie ist der Schlüssel.';
+			}
+			$felder[ $pt ]  = BI_CPT::meta_fields( $pt );
+			$spalten[ $pt ] = array();
+			foreach ( $map as $key => $idx ) {
+				// Nur Meta-Felder; die Nummer ist der Schlüssel, nicht das Ziel.
+				if ( '_bi_seminarnummer' === $key || ! isset( $felder[ $pt ][ $key ] ) ) {
+					continue;
+				}
+				$spalten[ $pt ][ $key ] = $idx;
+			}
+		}
+		$nr_idx = self::guess_mapping( self::targets( $post_type ), $headers, true )['_bi_seminarnummer'];
+
+		$form_idx = null;
+		foreach ( $headers as $i => $h ) {
+			if ( in_array( strtolower( trim( (string) $h ) ), array( 'form', 'seminarform' ), true ) ) {
+				$form_idx = $i;
+				break;
+			}
+		}
+
+		$erkannt = array();
+		foreach ( $spalten as $pt => $cols ) {
+			foreach ( $cols as $key => $idx ) {
+				$erkannt[ $key ] = $felder[ $pt ][ $key ]['label'];
+			}
+		}
+		if ( ! $erkannt ) {
+			return 'Teil-Import: Außer der Seminarnummer wurde keine Spalte einem Feld zugeordnet. Die Spaltennamen müssen wie die Feldnamen lauten.';
+		}
+
+		$stat      = array( 'aktualisiert' => 0, 'unveraendert' => 0, 'unbekannt' => 0, 'leer' => 0, 'werte' => 0 );
+		$unbekannt = array();
+
+		$handle = fopen( $path, 'r' );
+		$zeile  = 0;
+		while ( ( $row = fgetcsv( $handle, 0, $delim, '"', '\\' ) ) !== false ) {
+			$zeile++;
+			if ( 1 === $zeile ) {
+				continue; // Kopfzeile
+			}
+			$nummer = trim( self::cell( $row, $nr_idx ) );
+			if ( '' === $nummer ) {
+				$stat['leer']++;
+				continue;
+			}
+			$pt = $post_type;
+			if ( null !== $form_idx ) {
+				$form = strtolower( trim( self::cell( $row, $form_idx ) ) );
+				$pt   = ( 0 === strpos( $form, 'online' ) ) ? BI_ONLINE : BI_CPT;
+			}
+			$post_id = BI_CPT::post_zu_nummer( $nummer, $pt );
+			if ( ! $post_id ) {
+				$stat['unbekannt']++;
+				if ( count( $unbekannt ) < 8 ) {
+					$unbekannt[] = $nummer;
+				}
+				continue;
+			}
+
+			$geaendert = false;
+			foreach ( $spalten[ $pt ] as $key => $idx ) {
+				$cfg = $felder[ $pt ][ $key ];
+				$val = ( 'html' === $cfg['type'] ) ? self::cell_roh( $row, $idx ) : self::cell( $row, $idx );
+				if ( '' === trim( $val ) && ! $leere ) {
+					continue;
+				}
+				$neu = BI_Datenpflege::sanitize_meta( $val, $cfg );
+				if ( (string) get_post_meta( $post_id, $key, true ) === (string) $neu ) {
+					continue;
+				}
+				$stat['werte']++;
+				$geaendert = true;
+				if ( ! $probe ) {
+					update_post_meta( $post_id, $key, $neu );
+				}
+			}
+			$stat[ $geaendert ? 'aktualisiert' : 'unveraendert' ]++;
+		}
+		fclose( $handle );
+
+		if ( ! $probe && $stat['aktualisiert'] && class_exists( 'BI_Cache' ) ) {
+			BI_Cache::leeren( true );
+		}
+
+		$msg = sprintf(
+			'%sTeil-Import (%s): %s Einträge %s, %s schon aktuell, %s Seminarnummern nicht gefunden.',
+			$probe ? 'PROBELAUF – nichts gespeichert. ' : '',
+			implode( ', ', $erkannt ),
+			number_format_i18n( $stat['aktualisiert'] ),
+			$probe ? 'würden geändert' : 'geändert',
+			number_format_i18n( $stat['unveraendert'] ),
+			number_format_i18n( $stat['unbekannt'] )
+		);
+		if ( $unbekannt ) {
+			$msg .= ' Zum Beispiel: ' . implode( ', ', $unbekannt ) . ( $stat['unbekannt'] > count( $unbekannt ) ? ' …' : '' ) . '.';
+		}
+		if ( $stat['leer'] ) {
+			$msg .= ' ' . number_format_i18n( $stat['leer'] ) . ' Zeilen ohne Seminarnummer übersprungen.';
+		}
+		return $msg;
 	}
 
 	private static function render_mapping( $post_type ) {
@@ -1056,6 +1259,7 @@ class BI_Import {
 			'_bi_seminarort'    => array( 'seminarort', 'veranstaltungsort', 'tagungsort', 'ort', 'hotel' ),
 			'_bi_referenten'    => array( 'referentinnen', 'referenten', 'referent', 'referentin', 'dozentinnen', 'dozenten' ),
 			'_bi_themen'        => array( 'themenimseminar', 'themen', 'seminarthemen' ),
+			'_bi_voraussetzungen' => array( 'voraussetzungen', 'voraussetzung', 'teilnahmevoraussetzungen', 'teilnahmevoraussetzung' ),
 			'_bi_online_tool'   => array( 'webinartool', 'tool', 'plattform', 'meetingtool', 'format' ),
 			'_bi_anmeldelink'   => array( 'anmeldelink', 'anmeldungslink', 'registrierungslink', 'anmeldeseite' ),
 			'_bi_online_link'   => array( 'onlinelink', 'link', 'teilnahmelink', 'zugangslink' ),

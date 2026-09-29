@@ -1744,9 +1744,14 @@ class BI_Reihen {
 			if ( '' === $text ) {
 				continue;
 			}
+			// Die Voraussetzungen nennen Seminare in »…« – die werden verlinkt
+			// wie auf der Detailseite eines Termins (class-bi-verweise.php).
+			$wert = ( 'Voraussetzungen' === $label && class_exists( 'BI_Verweise' ) )
+				? BI_Verweise::html( $text )
+				: nl2br( esc_html( $text ) );
 			$zeilen .= '<div class="igm-daten__zeile"><dt>' . BI_Icons::get( BI_Icons::fuer_label( $label ), 20 )
 				. '<span>' . esc_html( $label ) . '</span></dt>'
-				. '<dd>' . nl2br( esc_html( $text ) ) . '</dd></div>';
+				. '<dd>' . $wert . '</dd></div>';
 		}
 		$info = $meta( '_bir_info' );
 		if ( '' !== $info ) {

@@ -39,6 +39,8 @@ Formular-Plugins benötigt.
   - [Sammelanmeldung](#sammelanmeldung-eine-reihe-in-einem-zug)
   - [Übersicht aller Reihen](#übersicht-aller-reihen)
 - [Der Import-Lauf](#der-import-lauf)
+- [Voraussetzungen und Verweise](#voraussetzungen-und-verweise-seit-11350)
+  - [Teil-Import: einzelne Felder nachtragen](#teil-import-einzelne-felder-nachtragen)
 - [Kosten und Orte ab Programm 2027](#kosten-und-orte-ab-programm-2027)
 - [Anmeldevarianten](#anmeldevarianten)
 - [Anmeldeformulare](#anmeldeformulare)
@@ -2534,6 +2536,98 @@ schreibt sie auf Knopfdruck um — Titel, Klartext-Meta-Felder und
 Taxonomie-Begriffe, in allen Seminaren und Reihen. Die Karte erscheint nur,
 solange es etwas zu tun gibt.
 
+## Voraussetzungen und Verweise (seit 1.135.0)
+
+Präsenz- und Online-Seminare haben ein Feld **Voraussetzungen** (`_bi_voraussetzungen`,
+mehrzeiliger Klartext, bei beiden Seminarformen derselbe Schlüssel). Die Reihen hatten
+es schon (`_bir_voraussetzungen`). **Leer heißt: keine Voraussetzungen** – das ist bei
+den meisten Seminaren der Normalfall.
+
+| Wo | Was |
+|---|---|
+| Detailseite | Zeile „Voraussetzungen" in *Seminardetails*, unter der Zielgruppe |
+| Reihenseite | Zeile „Voraussetzungen" in *Angaben zur Reihe* |
+| Bearbeiten-Maske, Massenbearbeitung | Gruppe *Inhalt*; in der Massenbearbeitung mit derselben Mengengrenze wie die Themen |
+| CSV-Import / Export, Datenpflege, Abgleich | von allein (Spalte „Voraussetzungen", auch „Voraussetzung", „Teilnahmevoraussetzungen") |
+| Volltextsuche | von allein durchsuchbar |
+| Mails | Platzhalter `{seminar_voraussetzungen}`; bei der Sammelanmeldung zu einer Reihe die der Reihe |
+| PDF | Zeile „Voraussetzungen", Klartext |
+
+### Seminarnamen werden verlinkt
+
+Die Texte nennen andere Seminare in Guillemets:
+
+```text
+Teilnahme am Seminar »Mitbestimmung und Betriebsratshandeln«
+```
+
+Im gedruckten Programm stand dahinter „(siehe Seite 14)". Online gibt es keine Seiten –
+dort wird der **Name selbst zum Link**, und zwar erst beim Anzeigen
+(`class-bi-verweise.php`). Im Feld steht nur lesbarer Text; Export, Mails und PDF
+bleiben sauber, und der Link zeigt immer auf den **nächsten kommenden, sichtbaren
+Termin**. Von einer Online-Seite aus hat ein Online-Termin Vorrang, von einer
+Präsenz-Seite aus ein Präsenz-Termin. Ein Seminar verlinkt nicht auf sich selbst;
+gibt es keinen kommenden Termin, bleibt der Name Text.
+
+Heißt ein Name genau wie ein Seminartitel, geschieht das von allein. Für alle anderen
+gibt es unter **Einstellungen → Verweise** eine Regel je Zeile:
+
+```text
+Lean im Betrieb = Lean im Betrieb: Eine Strategie für den Betriebsrat
+BR kompakt = Themenfeld: BR kompakt - die Ausbildungsreihe für Betriebsräte
+Entgelt I = -
+```
+
+- rechts ein **Seminartitel** → Link auf dessen nächsten Termin
+- `Themenfeld: …` → Link auf die Seminarsuche, nach diesem Themenfeld gefiltert
+- `-` → bewusst **kein** Link (regionale Seminare, die nicht im Programm stehen)
+
+Verglichen wird nachsichtig: Groß-/Kleinschreibung, doppelte Leerzeichen und
+Gedanken- statt Bindestrich spielen keine Rolle – in den Quelldaten steht etwa
+„Erfolgreiche Gesprächsführung&nbsp;&nbsp;- im Dialog …" mit zwei Leerzeichen.
+
+Unter dem Feld zeigt eine **Prüfung**, ob jede Regel ein Ziel findet (mit Datum des
+nächsten Termins), und die Liste **„Namen ohne Ziel"** alle Namen aus den
+Voraussetzungen, die derzeit Text bleiben, weil sie weder eine Regel haben noch einem
+Seminartitel entsprechen.
+
+Solange nichts gespeichert ist, gilt eine **Startbelegung** mit den geprüften
+Verweisen aus dem Bildungsprogramm 2027. Die Regeln sind ein Textfeld, damit man sie
+zwischen den Installationen per Kopieren und Einfügen abgleichen kann. Der
+Abgleich überträgt sie **nicht**, denn sie liegen in einer Option, nicht am Seminar.
+
+**Keine Seitenzahlen in die Texte schreiben.** „(siehe Seite 12)" ergibt online
+keinen Sinn; der Link ersetzt ihn.
+
+### Teil-Import: einzelne Felder nachtragen
+
+Der normale Import (oben) ist ein Voll-Import: Bei einem vorhandenen Seminar schreibt
+er immer auch Titel, Beschreibung und Status, und zwar **leer**, wenn die Spalte fehlt.
+Eine Datei mit nur `Seminarnummer;Voraussetzungen` hätte jede Beschreibung gelöscht.
+
+Für solche Fälle gibt es unter *Einstellungen → Seminar-Import* (und
+*Online-Seminar-Import*) den Kasten **„Nur einzelne Felder nachtragen
+(Teil-Import)"**:
+
+- Schlüssel ist die **Seminarnummer**; **angelegt wird nie etwas**.
+- Geschrieben werden **nur** Meta-Felder, deren Spalte erkannt wird (dieselben Namen
+  und Aliasse wie beim Voll-Import). Titel, Beschreibung, Status und Begriffe bleiben
+  unberührt, auch wenn die Datei solche Spalten enthält.
+- **Leere Zellen** lassen den vorhandenen Wert stehen, außer der Haken
+  „Leere Zellen leeren das Feld" ist gesetzt.
+- Eine Spalte **`Form`** (`Präsenz` / `Online`) verteilt die Zeilen auf beide
+  Seminarformen, ohne sie gilt der Reiter. Präsenz und Online dürfen dieselbe
+  Nummer führen; die Spalte hält sie auseinander.
+- **Probelauf** ist vorausgewählt: Er zählt nur, was sich ändern würde, und nennt
+  Beispiele für unbekannte Seminarnummern.
+
+**Bei mehreren Installationen:** Der Teil-Import muss auf **jeder** Website laufen,
+die Seminare selbst pflegt, mit derselben Datei. Unbekannte Nummern (die Seminare
+der anderen Standorte) werden nur gezählt. Der Grund: Der Abgleich spiegelt die
+Seminare einer Quelle vollständig, auch leere Felder. Hätte nur die Zentrale die
+Voraussetzungen, schriebe der nächste Abgleich sie mit dem leeren Wert der Quelle
+wieder weg.
+
 ## Kosten und Orte ab Programm 2027
 
 Mit dem Jahrgang 2027 ändert sich die Datenlage an drei Stellen. Alle drei sind
@@ -3934,6 +4028,8 @@ Festgehalten in `tests/test-sync-abgleich.php`.
 | Präsenz-Seminare / Online-Seminare | Beitragstypen `bi_seminar` / `bi_online` |
 | Startdatum, Enddatum, Seminarnummer, Plätze, Kosten … | Post-Meta `_bi_*` (für beide Beitragstypen dieselben Schlüssel) |
 | Untertitel, Referent\*innen, Webinar-Tool, Anmelde-/Online-Link | Post-Meta `_bi_*` (nur `bi_online`) |
+| Voraussetzungen | Post-Meta `_bi_voraussetzungen` (beide Beitragstypen), `_bir_voraussetzungen` an der Reihe |
+| Verweis-Regeln für Seminarnamen in »…« | Option `bi_verweise` (leer = Startbelegung 2027) |
 | Zustelladresse der Benachrichtigungen | Post-Meta `_bi_bz_email`, ersatzweise Term-Meta `email` an `bi_ort` |
 | Ansprechperson: Name, E-Mail, Telefon | Post-Meta `_bi_ansprechpartner`, `_bi_ansprechpartner_email`, `_bi_ansprechpartner_telefon` (steuern keinen Versand) |
 | Bildungszentrum bzw. Veranstalter\*in, Themenfeld | Taxonomien `bi_ort`, `bi_handlungsfeld` (an beiden Beitragstypen) |
@@ -3997,7 +4093,8 @@ igm-bildungsprogramm/
 │  ├─ class-bi-registration.php Anmeldeformular [bi_anmeldung] + Tabelle
 │  ├─ class-bi-mailer.php       Mail-Trigger-Engine + Einstellungsseite
 │  ├─ class-bi-tracking.php     Kampagnen-Links + Auswertung Klick → Anmeldung
-│  ├─ class-bi-import.php       Seminar-CSV-Import mit Spalten-Mapping
+│  ├─ class-bi-import.php       Seminar-CSV-Import mit Spalten-Mapping, Teil-Import
+│  ├─ class-bi-verweise.php     Seminarnamen in »…« verlinken, Reiter „Verweise"
 │  ├─ class-bi-felder.php       eigene Datenfelder anlegen/umbenennen/löschen
 │  ├─ class-bi-reihen.php       Ausbildungsreihen: CPT bi_reihe, Zuordnung, Reihenseite, [bi_reihen]
 │  ├─ class-bi-datenpflege.php  Arbeitsmenge filtern, CSV-/JSON-Export, Paket-Import

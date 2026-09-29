@@ -875,6 +875,23 @@ class BI_Detail {
 		return implode( '<br>', array_map( 'esc_html', $zeilen ) );
 	}
 
+	/**
+	 * Voraussetzungen als HTML – Seminarnamen in »…« verlinkt – oder ''.
+	 *
+	 * Fehlt die Verweis-Klasse (Datei beim Handdeploy vergessen), steht der Text
+	 * eben unverlinkt da. Gibt fertiges Markup zurück: nicht noch einmal
+	 * durch esc_html() schicken.
+	 */
+	public static function voraussetzungen_html( $post_id ) {
+		$text = trim( (string) get_post_meta( $post_id, '_bi_voraussetzungen', true ) );
+		if ( '' === $text ) {
+			return '';
+		}
+		return class_exists( 'BI_Verweise' )
+			? BI_Verweise::html( $text, $post_id )
+			: nl2br( esc_html( $text ) );
+	}
+
 	/** Detailzeilen der Sidebar (Definitionsliste) */
 	private static function sidebar_rows( $post_id ) {
 		$row = function ( $label, $value ) {
@@ -912,6 +929,7 @@ class BI_Detail {
 			$rows .= $row( 'Referent*innen', esc_html( (string) get_post_meta( $post_id, '_bi_referenten', true ) ) );
 			$rows .= $row( 'Freistellung', esc_html( $frei ) );
 			$rows .= $row( 'Zielgruppe', esc_html( $ziel ) );
+			$rows .= $row( 'Voraussetzungen', self::voraussetzungen_html( $post_id ) );
 			$rows .= $row( 'Plattform', esc_html( BI_Online::tool_label( $post_id ) ) );
 		} else {
 			$anrd = get_post_meta( $post_id, '_bi_anreisedatum', true );
@@ -934,6 +952,7 @@ class BI_Detail {
 
 			$rows .= $row( 'Freistellung', esc_html( $frei ) );
 			$rows .= $row( 'Zielgruppe', esc_html( $ziel ) );
+			$rows .= $row( 'Voraussetzungen', self::voraussetzungen_html( $post_id ) );
 			if ( BI_CPT::meta_bool( $post_id, '_bi_kinderbetreuung' ) ) {
 				$rows .= $row( 'Kinderbetreuung', 'wird angeboten' );
 			}

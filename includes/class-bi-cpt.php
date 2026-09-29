@@ -105,6 +105,19 @@ class BI_CPT {
 			// Termine zu setzen wäre einer.
 			'_bi_themen'         => array( 'label' => 'Themen im Seminar', 'type' => 'html', 'gruppe' => 'inhalt', 'bulk' => true, 'bulk_max' => true ),
 
+			// Voraussetzungen (ab 1.135.0): Klartext, leer = keine. Seminarnamen in
+			// »…« verlinkt die Detailseite von selbst (siehe class-bi-verweise.php).
+			// Wie die Themen gleich für alle Termine eines Seminars – deshalb in
+			// der Massenbearbeitung mit derselben Mengengrenze.
+			'_bi_voraussetzungen' => array(
+				'label'    => 'Voraussetzungen',
+				'type'     => 'textarea',
+				'gruppe'   => 'inhalt',
+				'bulk'     => true,
+				'bulk_max' => true,
+				'hint'     => 'Leer lassen, wenn es keine gibt. Seminarnamen in »…« werden auf der Detailseite verlinkt (Einstellungen → Verweise). Keine Seitenzahlen aus dem gedruckten Programm.',
+			),
+
 			'_bi_kosten_seminar' => array( 'label' => 'Seminarkosten', 'type' => 'money', 'gruppe' => 'kosten', 'bulk' => true ),
 
 			/*

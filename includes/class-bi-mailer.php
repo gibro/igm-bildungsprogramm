@@ -1126,6 +1126,7 @@ class BI_Mailer {
 			'{seminar_anreisedatum}' => 'Anreisedatum',
 			'{seminar_anreiseuhrzeit}' => 'Anreiseuhrzeit',
 			'{seminar_themen}'       => 'Themen im Seminar',
+			'{seminar_voraussetzungen}' => 'Voraussetzungen (Klartext, leer wenn keine)',
 			'{seminar_ort}'          => 'Zuständiges Bildungszentrum (Online: Veranstalter*in)',
 			'{seminar_seminarort}'   => 'Seminarort (tatsächlicher Veranstaltungsort)',
 			'{seminar_kosten}'       => 'Kosten / Hinweis (Freitext)',
@@ -1244,6 +1245,7 @@ class BI_Mailer {
 			'{seminar_anreisedatum}'   => $anreise ? date_i18n( 'd.m.Y', strtotime( $anreise ) ) : '',
 			'{seminar_anreiseuhrzeit}' => get_post_meta( $sid, '_bi_anreiseuhrzeit', true ),
 			'{seminar_themen}'         => get_post_meta( $sid, '_bi_themen', true ),
+			'{seminar_voraussetzungen}' => trim( (string) get_post_meta( $sid, '_bi_voraussetzungen', true ) ),
 			'{seminar_ort}'            => ( is_array( $ort ) && $ort ) ? $ort[0] : '',
 			'{seminar_seminarort}'     => get_post_meta( $sid, '_bi_seminarort', true ),
 			'{seminar_kosten}'         => get_post_meta( $sid, '_bi_kosten', true ),
@@ -1337,6 +1339,8 @@ class BI_Mailer {
 		$ctx['{seminar_ort}']        = implode( ', ', $orte );
 		$ctx['{seminar_startdatum}'] = $starts ? date_i18n( 'd.m.Y', strtotime( $starts[0] ) ) : '';
 		$ctx['{seminar_enddatum}']   = '';
+		// Bei einer Reihe gelten die Voraussetzungen der Reihe, nicht die eines Teils.
+		$ctx['{seminar_voraussetzungen}'] = $rid ? trim( (string) get_post_meta( $rid, '_bir_voraussetzungen', true ) ) : '';
 
 		// Angaben, die nur für ein einzelnes Seminar gelten, wären hier eine
 		// Behauptung über alle Teile – lieber leer als falsch.

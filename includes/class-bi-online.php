@@ -56,10 +56,12 @@ class BI_Online {
 	 * Geteilt mit BI_CPT (gleiche Schlüssel!): _bi_startdatum, _bi_enddatum,
 	 * _bi_startuhrzeit, _bi_enduhrzeit, _bi_seminarnummer, _bi_kosten, _bi_themen,
 	 * _bi_ansprechpartner, _bi_ansprechpartner_email, _bi_ansprechpartner_telefon,
-	 * _bi_bz_email sowie die drei Flags.
+	 * _bi_bz_email, _bi_voraussetzungen sowie die drei Flags.
 	 *
 	 * Bewusst NICHT dabei (im Gegensatz zu Präsenz-Seminaren): Anreisedatum/-zeit,
-	 * Plätze, Voraussetzung, Last-Minute sowie die internen Angaben zur Einreichung.
+	 * Plätze, Last-Minute sowie die internen Angaben zur Einreichung. Die
+	 * Voraussetzungen fehlten hier bis 1.134.0 ebenfalls; seit 1.135.0 sind sie
+	 * dabei (_bi_voraussetzungen, geteilt mit Präsenz).
 	 */
 	public static function meta_fields() {
 		return array(
@@ -71,6 +73,15 @@ class BI_Online {
 			'_bi_seminarnummer' => array( 'label' => 'Seminarnummer', 'type' => 'text' , 'gruppe' => 'termin' ),
 			'_bi_referenten'    => array( 'label' => 'Referent*innen', 'type' => 'text' , 'gruppe' => 'inhalt', 'bulk' => true ),
 			'_bi_themen'        => array( 'label' => 'Themen im Seminar', 'type' => 'html' , 'gruppe' => 'inhalt' ),
+			// Seit 1.135.0 auch bei Online – derselbe Schlüssel wie bei Präsenz.
+			'_bi_voraussetzungen' => array(
+				'label'  => 'Voraussetzungen',
+				'type'   => 'textarea',
+				'gruppe' => 'inhalt',
+				'bulk'   => true,
+				'bulk_max' => true,
+				'hint'   => 'Leer lassen, wenn es keine gibt. Seminarnamen in »…« werden auf der Detailseite verlinkt (Einstellungen → Verweise).',
+			),
 			'_bi_kosten'        => array( 'label' => 'Kosten', 'type' => 'text' , 'gruppe' => 'kosten', 'bulk' => true ),
 			'_bi_teil_reihe'    => array(
 				'label'  => 'Teil | Reihe',

@@ -574,6 +574,7 @@ class BI_Settings {
 			'seminarimport'  => 'Seminar-Import',
 			'onlineimport'   => 'Online-Seminar-Import',
 			'plzimport'      => 'PLZ-Import',
+			'verweise'       => 'Verweise',
 			'verfuegbarkeit' => 'Verfügbarkeits-Ampel',
 			'einbettung'     => 'Einbettung (iframe)',
 			'abgleich'       => 'Abgleich',
@@ -617,6 +618,18 @@ class BI_Settings {
 			}
 			if ( 'plzimport' === $tab ) {
 				BI_PLZ::render_section();
+				echo '</div>';
+				return;
+			}
+			if ( 'verweise' === $tab ) {
+				// class_exists: Das Verweis-Modul wird nachsichtig geladen (siehe
+				// igm-bildungsprogramm.php) – fehlt die Datei, sagt es der Reiter.
+				if ( class_exists( 'BI_Verweise' ) ) {
+					BI_Verweise::render_section();
+				} else {
+					echo '<div class="notice notice-error"><p><strong>includes/class-bi-verweise.php fehlt.</strong> '
+						. 'Seminarnamen in den Voraussetzungen werden deshalb nicht verlinkt. Datei nachträglich hochladen.</p></div>';
+				}
 				echo '</div>';
 				return;
 			}
