@@ -38,6 +38,9 @@ class BI_Online {
 		return array(
 			'teams_webinar' => 'Microsoft Teams – Webinar (eigene Anmeldeseite)',
 			'teams_meeting' => 'Microsoft Teams – Besprechung',
+			// Seit 1.141.0. Verhält sich wie die Teams-Besprechung: Anmeldung über
+			// das interne Formular, die Zugangsdaten gehen per Mail raus.
+			'zoom'          => 'Zoom',
 			'anderes'       => 'Anderes Webinar-Tool',
 		);
 	}

@@ -130,7 +130,7 @@ class BI_Import {
 				Uhrzeit Seminarbeginn/-ende, Seminarnummer, Freistellung, Kosten, Online-Link,
 				Ansprechpartner*in, Anmeldung (E-Mail).
 				Für die Anmelde-Weiche zusätzlich <strong>Webinar-Tool</strong>
-				(<code>teams_webinar</code>, <code>teams_meeting</code> oder <code>anderes</code>)
+				(<code>teams_webinar</code>, <code>teams_meeting</code>, <code>zoom</code> oder <code>anderes</code>)
 				und <strong>Anmeldelink (Teams-Webinar)</strong>.</p>
 		<?php endif; ?>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">

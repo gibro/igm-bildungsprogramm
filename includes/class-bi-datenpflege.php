@@ -62,6 +62,7 @@ class BI_Datenpflege {
 		add_action( 'admin_post_bi_begriffe_zusammenfuehren', array( __CLASS__, 'handle_begriffe_zusammenfuehren' ) );
 		add_action( 'admin_post_bi_begriffe_leeren', array( __CLASS__, 'handle_begriffe_leeren' ) );
 		add_action( 'admin_post_bi_dubletten_zusammenfuehren', array( __CLASS__, 'handle_dubletten_zusammenfuehren' ) );
+		add_action( 'admin_post_bi_suchen_ersetzen', array( __CLASS__, 'handle_suchen_ersetzen' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'dubletten_notice' ) );
 
 		// Freitextsuche der Arbeitsmenge zusätzlich über die Seminarnummer.
@@ -1647,6 +1648,291 @@ class BI_Datenpflege {
 	}
 
 	/* ===================================================================
+	 *  Suchen & Ersetzen in einem Feld der Arbeitsmenge
+	 *
+	 *  Anlass: Eine Anmeldeadresse ändert sich („webinar.sprockhoevel@…" →
+	 *  „seminar.sprockhoevel@…"), und zwar genau diese eine – alle anderen
+	 *  Adressen im selben Feld müssen stehen bleiben. Die Massenbearbeitung der
+	 *  Seminarliste kann das nicht: Sie setzt EINEN Wert für alle markierten
+	 *  Einträge und überschriebe damit auch die richtigen Adressen.
+	 *
+	 *  Zwei Vergleichsarten:
+	 *    ganz  Der GESAMTE Feldinhalt muss dem Suchtext entsprechen (Groß-/
+	 *          Kleinschreibung und Leerraum am Rand egal). Die sichere Wahl für
+	 *          E-Mail-Adressen: „info@x.de" trifft nicht „team-info@x.de".
+	 *    teil  Der Suchtext wird innerhalb des Feldes ersetzt, wo er vorkommt –
+	 *          für Texte, etwa einen Hotelnamen in der Ortsangabe.
+	 *
+	 *  Gewirkt wird nur auf die Arbeitsmenge oben, und nur nach einer Vorschau:
+	 *  Der Knopf „Jetzt ersetzen" erscheint erst, wenn die Vorschau gezeigt hat,
+	 *  was sich ändert. Geschrieben wird über update_post_meta() – damit merken
+	 *  Seiten-Cache (BI_Cache) und Abgleich (BI_Sync) die Änderung von selbst.
+	 * =================================================================== */
+
+	/** Feldtypen, in denen Suchen & Ersetzen Sinn ergibt (kein Datum, keine Zahl, kein Haken). */
+	private static function sr_typen() {
+		return array( 'text', 'email', 'textarea', 'url', 'html' );
+	}
+
+	/** Felder der Arbeitsmenge, die sich durchsuchen lassen. */
+	public static function sr_felder( $pt ) {
+		$out = array();
+		foreach ( self::meta_all( $pt ) as $key => $cfg ) {
+			// Die Seminarnummer ist der Schlüssel, über den Abgleich und
+			// Paket-Import Seminare wiedererkennen. Massenhaft umgeschrieben,
+			// entstünden beim nächsten Abgleich Dubletten statt Aktualisierungen.
+			if ( '_bi_seminarnummer' === $key ) {
+				continue;
+			}
+			if ( in_array( $cfg['type'] ?? 'text', self::sr_typen(), true ) ) {
+				$out[ $key ] = $cfg;
+			}
+		}
+		return $out;
+	}
+
+	/** Suchen-&-Ersetzen-Angaben aus $_GET/$_POST, geprüft. */
+	public static function sr_from( $src, $pt ) {
+		$val = function ( $key ) use ( $src ) {
+			return isset( $src[ $key ] ) ? (string) bi_scalar( wp_unslash( $src[ $key ] ), '' ) : '';
+		};
+		$felder = self::sr_felder( $pt );
+		$feld   = sanitize_key( $val( 'sr_feld' ) );
+		$modus  = ( 'teil' === $val( 'sr_modus' ) ) ? 'teil' : 'ganz';
+		return array(
+			'feld'     => isset( $felder[ $feld ] ) ? $feld : ( isset( $felder['_bi_bz_email'] ) ? '_bi_bz_email' : '' ),
+			// Kein sanitize_text_field auf den Suchtext: Es würde z. B. „%20"
+			// oder Zeilenumbrüche entfernen, und die Suche fände dann etwas
+			// anderes als das, was im Feld steht. Der Text wird nur verglichen,
+			// ausgegeben wird er ausschließlich maskiert.
+			'suche'    => trim( $val( 'sr_suche' ) ),
+			'ersatz'   => trim( $val( 'sr_ersatz' ) ),
+			'modus'    => $modus,
+			'vorschau' => '' !== $val( 'sr_vorschau' ),
+		);
+	}
+
+	/**
+	 * Was würde sich ändern?
+	 *
+	 * Liest die Werte des Feldes für die ganze Arbeitsmenge in einer Abfrage
+	 * und rechnet den neuen Wert je Eintrag aus. Vorschau und Ausführung rufen
+	 * dieselbe Funktion – was die Vorschau zeigt, ist also genau das, was
+	 * danach geschrieben wird.
+	 *
+	 * @return array{aenderungen:array,fehler:array,menge:int}
+	 *   aenderungen: je Eintrag ['id','titel','alt','neu']
+	 *   fehler:      Einträge, deren neuer Wert kein gültiger Feldwert wäre
+	 */
+	public static function sr_aenderungen( $f, $sr ) {
+		global $wpdb;
+		$leer = array( 'aenderungen' => array(), 'fehler' => array(), 'menge' => 0 );
+		if ( '' === $sr['feld'] || '' === $sr['suche'] ) {
+			return $leer;
+		}
+		$felder = self::sr_felder( $f['pt'] );
+		$cfg    = $felder[ $sr['feld'] ] ?? array( 'type' => 'text' );
+
+		$q   = self::query( $f, -1 );
+		$ids = wp_list_pluck( $q->posts, 'ID' );
+		$leer['menge'] = count( $ids );
+		if ( ! $ids ) {
+			return $leer;
+		}
+
+		$titel = array();
+		foreach ( $q->posts as $p ) {
+			$titel[ (int) $p->ID ] = $p->post_title;
+		}
+
+		$out = $leer;
+		foreach ( array_chunk( $ids, 1000 ) as $block ) {
+			$in   = implode( ',', array_map( 'intval', $block ) ); // nur Ganzzahlen, daher ohne prepare()
+			$rows = $wpdb->get_results( $wpdb->prepare( "SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s AND post_id IN ($in)", $sr['feld'] ) ); // phpcs:ignore WordPress.DB
+			foreach ( (array) $rows as $row ) {
+				$alt = (string) $row->meta_value;
+				if ( 'ganz' === $sr['modus'] ) {
+					if ( 0 !== strcasecmp( trim( $alt ), $sr['suche'] ) ) {
+						continue;
+					}
+					$neu = $sr['ersatz'];
+				} else {
+					if ( false === stripos( $alt, $sr['suche'] ) ) {
+						continue;
+					}
+					$neu = str_ireplace( $sr['suche'], $sr['ersatz'], $alt );
+				}
+				$neu = (string) self::sanitize_meta( $neu, $cfg );
+				$pid = (int) $row->post_id;
+				$eintrag = array( 'id' => $pid, 'titel' => $titel[ $pid ] ?? '', 'alt' => $alt, 'neu' => $neu );
+
+				// Eine E-Mail-Adresse, die nach dem Ersetzen keine mehr ist, würde
+				// die Zustellung still abschalten – sanitize_email() macht aus
+				// Unfug einen leeren Wert. Solche Einträge bleiben unangetastet.
+				if ( 'email' === ( $cfg['type'] ?? '' ) && ( '' === $neu || ! is_email( $neu ) ) ) {
+					$out['fehler'][] = $eintrag;
+					continue;
+				}
+				if ( $neu === $alt ) {
+					continue; // nur Groß-/Kleinschreibung o. Ä. – nichts zu schreiben
+				}
+				$out['aenderungen'][] = $eintrag;
+			}
+		}
+		return $out;
+	}
+
+	public static function handle_suchen_ersetzen() {
+		if ( ! current_user_can( BI_CAP ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+		check_admin_referer( 'bi_suchen_ersetzen' );
+		@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+
+		$f  = self::filter_from( $_POST );
+		$sr = self::sr_from( $_POST, $f['pt'] );
+
+		// Leeres Ersetzen hieße „Feld leeren" – das gehört nicht in eine
+		// Funktion, die man für einen Adresswechsel aufruft.
+		if ( '' === $sr['suche'] || '' === $sr['ersatz'] ) {
+			self::redirect( $f, 'Nichts ersetzt: Suchtext und Ersatz müssen beide ausgefüllt sein.' );
+		}
+
+		$plan  = self::sr_aenderungen( $f, $sr );
+		$n     = 0;
+		foreach ( $plan['aenderungen'] as $a ) {
+			if ( update_post_meta( $a['id'], $sr['feld'], $a['neu'] ) ) {
+				$n++;
+			}
+		}
+
+		$felder = self::sr_felder( $f['pt'] );
+		$label  = $felder[ $sr['feld'] ]['label'] ?? $sr['feld'];
+		$msg    = sprintf(
+			'Suchen & Ersetzen in „%s": %s %s geändert.',
+			$label,
+			number_format_i18n( $n ),
+			1 === $n ? 'Eintrag' : 'Einträge'
+		);
+		if ( $plan['fehler'] ) {
+			$msg .= sprintf( ' %s Einträge nicht geändert, weil das Ergebnis keine gültige E-Mail-Adresse wäre.', number_format_i18n( count( $plan['fehler'] ) ) );
+		}
+		self::redirect( $f, $msg );
+	}
+
+	/** Die Karte „Suchen & Ersetzen" im Reiter „Auswahl & Export". */
+	private static function render_sr_section( $f, $treffer ) {
+		$felder = self::sr_felder( $f['pt'] );
+		$sr     = self::sr_from( $_GET, $f['pt'] );
+		$plan   = ( $sr['vorschau'] && '' !== $sr['suche'] ) ? self::sr_aenderungen( $f, $sr ) : null;
+		?>
+		<div class="card" style="max-width:100%;margin:0 0 20px" id="bi-sr">
+			<h2 style="margin-top:0">Suchen &amp; Ersetzen</h2>
+			<p>Ersetzt einen bestimmten Wert in <strong>einem Feld</strong> – nur dort, wo er vorkommt. Alle anderen
+			   Werte im selben Feld bleiben stehen. Gewirkt wird auf die
+			   <strong><?php echo esc_html( number_format_i18n( $treffer ) ); ?> Einträge der Arbeitsmenge</strong>
+			   oben – für eine Adresse, die in Präsenz- und Online-Seminaren steht, dort <em>Seminarform: beide</em>
+			   wählen.</p>
+
+			<form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>#bi-sr">
+				<input type="hidden" name="page" value="<?php echo esc_attr( self::PAGE ); ?>">
+				<?php self::filter_hidden_fields( $f ); ?>
+				<table class="form-table">
+					<tr>
+						<th><label for="bi_sr_feld">Feld</label></th>
+						<td>
+							<select name="sr_feld" id="bi_sr_feld">
+								<?php foreach ( $felder as $key => $cfg ) : ?>
+									<option value="<?php echo esc_attr( $key ); ?>" <?php selected( $sr['feld'], $key ); ?>><?php echo esc_html( $cfg['label'] ); ?></option>
+								<?php endforeach; ?>
+							</select>
+						</td>
+					</tr>
+					<tr>
+						<th><label for="bi_sr_suche">Suchen nach</label></th>
+						<td><input type="text" name="sr_suche" id="bi_sr_suche" class="regular-text" value="<?php echo esc_attr( $sr['suche'] ); ?>" placeholder="z. B. webinar.sprockhoevel@igmetall.de"></td>
+					</tr>
+					<tr>
+						<th><label for="bi_sr_ersatz">Ersetzen durch</label></th>
+						<td><input type="text" name="sr_ersatz" id="bi_sr_ersatz" class="regular-text" value="<?php echo esc_attr( $sr['ersatz'] ); ?>" placeholder="z. B. seminar.sprockhoevel@igmetall.de"></td>
+					</tr>
+					<tr>
+						<th>Vergleich</th>
+						<td>
+							<label><input type="radio" name="sr_modus" value="ganz" <?php checked( $sr['modus'], 'ganz' ); ?>>
+								<strong>ganzer Feldinhalt</strong> – das Feld muss genau diesen Wert haben</label><br>
+							<label><input type="radio" name="sr_modus" value="teil" <?php checked( $sr['modus'], 'teil' ); ?>>
+								<strong>Teiltext</strong> – der Suchtext wird ersetzt, wo er im Feld vorkommt</label>
+							<p class="description">Für E-Mail-Adressen „ganzer Feldinhalt" nehmen: Dann trifft
+							   <code>info@x.de</code> nicht auch <code>team-info@x.de</code>. Groß-/Kleinschreibung
+							   spielt in beiden Fällen keine Rolle.</p>
+						</td>
+					</tr>
+				</table>
+				<p class="submit" style="margin:0">
+					<button type="submit" name="sr_vorschau" value="1" class="button">Vorschau</button>
+					<span class="description" style="margin-left:8px">Ändert noch nichts.</span>
+				</p>
+			</form>
+
+			<?php if ( null !== $plan ) : ?>
+				<?php $n = count( $plan['aenderungen'] ); ?>
+				<hr style="margin:20px 0">
+				<h3 style="margin-top:0">
+					<?php echo esc_html( sprintf(
+						0 === $n ? 'Kein Eintrag würde geändert.' : ( 1 === $n ? '1 Eintrag würde geändert:' : '%s Einträge würden geändert:' ),
+						number_format_i18n( $n )
+					) ); ?>
+				</h3>
+
+				<?php if ( $n ) : ?>
+					<table class="widefat striped" style="margin:0 0 12px">
+						<thead><tr><th>Seminar</th><th style="width:32%">Vorher</th><th style="width:32%">Nachher</th></tr></thead>
+						<tbody>
+						<?php foreach ( array_slice( $plan['aenderungen'], 0, self::VORSCHAU ) as $a ) : ?>
+							<tr>
+								<td><a href="<?php echo esc_url( (string) get_edit_post_link( $a['id'] ) ); ?>"><?php echo esc_html( $a['titel'] ); ?></a></td>
+								<td><code><?php echo esc_html( wp_html_excerpt( $a['alt'], 200, ' …' ) ); ?></code></td>
+								<td><code><?php echo esc_html( wp_html_excerpt( $a['neu'], 200, ' …' ) ); ?></code></td>
+							</tr>
+						<?php endforeach; ?>
+						</tbody>
+					</table>
+					<?php if ( $n > self::VORSCHAU ) : ?>
+						<p class="description">… und <?php echo esc_html( number_format_i18n( $n - self::VORSCHAU ) ); ?> weitere.</p>
+					<?php endif; ?>
+				<?php endif; ?>
+
+				<?php if ( $plan['fehler'] ) : ?>
+					<div style="background:#fcf9e8;border-left:4px solid #dba617;padding:10px 14px;margin:0 0 12px">
+						<strong><?php echo esc_html( number_format_i18n( count( $plan['fehler'] ) ) ); ?> Einträge bleiben unverändert:</strong>
+						Das Ergebnis wäre keine gültige E-Mail-Adresse (z. B. <code><?php echo esc_html( $plan['fehler'][0]['alt'] ); ?></code>).
+						Bitte den Ersatz prüfen.
+					</div>
+				<?php endif; ?>
+
+				<?php if ( $n && '' === $sr['ersatz'] ) : ?>
+					<p style="color:#b32d2e"><strong>„Ersetzen durch" ist leer.</strong> Zum Leeren eines Feldes ist diese Funktion nicht gedacht – bitte einen Ersatz eintragen.</p>
+				<?php elseif ( $n ) : ?>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+					      onsubmit="return confirm('<?php echo esc_attr( sprintf( '%s Einträge jetzt ändern?', number_format_i18n( $n ) ) ); ?>');">
+						<input type="hidden" name="action" value="bi_suchen_ersetzen">
+						<?php wp_nonce_field( 'bi_suchen_ersetzen' ); ?>
+						<?php self::filter_hidden_fields( $f ); ?>
+						<input type="hidden" name="sr_feld" value="<?php echo esc_attr( $sr['feld'] ); ?>">
+						<input type="hidden" name="sr_suche" value="<?php echo esc_attr( $sr['suche'] ); ?>">
+						<input type="hidden" name="sr_ersatz" value="<?php echo esc_attr( $sr['ersatz'] ); ?>">
+						<input type="hidden" name="sr_modus" value="<?php echo esc_attr( $sr['modus'] ); ?>">
+						<?php submit_button( sprintf( 'Jetzt ersetzen (%s)', number_format_i18n( $n ) ), 'primary', '', false ); ?>
+						<span class="description" style="margin-left:8px">Die Änderung geht beim nächsten Abgleich auch an die anderen Installationen.</span>
+					</form>
+				<?php endif; ?>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/* ===================================================================
 	 *  Oberfläche
 	 * =================================================================== */
 
@@ -2398,6 +2684,8 @@ class BI_Datenpflege {
 					</form>
 				</div>
 			</div>
+
+			<?php self::render_sr_section( $f, $treffer ); ?>
 
 			<?php // ---------- HTML-Codes in Klartextfeldern ---------- ?>
 			<?php $codes = self::textcodes(); ?>

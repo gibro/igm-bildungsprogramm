@@ -404,7 +404,8 @@ class BI_Registration {
 				$grund = ' Das Seminar ist ausgebucht.';
 			} elseif ( 'keine' === BI_Settings::variant_for( $seminar_id ) ) {
 				// Variante 3: Hier gibt es keinen Ausweichweg, nur die Auskunft.
-				$grund = ' ' . BI_Settings::get( 'keine_hinweis' );
+				// Bei abgelaufener Frist sagt der Satz das auch (keine_texte).
+				$grund = ' ' . BI_Settings::keine_texte( $seminar_id )['hinweis'];
 			} elseif ( 'extern' === $variante ) {
 				$grund = ' Die Anmeldung läuft über die Anmeldeseite des Webinars.';
 				$link  = '<a href="' . esc_url( BI_Online::anmeldelink( $seminar_id ) ) . '" target="_blank" rel="noopener">Zur Anmeldung</a>';
@@ -566,10 +567,6 @@ class BI_Registration {
 									</div>
 								</div>
 								<?php echo $ist_reihe ? self::summary_card_reihe( $teile ) : self::summary_card( $info ); // phpcs:ignore ?>
-								<label class="bi-wiz__consent">
-									<input type="checkbox" name="gremienbeschluss" value="1" data-req="1">
-									<span>Ich habe den Hinweis zum Gremienbeschluss zur Kenntnis genommen und werde einen Beschluss herbeiführen. <span class="bi-wiz__req">*</span></span>
-								</label>
 								<label class="bi-wiz__consent">
 									<input type="checkbox" name="datenschutz" value="1" data-req="1">
 									<span><?php echo $ist_reihe
@@ -1166,7 +1163,7 @@ class BI_Registration {
 		// wäre falsch herum.
 		$einzeln_gesperrt = ! $reihe_id && $seminar_id && BI_Reihen::nur_komplett( $seminar_id );
 
-		if ( '' === bi_post( 'datenschutz' ) || '' === bi_post( 'gremienbeschluss' ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
+		if ( '' === bi_post( 'datenschutz' ) || ! $seminar_id || ! bi_is_seminar_post( $seminar_id )
 			|| ! BI_CPT::is_bookable( $seminar_id ) || $einzeln_gesperrt ) {
 			$errors = true;
 		}

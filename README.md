@@ -782,7 +782,7 @@ wohin der Buchungs-Button führt:
 |---|---|---|
 | Teams – Webinar | gesetzt | „Zur Anmeldung" → externe Anmeldeseite des Webinars |
 | Teams – Webinar | leer | Fallback auf das interne Formular (Hinweis im Dashboard) |
-| Teams – Besprechung / anderes Tool | – | internes Anmeldeformular `[bi_anmeldung]` |
+| Teams – Besprechung / Zoom / anderes Tool | – | internes Anmeldeformular `[bi_anmeldung]` |
 
 Zusätzlich gilt weiterhin: ausgebuchte Seminare zeigen keinen Button, und die
 Regel-Engine unter *Einstellungen* kann einzelne Seminare auf die
@@ -3737,8 +3737,8 @@ Jede Installation hat **eine** Rolle, eingestellt unter
 
 | Rolle | Wer | Was sie tut |
 |---|---|---|
-| **Quelle** | Sprockhövel, Berlin | gibt ihren Bestand über zwei geschützte Adressen heraus und meldet der Zentrale, wenn sich etwas geändert hat. Sie schreibt nie in eine andere Installation |
-| **Zentrale** | bildung.igmetall.de | holt ab, schreibt, blendet Verschwundenes aus, führt Protokoll |
+| **Quelle** | Sprockhövel, Berlin, Lohr/Bad Orb | gibt ihren Bestand über zwei geschützte Adressen heraus und meldet der Zentrale, wenn sich etwas geändert hat. Sie schreibt nie in eine andere Installation. Seit 1.142.0 nimmt sie Seminare an, die ihr die Zentrale übergibt |
+| **Zentrale** | bildung.igmetall.de | holt ab, schreibt, blendet Verschwundenes aus, führt Protokoll. Übergibt eigene Seminare an die Quelle, deren Bildungszentrum sie zugeordnet werden |
 | **Aus** | alle übrigen | kein Abgleich; die Adressen sind nicht vorhanden |
 
 ### Warum Holen und nicht Schicken
@@ -3905,6 +3905,96 @@ Zahl, und niemand wüsste, ob gerade etwas Neues fehlt.
 > lässt, überträgt den Haken – es ist in der Zentrale genauso ausgeblendet und
 > gilt nicht als verschwunden.
 
+### Einzelne Seminare nur auf der eigenen Website (seit 1.137.0)
+
+Manches gehört nur auf die Website eines Bildungszentrums, etwa eine
+Hausveranstaltung oder ein Angebot für einen bestimmten Betrieb. Dafür hat jedes
+Seminar in einer **Quelle** unter *Teilnahme und Sichtbarkeit* den Haken
+**„Nicht an die Zentrale weitergeben"**. Er lässt sich auch per
+Massenbearbeitung setzen. In der Zentrale und in Installationen ohne Abgleich
+erscheint er nicht, weil er dort nichts bewirkt.
+
+- Das Seminar bleibt auf der eigenen Website ganz normal sichtbar und anmeldbar.
+- Die Quelle gibt es weder in der Bestandsliste noch im Paket heraus. Sie nennt
+  seinen Schlüssel aber ausdrücklich als **zurückgehalten**.
+- Hat die Zentrale das Seminar schon, blendet sie es beim nächsten Lauf aus.
+  Das gilt auch für einen Eintrag aus dem alten CSV-Import, der an der
+  Seminarnummer erkannt wird. In der Spalte *Abgleich* steht dann
+  **⊘ nur in …**, und im Protokoll steht „zurückgehalten", nicht „verschwunden".
+- Wird der Haken wieder entfernt, holt die Zentrale das Seminar beim nächsten
+  Lauf und zeigt es wieder.
+- Einträge, die in der Zentrale *aus dem Abgleich gelöst* sind oder einer
+  anderen Quelle gehören, bleiben unangetastet.
+
+Auf der Einstellungsseite der Quelle (Reiter *Abgleich*) steht, wie viele
+Seminare den Haken derzeit tragen.
+
+> **Neue Fassung auf allen drei Installationen.** Die Quelle filtert, die
+> Zentrale kennt die neue Meldung. Eine ältere Zentrale blendet zurückgehaltene
+> Seminare ebenfalls aus, meldet sie aber als „in der Quelle nicht mehr
+> vorhanden".
+
+### Ein Seminar an eine Quelle übergeben (seit 1.142.0)
+
+Ordnest du in der **Zentrale** ein eigenes Seminar einem Bildungszentrum zu, das
+eine eigene Website hat, wandert es beim nächsten Abgleich dorthin. Es wird dort
+angezeigt und ab da dort gepflegt. In der Zentrale ist es danach ein
+abgeglichenes Seminar wie jedes andere: 🔒, nur lesbar, mit Link zum Bearbeiten
+in der Quelle.
+
+**Einrichten:** *Einstellungen → Abgleich*, Quellen-Tabelle, Spalte
+**Bildungszentren**. Dort ankreuzen, welche Bildungszentren zur jeweiligen
+Quelle gehören, zum Beispiel *Sprockhövel* bei Sprockhövel. Ein
+Bildungszentrum gehört zu höchstens einer Quelle.
+
+**Ablauf:**
+
+1. Die Zuordnung wird **geändert** (Bearbeiten-Maske, Schnellbearbeitung,
+   Import). Das Seminar wird vorgemerkt: In der Spalte *Abgleich* steht
+   **→ an Sprockhövel**, und der Abgleich mit dieser Quelle wird angestoßen.
+   Wird die Zuordnung vorher wieder geändert, folgt die Vormerkung ihr.
+2. Der nächste Lauf mit dieser Quelle **übergibt zuerst** und holt danach die
+   Bestandsliste. Die Quelle legt das Seminar an. Steht die Seminarnummer dort
+   schon, legt sie **nichts** an: Dann ist es dort schon, und ihre Fassung
+   gewinnt. Die Zentrale holt sie im selben Lauf.
+3. Der Eintrag in der Zentrale bekommt den Herkunftsstempel. Seine
+   Anmeldungen bleiben in der Zentrale, neue gehen auf beiden Seiten ein (siehe
+   *Anmeldungen liegen getrennt*).
+
+**Seminare, die schon richtig zugeordnet waren**, bevor die Bildungszentren
+eingetragen wurden, löst erst eine Änderung aus. Für sie gibt es in der
+Seminarliste die Zeilenaktion **an … übergeben** und die Massenaktion
+**An die Website des Bildungszentrums übergeben**. Eine Vormerkung lässt sich
+dort auch zurücknehmen.
+
+**Was nicht übergeben wird:**
+
+- Seminare, die schon aus einer Quelle stammen, auch gelöste. Sie gehören
+  bereits einer Website.
+- Seminare **ohne Seminarnummer**. Die Vormerkung wird aufgehoben, und das
+  Protokoll sagt warum.
+- **Entwürfe** warten, bis sie veröffentlicht sind.
+- Seminare, deren Nummer die Quelle zwar führt, aber **nicht herausgibt**
+  (Entwurf, ausstehend, privat). Sie bleiben in der Zentrale sichtbar und
+  vorgemerkt. Das Protokoll nennt den Status und den Link zur Quelle. Wird das
+  Seminar dort veröffentlicht, geht die Übergabe beim nächsten Lauf durch
+  (seit 1.142.1).
+
+**Wenn es nicht klappt:** Ist die Quelle nicht erreichbar, bleibt die
+Vormerkung stehen, und der nächste Lauf versucht es wieder. Je Lauf gehen
+höchstens fünf Seminare hinüber, denn die Quelle lädt dabei auch das
+Beitragsbild herunter. Den Rest holen die folgenden Läufe von selbst. Meldet
+die Zentrale `HTTP 404` bei der Übergabe, läuft in der Quelle noch ein Plugin
+vor 1.142.0.
+
+In der Quelle steht über der Bearbeiten-Maske eines übergebenen Seminars, wann
+es von der Zentrale kam (Post-Meta `_bi_sync_uebernommen`). Zwei Übergaben
+gleichzeitig legen nichts doppelt an. Eine Sperre lässt die zweite warten.
+
+> **Neue Fassung auf allen Installationen.** Die Quelle braucht die neue
+> Adresse `POST /wp-json/bi/v1/sync/uebernehmen`, die Zentrale den
+> Übergabeschritt.
+
 ### Was der Abgleich überträgt – und was nicht
 
 **Mit dabei:** Präsenz- und Online-Seminare mit allen Feldern (auch leeren – das
@@ -3947,7 +4037,7 @@ Die häufigsten Fälle:
 | **HTTP 403.** Der Schlüssel wurde nicht anerkannt | Der Schlüssel steht nicht zeichengleich auf beiden Seiten. Häufig ein mitkopiertes Leerzeichen |
 | **HTTP 404.** Adresse nicht gefunden | Die Quelle steht nicht auf der Rolle *Quelle*, oder die Zentrale ist dort nicht eingetragen. Ohne eingetragene Gegenstelle wird die Adresse bewusst gar nicht erst registriert |
 | **Die Quelle meldet einen leeren Bestand** | Es wurde **nichts** geändert. Ein leerer Bestand sähe aus wie „dort wurde alles gelöscht", und der Aufräumschritt blendete daraufhin jedes Seminar dieser Quelle aus. Häufigere Ursache ist eine halb eingerichtete Quelle: falscher Status, Wartungsmodus, leere Datenbank nach einem Umzug |
-| **Nach 3 Fehlversuchen abgebrochen** | Die Bestandsliste kam an, die Seminardaten nicht — meist blockt ein Sicherheits-Plugin auf der Quelle POST an `/wp-json/` |
+| **Nach 3 Fehlversuchen abgebrochen** | Die Bestandsliste kam an, die Seminardaten nicht. Bei **403/405/406** blockt meist ein Sicherheits-Plugin auf der Quelle POST an `/wp-json/`. Bei **500–504** ist die Quelle an der Anfrage gescheitert: PHP-Fehler, Zeit- oder Speicherlimit, Überlastung. Dann im Fehlerprotokoll der Quelle nachsehen |
 | **Die Seminarnummer … gibt es hier schon aus einer anderen Quelle** | Zwei Nummernkreise sind kollidiert. Der Eintrag wurde nicht angefasst |
 | **Ausbildungsreihe „…" gibt es hier schon aus der Quelle „…"** | Gleicher Reihenname in zwei Quellen – in der Zentrale von Hand zusammenführen |
 
@@ -3985,9 +4075,22 @@ Der häufigste Fall dahinter: Auf der Quelle blockt ein Sicherheits-Plugin, eine
 WAF oder eine Server-Regel **POST-Anfragen an `/wp-json/`**. Die Bestandsliste
 kommt per `GET` durch, das Paket per `POST` nicht.
 
-Nach **drei** Fehlversuchen in Folge bricht der Lauf deshalb ab und schreibt
-einen Bericht mit genau diesem Hinweis. Die nicht geholten Schlüssel wandern
-zurück in die Schlange, statt als erledigt zu gelten – sonst würden die
+Der zweite Fall ist ein **Serverfehler** (500–504): Die Anfrage ist
+angekommen, aber die Quelle ist daran gescheitert. Ursache ist ein PHP-Fehler,
+ein Zeit- oder Speicherlimit oder Überlastung. Auf LiteSpeed-Servern meldet
+sich ein PHP-Absturz als 503.
+
+Seit 1.142.2 geht der Lauf so vor: Scheitert ein volles Häppchen, holt er
+dessen Seminare **einzeln** nach. Scheitert ein einzelnes Seminar, kommt es
+ans Ende der Schlange. Scheitert es dann noch einmal, wird es **übersprungen**
+und im Protokoll mit Schlüssel genannt. Der nächste Lauf versucht es wieder.
+Ein einziges kaputtes Seminar hält so nicht mehr die ganze Quelle auf. Nach
+einem 5xx-Fehler wartet der Lauf drei Sekunden vor der nächsten Anfrage.
+
+Scheitern **drei verschiedene** Seminare hintereinander, liegt es an der Quelle
+und nicht an einem Seminar. Dann bricht der Lauf ab und schreibt einen Bericht
+mit einer Erklärung, die zum Fehlercode passt. Die nicht geholten Schlüssel
+wandern zurück in die Schlange, statt als erledigt zu gelten. Sonst würden die
 betroffenen Seminare bis zur nächsten Änderung in der Quelle nie wieder geholt.
 
 > **Warum das lange unsichtbar war.** Ohne diese Grenze arbeitete sich der Lauf
@@ -4123,3 +4226,33 @@ wie WordPress selbst.
 
 Mitgeliefert: **FPDF 1.86** von Olivier Plathey (`vendor/fpdf/`) für die
 PDF-Anhänge – freie Lizenz ohne Einschränkungen, siehe `vendor/fpdf/license.txt`.
+
+## Dauer-Filter und Dauer-Spalte in der Seminarliste (seit 1.136.0)
+
+Über der Seminarliste gibt es ein Auswahlfeld **Dauer** („3 Tage (135)“), und die Liste hat eine Spalte **Dauer**. Gezählt werden nur die Seminartage: Enddatum minus Startdatum plus 1, wie auf der Website. Der Anreisetag zählt nicht mit. Ohne Enddatum ist es 1 Tag, ohne Startdatum gibt es keine Dauer.
+
+Gedacht für Massenänderungen, die von der Länge abhängen, etwa Verpflegungssätze: Dauer wählen, eventuell dazu Programmjahr oder Ort, dann *Filtern*. Unter *Ansicht anpassen* die Einträge pro Seite hochsetzen, alle markieren, Massenaktion *Bearbeiten*, **Verpflegung** eintragen, *Aktualisieren*.
+
+## Anmeldefrist als Regel (seit 1.138.0)
+
+Unter *Einstellungen → Anmeldung & Regeln* gibt es das Regelfeld **„Anmeldefrist: Tage vor Seminarbeginn“**. Der Wert ist eine Zahl von Tagen. Beispiel: `Anmeldefrist: Tage vor Seminarbeginn` · `14` · *Keine Anmeldung möglich (Variante 3)*. Die Anmeldung ist dann bis einschließlich 14 Tage vor dem Startdatum möglich, ab dem Tag danach nicht mehr. Verglichen wird mit dem heutigen Datum in der Zeitzone der Website; Seminare ohne Startdatum sind nicht betroffen. Werte wie „14 Tage“ werden als `14` gespeichert, ein Wert ohne Zahl wird mit Hinweis verworfen.
+
+Hat die Fristregel entschieden, zeigen Detailseite, Mobilleiste, Trefferliste und Anmeldeformular eigene Texte: **„Anmeldefrist abgelaufen“** im Störer und **„Die Anmeldefrist für dieses Seminar ist abgelaufen.“** darunter. Beide sind im Abschnitt *Variante 3 → Anmeldefrist* änderbar. Formular-Absendungen nach Fristende lehnt der Server ab, weil die Frist über dieselbe Regel-Engine läuft wie alle anderen Varianten.
+
+Die erste zutreffende Regel gewinnt. **Die Fristregel gehört deshalb nach oben**, sonst entscheidet etwa „Freistellung 37,6 → Direktanmeldung“ vorher. Bei Ausbildungsreihen wirkt die Frist über die einzelnen Termine. Online-Seminare mit externer Anmeldeseite (Teams-Webinar mit Anmeldelink) laufen an den Regeln vorbei. Weil der Seiten-Cache jede Nacht geleert wird, springt die Anzeige am Folgetag der Frist um.
+
+## Suchen & Ersetzen in der Datenpflege (seit 1.139.0)
+
+*Datenpflege → Auswahl & Export* hat eine Karte **Suchen & Ersetzen**. Sie ersetzt einen bestimmten Wert in einem Feld, nur dort, wo er vorkommt. Alle anderen Werte im selben Feld bleiben stehen. Beispiel: im Feld *E-Mail zuständiges Bildungszentrum* `webinar.sprockhoevel@igmetall.de` durch `seminar.sprockhoevel@igmetall.de` ersetzen.
+
+- Gewirkt wird auf die **Arbeitsmenge** oben. Für Präsenz- und Online-Seminare zusammen dort *Seminarform: beide* wählen.
+- **Ganzer Feldinhalt** (Standard, für E-Mail-Adressen) trifft nur Felder mit genau diesem Wert. **Teiltext** ersetzt innerhalb des Feldes. Groß-/Kleinschreibung spielt keine Rolle.
+- Erst **Vorschau**, dann **Jetzt ersetzen**: Die Vorschau zeigt Anzahl und Vorher/Nachher, geschrieben wird genau das.
+- Wäre das Ergebnis in einem E-Mail-Feld keine gültige Adresse, bleibt der Eintrag unverändert. Ein leerer Ersatz wird abgelehnt, die Seminarnummer ist ausgenommen.
+- Geschrieben wird über `update_post_meta()`, Seiten-Cache und Abgleich bemerken die Änderung also selbst. Auf einer abholenden Installation überschreibt der nächste Abgleich die Änderung wieder, deshalb in der **Quelle** ersetzen.
+
+## Übersicht: Hinweis „ohne Empfänger" statt „Bildungszentren ohne E-Mail" (seit 1.140.0)
+
+Der Hinweis auf der Übersichtsseite rechnet jetzt wie der Versand selbst: erst die Adresse am Seminar (*E-Mail zuständiges Bildungszentrum*), dann die E-Mail am Begriff des Bildungszentrums. Er erscheint nur noch, wenn bei **kommenden, veröffentlichten Seminaren** keine der beiden Stufen eine gültige Adresse liefert, also wirklich eine Benachrichtigung verloren ginge. Er nennt die betroffenen Bildungszentren mit Anzahl, jeweils verlinkt auf die gefilterte Seminarliste.
+
+Vorher gab es zwei getrennte Prüfungen. Die eine meldete Bildungszentren ohne Adresse am Begriff, auch wenn jedes ihrer Seminare eine eigene Adresse trug. Die andere lief nur beim Alt-Typ „ansprechpartner“ und blieb deshalb stumm.

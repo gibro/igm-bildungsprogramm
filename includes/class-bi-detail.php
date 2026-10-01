@@ -382,8 +382,10 @@ class BI_Detail {
 			return 'Ausgebucht';
 		}
 		if ( 'keine' === BI_Settings::variant_for( $post_id ) ) {
-			$label = trim( (string) BI_Settings::get( 'keine_label' ) );
-			return ( '' !== $label ) ? $label : 'Keine Anmeldung';
+			// Mit dem Grund: „Anmeldefrist abgelaufen" statt „Keine Anmeldung",
+			// wenn eine Fristregel entschieden hat.
+			$texte = BI_Settings::keine_texte( $post_id );
+			return $texte['label'];
 		}
 		return '';
 	}
@@ -738,7 +740,7 @@ class BI_Detail {
 		$variante = BI_Settings::variant_for( $post_id );
 		if ( 'keine' === $variante ) {
 			$knopf = '<span class="igm-btn-buchen igm-btn-buchen--disabled igm-mobil-aktion__btn" aria-disabled="true">'
-				. esc_html( BI_Settings::get( 'keine_label' ) ) . '</span>';
+				. esc_html( BI_Settings::keine_texte( $post_id )['label'] ) . '</span>';
 			return self::mobil_leiste( $knopf );
 		}
 		if ( 'direct' === $variante ) {
@@ -1234,7 +1236,7 @@ class BI_Detail {
 
 		// Variante 3: gar keine Anmeldung – statt eines Buttons der Störer.
 		if ( 'keine' === $variante ) {
-			return self::stoerer( BI_Settings::get( 'keine_label' ) );
+			return self::stoerer( BI_Settings::keine_texte( $post_id )['label'] );
 		}
 
 		if ( 'direct' === $variante ) {
@@ -1289,7 +1291,9 @@ class BI_Detail {
 			$html .= '<div class="igm-buchen-hinweis">Diese Veranstaltung ist <strong>öffentlich zugänglich</strong> – eine Anmeldung ist nicht nötig.</div>';
 		} elseif ( 'keine' === BI_Settings::variant_for( $post_id ) ) {
 			// Störer statt Button, mit dem erklärenden Satz darunter.
-			$html .= self::stoerer( BI_Settings::get( 'keine_label' ), BI_Settings::get( 'keine_hinweis' ) );
+			// Fristregel → Fristtexte, sonst die allgemeinen (keine_texte).
+			$texte = BI_Settings::keine_texte( $post_id );
+			$html .= self::stoerer( $texte['label'], $texte['hinweis'] );
 		} elseif ( 'direct' === BI_Settings::variant_for( $post_id ) ) {
 			// Erst der Grund, dann der Weg: der Beschluss-Satz steht über dem Button
 			// (wie beim Reihen-Verweis), nicht als Fußnote darunter. Er gilt nur

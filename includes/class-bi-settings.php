@@ -9,6 +9,8 @@
  *   gs_hinweis         string Hinweistext bei Geschäftsstellen-Anmeldung
  *   keine_label        string Text im Störer, wenn keine Anmeldung vorgesehen ist
  *   keine_hinweis      string Erläuterung unter dem Störer
+ *   frist_label        string Text im Störer, wenn eine Fristregel entschieden hat
+ *   frist_hinweis      string Erläuterung darunter („Die Anmeldefrist … ist abgelaufen.")
  *   pdf_logo_id        int    Anhang-ID des Logos für die PDF-Anhänge (0 = keins)
  *   pdf_veranstalter   string Name und Anschrift des Veranstalters (mehrzeilig) –
  *                             steht in den Seminardetails und in der Beschlussvorlage
@@ -78,6 +80,11 @@ class BI_Settings {
 			// Design-Systems – kurz und plakativ; der Hinweis darunter erklärt.
 			'keine_label'       => 'Keine Anmeldung',
 			'keine_hinweis'     => 'Für dieses Seminar ist keine Anmeldung über die Website möglich.',
+			// Dieselbe Variante 3, aber mit dem Grund „Frist abgelaufen": Wer sich
+			// eine Woche vorher noch hätte anmelden können, soll nicht lesen, das
+			// Seminar sei grundsätzlich nicht buchbar.
+			'frist_label'       => 'Anmeldefrist abgelaufen',
+			'frist_hinweis'     => 'Die Anmeldefrist für dieses Seminar ist abgelaufen.',
 			// Freistellungen, bei denen eine ganze Ausbildungsreihe in einem Zug
 			// angemeldet werden darf. § 37,6 BetrVG und § 179,4 SGB IX laufen
 			// gleich: Das Gremium beschließt, der Arbeitgeber trägt die Kosten –
@@ -130,6 +137,7 @@ class BI_Settings {
 			'zielgruppe'    => 'Zielgruppe',
 			'ort'           => 'Bildungszentrum / Veranstalter*in',
 			'seminarform'   => 'Seminarform (Präsenz / Online)',
+			'frist'         => 'Anmeldefrist: Tage vor Seminarbeginn',
 			'flag'          => 'Haken „Anmeldung möglich"',
 			'ausgebucht'    => 'Haken „Ausgebucht"',
 			'anzeigen'      => 'Haken „Auf der Website anzeigen"',
@@ -250,6 +258,51 @@ class BI_Settings {
 		return false;
 	}
 
+	/**
+	 * Regelwert der Anmeldefrist als Zahl der Tage – oder null, wenn der Wert
+	 * keine Zahl ist.
+	 *
+	 * „14", „14 Tage" und „ 14 " meinen dasselbe. Ein Wert ohne Zahl („bald")
+	 * trifft dagegen NIE zu: Ein stumm als 0 gelesener Tippfehler würde die
+	 * Regel zwar harmlos aussehen lassen, sie aber an jedem gestarteten Seminar
+	 * greifen lassen – und niemand wüsste, warum.
+	 */
+	public static function frist_tage( $value ) {
+		if ( ! preg_match( '/^\s*(\d{1,4})\b/u', (string) $value, $m ) ) {
+			return null;
+		}
+		return (int) $m[1];
+	}
+
+	/**
+	 * Ist die Anmeldefrist eines Termins abgelaufen?
+	 *
+	 * Frist = Seminarbeginn minus N Tage. Am Fristtag selbst ist die Anmeldung
+	 * NOCH möglich, ab dem Tag danach nicht mehr – so liest sich „Anmeldung bis
+	 * 14 Tage vor Beginn". Mit 0 schließt die Anmeldung also erst nach dem
+	 * Starttag.
+	 *
+	 * Verglichen wird mit dem heutigen Datum in der Zeitzone der Website
+	 * (current_time), nicht des Servers. Ohne Startdatum gibt es keine Frist –
+	 * die Regel trifft dann nicht zu, statt ein Seminar ohne Datum zu sperren.
+	 *
+	 * @param string $start Startdatum Y-m-d.
+	 * @param mixed  $value Regelwert (Tage vor Beginn).
+	 */
+	public static function frist_abgelaufen( $start, $value ) {
+		$tage  = self::frist_tage( $value );
+		$start = trim( (string) $start );
+		if ( null === $tage || '' === $start ) {
+			return false;
+		}
+		$beginn = DateTime::createFromFormat( '!Y-m-d', substr( $start, 0, 10 ) );
+		if ( ! $beginn ) {
+			return false;
+		}
+		$frist = $beginn->modify( '-' . $tage . ' days' )->format( 'Y-m-d' );
+		return current_time( 'Y-m-d' ) > $frist;
+	}
+
 	/** Enthält einer der Begriffe den gesuchten Teiltext? (Punkt/Komma/Leerzeichen/Groß-Klein egal) */
 	private static function term_matches( $value, $names ) {
 		$needle = self::norm( trim( (string) $value ) );
@@ -286,6 +339,10 @@ class BI_Settings {
 
 		if ( 'seminarform' === $field ) {
 			return self::term_matches( $value, self::form_names( get_post_type( $post_id ) ) );
+		}
+
+		if ( 'frist' === $field ) {
+			return self::frist_abgelaufen( get_post_meta( $post_id, '_bi_startdatum', true ), $value );
 		}
 
 		$haken = self::field_haken( $field );
@@ -360,16 +417,73 @@ class BI_Settings {
 	 * @return string '' | 'direct' | 'gs' | 'keine'
 	 */
 	public static function matched_variant( $post_id ) {
+		$rule = self::matched_rule( $post_id );
+		if ( null === $rule ) {
+			return '';
+		}
+		$variant = (string) ( $rule['variant'] ?? '' );
+		// Erlaubnisliste: Eine unbekannte Variante – etwa aus einer alten
+		// gespeicherten Regel – darf nicht dazu führen, dass ein Seminar
+		// plötzlich als direkt buchbar gilt.
+		return in_array( $variant, self::variant_keys(), true ) ? $variant : 'direct';
+	}
+
+	/**
+	 * Die erste zutreffende Regel selbst – oder null.
+	 *
+	 * Gebraucht, wo nicht nur der Weg zählt, sondern auch der Grund: „Keine
+	 * Anmeldung" wegen abgelaufener Frist sagt die Detailseite anders an als
+	 * „Keine Anmeldung" aus Prinzip (keine_texte()).
+	 *
+	 * Je Seitenaufruf gemerkt: Eine Detailseite fragt dasselbe Seminar an bis zu
+	 * vier Stellen (Knopf, Hinweis, Mobilleiste, Trefferliste), und jede Frage
+	 * hieße sonst alle Regeln samt Begriffsabfragen noch einmal.
+	 *
+	 * @return array|null
+	 */
+	public static function matched_rule( $post_id ) {
+		static $memo = array();
+		$post_id = (int) $post_id;
+		if ( array_key_exists( $post_id, $memo ) ) {
+			return $memo[ $post_id ];
+		}
+		$treffer = null;
 		foreach ( self::rules() as $rule ) {
 			if ( self::rule_matches( $post_id, $rule ) ) {
-				$variant = (string) ( $rule['variant'] ?? '' );
-				// Erlaubnisliste: Eine unbekannte Variante – etwa aus einer alten
-				// gespeicherten Regel – darf nicht dazu führen, dass ein Seminar
-				// plötzlich als direkt buchbar gilt.
-				return in_array( $variant, self::variant_keys(), true ) ? $variant : 'direct';
+				$treffer = $rule;
+				break;
 			}
 		}
-		return '';
+		// Der Merker bleibt klein: Trefferlisten fragen nicht mehr als eine
+		// Seite voll Seminare ab, Importe laufen über andere Wege.
+		if ( count( $memo ) > 500 ) {
+			$memo = array();
+		}
+		$memo[ $post_id ] = $treffer;
+		return $treffer;
+	}
+
+	/**
+	 * Störer-Text und Hinweis für Variante 3 – passend zum Grund.
+	 *
+	 * Hat eine Fristregel entschieden, stehen die Fristtexte da („Anmeldefrist
+	 * abgelaufen"), sonst die allgemeinen („Keine Anmeldung"). Ohne Beitrags-ID
+	 * – etwa an einer Ausbildungsreihe, die keine Frist kennt – immer die
+	 * allgemeinen.
+	 *
+	 * @return array{label:string,hinweis:string}
+	 */
+	public static function keine_texte( $post_id = 0 ) {
+		$def   = self::defaults();
+		$regel = $post_id ? self::matched_rule( $post_id ) : null;
+		$frist = $regel && 'frist' === ( $regel['field'] ?? '' ) && 'keine' === ( $regel['variant'] ?? '' );
+
+		$label   = trim( (string) self::get( $frist ? 'frist_label' : 'keine_label' ) );
+		$hinweis = trim( (string) self::get( $frist ? 'frist_hinweis' : 'keine_hinweis' ) );
+		return array(
+			'label'   => '' !== $label ? $label : $def[ $frist ? 'frist_label' : 'keine_label' ],
+			'hinweis' => $hinweis,
+		);
 	}
 
 	/**
@@ -499,6 +613,21 @@ class BI_Settings {
 			break;
 		}
 
+		// Startdaten für die Fristregeln – ebenfalls in einem Zug.
+		$starts = array();
+		foreach ( $rules as $r ) {
+			if ( 'frist' !== (string) ( $r['field'] ?? '' ) ) {
+				continue;
+			}
+			global $wpdb;
+			$in   = implode( ',', array_map( 'intval', $ids ) ); // nur Ganzzahlen, daher ohne prepare()
+			$rows = $wpdb->get_results( "SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_bi_startdatum' AND post_id IN ($in)" ); // phpcs:ignore WordPress.DB
+			foreach ( (array) $rows as $row ) {
+				$starts[ (int) $row->post_id ] = (string) $row->meta_value;
+			}
+			break;
+		}
+
 		foreach ( $ids as $pid ) {
 			$sieger = null;
 			foreach ( $rules as $i => $r ) {
@@ -511,6 +640,8 @@ class BI_Settings {
 					$passt = self::flag_matches( $wert, $haken[ $feld ][ $pid ] ?? '' );
 				} elseif ( 'seminarform' === $feld ) {
 					$passt = self::term_matches( $wert, $formen[ $pid ] ?? array() );
+				} elseif ( 'frist' === $feld ) {
+					$passt = self::frist_abgelaufen( $starts[ $pid ] ?? '', $wert );
 				} else {
 					$passt = self::term_matches( $wert, $terms_by[ $feld ][ $pid ] ?? array() );
 				}
@@ -768,6 +899,29 @@ class BI_Settings {
 					</tr>
 				</table>
 
+				<h3 id="bi-frist">Anmeldefrist</h3>
+				<p>Eine Regel mit dem Feld <em>„Anmeldefrist: Tage vor Seminarbeginn"</em> schließt die Anmeldung,
+				   sobald die Frist verstrichen ist – verglichen wird das Startdatum des Seminars mit dem heutigen
+				   Datum. Wert <code>14</code> heißt: Anmeldung bis einschließlich 14 Tage vor Beginn, ab dem Tag
+				   danach greift die Regel. Mit <em>Keine Anmeldung möglich</em> als Variante erscheinen statt der
+				   allgemeinen Texte diese hier:</p>
+				<table class="form-table">
+					<tr>
+						<th><label for="frist_label">Text im Störer</label></th>
+						<td>
+							<input type="text" class="regular-text" id="frist_label" name="frist_label" value="<?php echo esc_attr( $s['frist_label'] ); ?>">
+							<p class="description">Wie oben: kurz halten, der Störer ist rund.</p>
+						</td>
+					</tr>
+					<tr>
+						<th><label for="frist_hinweis">Hinweistext</label></th>
+						<td>
+							<input type="text" class="large-text" id="frist_hinweis" name="frist_hinweis" value="<?php echo esc_attr( $s['frist_hinweis'] ); ?>">
+							<p class="description">Steht unter dem Störer und im Anmeldeformular, wenn jemand über einen alten Link kommt.</p>
+						</td>
+					</tr>
+				</table>
+
 				<h2 class="title">Ausbildungsreihen: Wann darf am Stück gebucht werden?</h2>
 				<p><strong>Zuerst gelten die Regeln weiter unten.</strong> Sie werden auch auf die Reihe
 				   selbst angewendet – verglichen wird dann ihr eigenes Feld <em>Freistellung</em>. Eine
@@ -818,6 +972,15 @@ class BI_Settings {
 					Werte: bei Taxonomien ein <em>Teiltext</em> – z. B. <code>Bildungsurlaub</code> oder <code>37,6</code>
 					(„enthält"-Vergleich; Punkt/Komma/Groß-Klein egal). Bei den Haken: <code>ja</code>, <code>nein</code>
 					oder <code>leer</code> (nie gespeichert – etwas anderes als <code>nein</code>).
+					Bei der <a href="#bi-frist">Anmeldefrist</a>: die Zahl der Tage vor Seminarbeginn, z. B. <code>14</code>.
+				</p>
+				<p class="description">
+					<strong>Die Fristregel gehört nach oben.</strong> Steht darüber eine Regel, die dasselbe Seminar
+					trifft (etwa <code>Freistellung</code> · <code>37,6</code> · <em>Direktanmeldung</em>), entscheidet
+					jene zuerst, und die Frist kommt nie zum Zug. Soll die Frist nur für einen Teil gelten, lässt sich
+					das über die Reihenfolge lösen: die Ausnahme darüber, die Frist darunter. Online-Seminare mit
+					externer Anmeldeseite (Teams-Webinar mit Anmeldelink) laufen an den Regeln vorbei – dort
+					endet die Anmeldung auf der Seite des Anbieters.
 				</p>
 
 				<?php
@@ -890,7 +1053,7 @@ class BI_Settings {
 									</select>
 								</td>
 								<td>
-									<input type="text" class="regular-text" name="rule[<?php echo $i; ?>][value]" value="<?php echo esc_attr( $rule['value'] ?? '' ); ?>" placeholder="z. B. Bildungsurlaub / 37,6 / ja">
+									<input type="text" class="regular-text" name="rule[<?php echo $i; ?>][value]" value="<?php echo esc_attr( $rule['value'] ?? '' ); ?>" placeholder="z. B. Bildungsurlaub / 37,6 / ja / 14">
 									<?php
 									if ( $st ) :
 										// Rot nur, wenn die Regel wirkungslos ist. Dass eine Ausnahme
@@ -1808,6 +1971,8 @@ class BI_Settings {
 			$out['gs_hinweis']         = sanitize_text_field( wp_unslash( $_POST['gs_hinweis'] ?? '' ) );
 			$out['keine_label']        = sanitize_text_field( wp_unslash( $_POST['keine_label'] ?? '' ) );
 			$out['keine_hinweis']      = sanitize_text_field( wp_unslash( $_POST['keine_hinweis'] ?? '' ) );
+			$out['frist_label']        = sanitize_text_field( wp_unslash( $_POST['frist_label'] ?? '' ) );
+			$out['frist_hinweis']      = sanitize_text_field( wp_unslash( $_POST['frist_hinweis'] ?? '' ) );
 
 			// Freistellungsliste: eine Angabe je Zeile. Leer ist ein zulässiger
 			// Wert („keine Reihe am Stück buchbar") und wird deshalb NICHT auf den
@@ -1821,7 +1986,7 @@ class BI_Settings {
 
 			// Leere Texte auf Default zurücksetzen
 			$def = self::defaults();
-			foreach ( array( 'direct_label', 'gs_label', 'gs_hinweis', 'keine_label', 'keine_hinweis' ) as $k ) {
+			foreach ( array( 'direct_label', 'gs_label', 'gs_hinweis', 'keine_label', 'keine_hinweis', 'frist_label', 'frist_hinweis' ) as $k ) {
 				if ( '' === $out[ $k ] ) {
 					$out[ $k ] = $def[ $k ];
 				}
@@ -1832,6 +1997,7 @@ class BI_Settings {
 			// auch dann die gemeinte Regel trifft, wenn im selben Durchgang eine
 			// andere Zeile gelöscht oder ergänzt wurde.
 			$rules        = array();
+			$frist_fehler = '';
 			$valid_fields = array_keys( self::rule_fields() );
 			$in_rules     = ( isset( $_POST['rule'] ) && is_array( $_POST['rule'] ) ) ? wp_unslash( $_POST['rule'] ) : array();
 			foreach ( $in_rules as $idx => $r ) {
@@ -1842,6 +2008,17 @@ class BI_Settings {
 				$value = trim( (string) ( $r['value'] ?? '' ) );
 				if ( ! in_array( $field, $valid_fields, true ) || '' === $value ) {
 					continue; // unvollständige/Leerzeile verwerfen
+				}
+				// Frist: nur die Zahl speichern („14 Tage" → „14"). Ohne Zahl träfe
+				// die Regel nie zu – dann lieber gleich sagen, als eine Regel
+				// stehen zu lassen, die nur so aussieht, als wirke sie.
+				if ( 'frist' === $field ) {
+					$tage = self::frist_tage( $value );
+					if ( null === $tage ) {
+						$frist_fehler .= sprintf( ' Die Fristregel mit dem Wert „%s" wurde nicht übernommen – erwartet wird eine Zahl von Tagen, z. B. 14.', sanitize_text_field( $value ) );
+						continue;
+					}
+					$value = (string) $tage;
 				}
 				$rules[ (int) $idx ] = array(
 					'field'   => $field,
@@ -1858,6 +2035,7 @@ class BI_Settings {
 				$msg    = 'Reihenfolge geändert und gespeichert.';
 				$anchor = '#bi-regeln';
 			}
+			$msg .= $frist_fehler;
 		}
 
 		update_option( self::OPTION, $out );

@@ -51,7 +51,45 @@ class BI_CPT {
 		if ( isset( $fields['_bi_formular'] ) ) {
 			$fields['_bi_formular']['options'] = BI_Formulare::choices();
 		}
+		$fields = self::feld_nur_hier( $fields, $post_type );
 		return BI_Felder::erweitern( $fields, $post_type );
+	}
+
+	/**
+	 * Haken „Nicht an die Zentrale weitergeben" – nur, wo er etwas bewirkt.
+	 *
+	 * Er steht ausschließlich in einer Installation mit der Abgleich-Rolle
+	 * QUELLE (siehe BI_Sync). In der Zentrale oder ohne Abgleich wäre er ein
+	 * Schalter ohne Wirkung, und genau solche Schalter werden irgendwann für
+	 * etwas anderes gehalten. Nebenwirkung, die gewollt ist: Die Zentrale
+	 * übernimmt den Wert beim Abgleich nicht, weil sie das Feld nicht kennt.
+	 *
+	 * Wird die Rolle später umgestellt, bleibt der gespeicherte Wert stehen und
+	 * gilt wieder, sobald die Website erneut Quelle ist.
+	 */
+	private static function feld_nur_hier( $fields, $post_type ) {
+		if ( ! class_exists( 'BI_Sync' ) || ! BI_Sync::ist_quelle() ) {
+			return $fields;
+		}
+		if ( ! in_array( $post_type, bi_seminar_post_types(), true ) ) {
+			return $fields;
+		}
+		$feld = array(
+			BI_Sync::META_NUR_HIER => array(
+				'label'   => 'Nicht an die Zentrale weitergeben',
+				'type'    => 'bool',
+				'default' => false,
+				'gruppe'  => 'teilnahme',
+				'bulk'    => true,
+				'hint'    => 'Das Seminar erscheint nur auf dieser Website. Steht es in der Zentrale schon, wird es dort beim nächsten Abgleich ausgeblendet; nimmt man den Haken wieder heraus, kommt es zurück.',
+			),
+		);
+		// Direkt hinter „Auf der Website anzeigen" – beides sind Fragen der Sichtbarkeit.
+		$pos = array_search( '_bi_anzeigen', array_keys( $fields ), true );
+		if ( false === $pos ) {
+			return $fields + $feld;
+		}
+		return array_slice( $fields, 0, $pos + 1, true ) + $feld + array_slice( $fields, $pos + 1, null, true );
 	}
 
 	/**
@@ -936,6 +974,7 @@ class BI_CPT {
 		// NACH admin_filter_missing laufen.
 		add_action( 'restrict_manage_posts', array( __CLASS__, 'admin_filters' ) );
 		add_action( 'pre_get_posts', array( __CLASS__, 'admin_filter_datum' ), 20 );
+		add_filter( 'posts_where', array( __CLASS__, 'admin_filter_dauer' ), 10, 2 );
 		add_action( 'admin_notices', array( __CLASS__, 'admin_filter_hinweis' ) );
 
 		// Präsenz- und Online-Seminare in einer Liste. Bewusst als LETZTER
@@ -1508,6 +1547,7 @@ class BI_CPT {
 			$new[ $k ] = $v;
 			if ( 'title' === $k ) {
 				$new['bi_startdatum'] = 'Startdatum';
+				$new['bi_dauer']      = 'Dauer';
 				$new['bi_nummer']     = 'Nummer';
 			}
 		}
@@ -1518,6 +1558,9 @@ class BI_CPT {
 		if ( 'bi_startdatum' === $col ) {
 			$d = get_post_meta( $post_id, '_bi_startdatum', true );
 			echo $d ? esc_html( date_i18n( 'd.m.Y', strtotime( $d ) ) ) : '—';
+		} elseif ( 'bi_dauer' === $col ) {
+			$tage = self::dauer_tage( $post_id );
+			echo $tage ? esc_html( sprintf( _n( '%d Tag', '%d Tage', $tage, 'bi-seminarsuche' ), $tage ) ) : '—';
 		} elseif ( 'bi_nummer' === $col ) {
 			echo esc_html( get_post_meta( $post_id, '_bi_seminarnummer', true ) ?: '—' );
 		}
@@ -2137,7 +2180,15 @@ class BI_CPT {
 				continue;
 			}
 			$counts  = self::term_counts( $slug, $zaehl_typen );
-			$aktuell = isset( $_GET[ $slug ] ) ? sanitize_text_field( wp_unslash( $_GET[ $slug ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			// sanitize_title() statt sanitize_text_field(): Slugs mit Sonderzeichen
+			// stehen prozentkodiert in der Datenbank („§ 37,7 BetrVG" →
+			// „%c2%a7-377-betrvg"), und sanitize_text_field() wirft genau diese
+			// %xx-Folgen weg. Dann passte keine Option mehr, das Feld sprang auf
+			// „Alle …" zurück, obwohl die Liste weiter gefiltert war – und das
+			// nächste „Filtern" hätte den Filter still verworfen. sanitize_title()
+			// normalisiert wie WordPress beim Nachschlagen des Begriffs, auch wenn
+			// der Wert als rohes „§" ankommt (Links aus der Spalte).
+			$aktuell = isset( $_GET[ $slug ] ) ? sanitize_title( wp_unslash( $_GET[ $slug ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
 			// Von Hand statt wp_dropdown_categories(): Deren „alle"-Eintrag hat
 			// immer den Wert 0, was bei slug-basierten Werten als Suche nach dem
@@ -2204,6 +2255,24 @@ class BI_CPT {
 			echo '</select>';
 		}
 
+		// Dauer in Seminartagen – für Massenänderungen, die an der Länge
+		// hängen (Verpflegungssätze). Nur Längen, die es tatsächlich gibt.
+		$dauern = self::dauer_counts( $zaehl_typen );
+		if ( $dauern ) {
+			$aktuell = self::filter_dauer();
+			echo '<label class="screen-reader-text" for="bi_f_dauer">Dauer</label>'
+				. '<select name="bi_dauer" id="bi_f_dauer"><option value="">Alle Dauern</option>';
+			foreach ( $dauern as $tage => $n ) {
+				printf(
+					'<option value="%d"%s>%s</option>',
+					(int) $tage,
+					selected( $aktuell, (int) $tage, false ),
+					esc_html( sprintf( _n( '%d Tag', '%d Tage', $tage, 'bi-seminarsuche' ), $tage ) . ' (' . number_format_i18n( $n ) . ')' )
+				);
+			}
+			echo '</select>';
+		}
+
 		printf(
 			'<label class="screen-reader-text" for="bi_von">Startdatum ab</label>'
 			. '<input type="date" name="bi_von" id="bi_von" value="%s" title="Startdatum ab" style="width:auto">'
@@ -2260,6 +2329,126 @@ class BI_CPT {
 		$query->set( 'meta_query', $meta );
 	}
 
+	/* -------------------------------------------------------------------
+	 *  Dauer in Seminartagen
+	 *
+	 *  Gezählt wird wie auf der Website („3 Tage"): Enddatum minus Startdatum
+	 *  plus eins, der Anreisetag zählt NICHT mit. Ohne Enddatum – oder mit
+	 *  einem Enddatum, das nicht nach dem Start liegt – ist es ein Tag. Ohne
+	 *  Startdatum gibt es keine Dauer; solche Einträge findet der Lücken-Filter
+	 *  „ohne Startdatum" aus der Datenqualität.
+	 *
+	 *  PHP (Spalte) und SQL (Filter, Zahlen) rechnen dieselbe Regel. Weichen
+	 *  sie voneinander ab, markiert jemand „alle 5-Tage-Seminare" und in der
+	 *  Spalte steht bei einigen „4 Tage" – genau vor einer Massenänderung.
+	 * ------------------------------------------------------------------- */
+
+	/** Dauer eines Termins in Seminartagen; 0 ohne Startdatum. */
+	public static function dauer_tage( $post_id ) {
+		$start = (string) get_post_meta( $post_id, '_bi_startdatum', true );
+		$end   = (string) get_post_meta( $post_id, '_bi_enddatum', true );
+		if ( '' === $start || ! strtotime( $start ) ) {
+			return 0;
+		}
+		if ( '' === $end || $end <= $start ) {
+			return 1;
+		}
+		if ( ! strtotime( $end ) ) {
+			return 0; // unlesbar – wie im SQL: keine Dauer statt einer falschen
+		}
+		// Über Datumsobjekte statt Sekunden: Eine Zeitumstellung dazwischen
+		// macht aus 4 × 86.400 Sekunden sonst 3,96 Tage.
+		$diff = date_create( $start )->diff( date_create( $end ) )->days;
+		return (int) $diff + 1;
+	}
+
+	/**
+	 * SQL-Ausdruck für die Dauer, passend zu dauer_tage().
+	 *
+	 * Erwartet die Aliase s (Startdatum) und e (Enddatum, LEFT JOIN). Ein
+	 * unlesbares Enddatum ergibt NULL und fällt damit aus jeder Dauer heraus –
+	 * lieber nicht gefunden als der falschen Länge zugeschlagen.
+	 */
+	private static function dauer_sql() {
+		return "CASE WHEN e.meta_value IS NULL OR e.meta_value = '' OR e.meta_value <= s.meta_value THEN 1
+		             ELSE DATEDIFF( e.meta_value, s.meta_value ) + 1 END";
+	}
+
+	/** Auswahl des Dauer-Filters: 0 (alle) oder die Zahl der Seminartage. */
+	private static function filter_dauer() {
+		$tage = isset( $_GET['bi_dauer'] ) ? absint( wp_unslash( $_GET['bi_dauer'] ) ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		return ( $tage >= 1 && $tage <= 366 ) ? $tage : 0;
+	}
+
+	/**
+	 * Vorkommende Dauern mit Anzahl – für genau die übergebenen Beitragstypen
+	 * und dieselben Status wie die Taxonomie-Zahlen.
+	 *
+	 * @param array $typen Beitragstypen der aktuellen Liste.
+	 * @return array [ Tage => Anzahl ], aufsteigend nach Tagen.
+	 */
+	private static function dauer_counts( $typen ) {
+		global $wpdb;
+
+		$typen = array_values( array_unique( array_filter( (array) $typen, 'strlen' ) ) );
+		if ( ! $typen ) {
+			return array();
+		}
+		$status      = self::listen_status();
+		$platzhalter = implode( ',', array_fill( 0, count( $status ), '%s' ) );
+		$typ_platz   = implode( ',', array_fill( 0, count( $typen ), '%s' ) );
+		$dauer       = self::dauer_sql();
+
+		$sql = $wpdb->prepare(
+			"SELECT $dauer AS tage, COUNT( DISTINCT p.ID ) AS n
+			   FROM {$wpdb->posts} p
+			   JOIN {$wpdb->postmeta} s ON s.post_id = p.ID AND s.meta_key = '_bi_startdatum' AND s.meta_value <> ''
+			   LEFT JOIN {$wpdb->postmeta} e ON e.post_id = p.ID AND e.meta_key = '_bi_enddatum'
+			  WHERE p.post_type IN ( $typ_platz ) AND p.post_status IN ( $platzhalter )
+			  GROUP BY tage
+			 HAVING tage IS NOT NULL AND tage >= 1
+			  ORDER BY tage ASC",
+			array_merge( $typen, $status )
+		);
+
+		$counts = array();
+		foreach ( (array) $wpdb->get_results( $sql ) as $zeile ) {
+			$counts[ (int) $zeile->tage ] = (int) $zeile->n;
+		}
+		return $counts;
+	}
+
+	/**
+	 * Dauer-Filter auf die Listenabfrage anwenden.
+	 *
+	 * Als posts_where statt meta_query, weil die Dauer aus ZWEI Meta-Werten
+	 * errechnet wird – das kann eine meta_query nicht ausdrücken. Die
+	 * Unterabfrage lässt Joins und Sortierung der Liste unberührt.
+	 */
+	public static function admin_filter_dauer( $where, $query ) {
+		global $wpdb;
+		if ( ! is_admin() || ! $query->is_main_query() ) {
+			return $where;
+		}
+		$typen = (array) $query->get( 'post_type' );
+		if ( ! array_intersect( $typen, bi_seminar_post_types() ) ) {
+			return $where;
+		}
+		$tage = self::filter_dauer();
+		if ( ! $tage ) {
+			return $where;
+		}
+		$dauer = self::dauer_sql();
+		return $where . $wpdb->prepare(
+			" AND {$wpdb->posts}.ID IN (
+			    SELECT s.post_id FROM {$wpdb->postmeta} s
+			      LEFT JOIN {$wpdb->postmeta} e ON e.post_id = s.post_id AND e.meta_key = '_bi_enddatum'
+			     WHERE s.meta_key = '_bi_startdatum' AND s.meta_value <> ''
+			       AND $dauer = %d )",
+			$tage
+		);
+	}
+
 	/**
 	 * Auswahl „— ohne Angabe —" in eine tax_query übersetzen.
 	 *
@@ -2295,7 +2484,7 @@ class BI_CPT {
 
 	/** Ist gerade irgendein eigener Filter gesetzt? */
 	private static function filter_aktiv( $post_type ) {
-		if ( self::filter_datum( 'bi_von' ) || self::filter_datum( 'bi_bis' ) ) {
+		if ( self::filter_datum( 'bi_von' ) || self::filter_datum( 'bi_bis' ) || self::filter_dauer() ) {
 			return true;
 		}
 		// Reihen-Filter und die Lücken-Filter aus Dashboard und Datenpflege:
@@ -2501,6 +2690,50 @@ class BI_CPT {
 		return $out;
 	}
 
+	/**
+	 * Felder und Taxonomien der Massenbearbeitung für mehrere Beitragstypen.
+	 *
+	 * Vereinigung in der Reihenfolge der Typen. Was nicht alle Typen kennen,
+	 * bekommt den Zusatz „(nur Präsenz)" bzw. „(nur Online)" im Label – sonst
+	 * sähe es so aus, als würde ein Wert bei allen markierten Einträgen gesetzt.
+	 *
+	 * @param string[] $typen Beitragstypen.
+	 * @return array{0: array, 1: array} Felder, Taxonomien.
+	 */
+	private static function bulk_felder_fuer( array $typen ) {
+		$felder = array();
+		$taxes  = array();
+		$f_in   = array();
+		$t_in   = array();
+		foreach ( $typen as $pt ) {
+			foreach ( self::bulk_felder( $pt ) as $key => $cfg ) {
+				$felder[ $key ] = $felder[ $key ] ?? $cfg;
+				$f_in[ $key ][] = $pt;
+			}
+			foreach ( self::taxonomies( $pt ) as $slug => $cfg ) {
+				$taxes[ $slug ] = $taxes[ $slug ] ?? $cfg;
+				$t_in[ $slug ][] = $pt;
+			}
+		}
+		if ( count( $typen ) < 2 ) {
+			return array( $felder, $taxes );
+		}
+		$zusatz = function ( array $in ) {
+			return array( BI_ONLINE ) === $in ? ' (nur Online)' : ' (nur Präsenz)';
+		};
+		foreach ( $felder as $key => $cfg ) {
+			if ( count( $f_in[ $key ] ) < count( $typen ) ) {
+				$felder[ $key ]['label'] .= $zusatz( $f_in[ $key ] );
+			}
+		}
+		foreach ( $taxes as $slug => $cfg ) {
+			if ( count( $t_in[ $slug ] ) < count( $typen ) ) {
+				$taxes[ $slug ]['single'] .= $zusatz( $t_in[ $slug ] );
+			}
+		}
+		return array( $felder, $taxes );
+	}
+
 	/** Die Felder im aufgeklappten Bereich der Massenbearbeitung. */
 	public static function bulk_edit_felder( $spalte, $post_type ) {
 		// Der Haken feuert je Spalte; einmal ausgeben genügt.
@@ -2508,8 +2741,14 @@ class BI_CPT {
 			return;
 		}
 
-		$felder = self::bulk_felder( $post_type );
-		$taxes  = self::taxonomies( $post_type );
+		// Die zusammengeführte Liste läuft auf dem Bildschirm des Präsenz-Typs –
+		// WordPress meldet hier also immer bi_seminar, auch wenn nur Online-Seminare
+		// angezeigt werden. Maßgeblich sind deshalb die Typen, die die Liste gerade
+		// zeigt. Felder, die nur eine Form kennt, werden gekennzeichnet; beim
+		// Speichern greift ohnehin nur, was der jeweilige Eintrag kennt
+		// (bulk_edit_speichern() fragt je Beitrag nach seinem Typ).
+		$typen = ( BI_CPT === $post_type && self::ist_sammelliste() ) ? self::listen_post_types() : array( $post_type );
+		list( $felder, $taxes ) = self::bulk_felder_fuer( $typen );
 		wp_nonce_field( 'bi_bulk_edit', 'bi_bulk_nonce' );
 		?>
 		<fieldset class="inline-edit-col-right">
@@ -2526,7 +2765,7 @@ class BI_CPT {
 					if ( is_wp_error( $terms ) || ! $terms ) {
 						continue;
 					}
-					if ( BI_TAX_ORT === $slug && BI_CPT === $post_type ) {
+					if ( BI_TAX_ORT === $slug && in_array( BI_CPT, $typen, true ) ) {
 						list( $terms ) = self::ort_auswahl( (array) $terms, array() );
 					}
 					?>

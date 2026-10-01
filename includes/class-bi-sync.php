@@ -19,7 +19,7 @@
  * ── Die Rollen ───────────────────────────────────────────────────────────
  * Jede Installation ist entweder QUELLE oder ZENTRALE – nie beides:
  *
- *   QUELLE   (Sprockhövel, Berlin)
+ *   QUELLE   (Sprockhövel, Berlin, Lohr/Bad Orb)
  *            gibt ihren Bestand über zwei geschützte Adressen heraus und meldet
  *            der Zentrale, wenn sich etwas geändert hat. Sie schreibt nie in
  *            eine andere Installation.
@@ -75,6 +75,49 @@
  * Wer einen Eintrag wirklich in der Zentrale übernehmen will, LÖST ihn aus dem
  * Abgleich (Knopf in der Seminarliste). Er ist dann frei bearbeitbar und wird
  * nicht mehr angefasst – auch nicht wieder eingefangen.
+ *
+ * ── Nur hier: einzelne Seminare zurückhalten ─────────────────────────────
+ * Manches gehört nur auf die Website eines Bildungszentrums – eine Hausveranstaltung,
+ * ein Angebot für einen bestimmten Betrieb. Dafür hat jedes Seminar in der
+ * Quelle den Haken „Nicht an die Zentrale weitergeben" (`_bi_nur_hier`).
+ *
+ * Die Quelle lässt so ein Seminar aus Bestandsliste UND Paket weg und nennt
+ * seinen Schlüssel stattdessen in einer eigenen Liste `zurueckgehalten`. Die
+ * Zentrale blendet einen Eintrag, den sie davon schon hat, aus – mit eigenem
+ * Vermerk (`_bi_sync_nur_dort`) und eigener Zeile im Protokoll. Ohne die Liste
+ * sähe das Zurückhalten für die Zentrale aus wie Löschen, und das Protokoll
+ * meldete „in der Quelle nicht mehr vorhanden" – das Gegenteil der Wahrheit.
+ *
+ * Auch ein Eintrag aus dem alten CSV-Import (ohne Herkunftsstempel) wird so
+ * erkannt, an der blanken Seminarnummer wie beim Erstlauf. Nimmt jemand den
+ * Haken wieder heraus, ist das eine Meta-Änderung wie jede andere: Die Quelle
+ * klopft, die Zentrale holt das Seminar und zeigt es wieder.
+ *
+ * ── Übergabe: ein Seminar der Zentrale wandert in die Quelle ─────────────
+ * Die einzige Stelle, an der die Zentrale in eine Quelle schreibt – und auch
+ * hier nur ein einziges Mal je Seminar. Ordnet jemand in der Zentrale ein
+ * EIGENES Seminar (eines ohne Herkunftsstempel) einem Bildungszentrum zu, das
+ * eine eigene Website hat, dann gehört es ab da dorthin. In den Einstellungen
+ * steht je Quelle, welche Bildungszentren zu ihr gehören.
+ *
+ * Die Zuordnung setzt nur eine VORMERKUNG (`_bi_sync_uebergabe`). Erst der
+ * nächste Lauf mit dieser Quelle schickt das Seminar hinüber (POST
+ * /sync/uebernehmen), bevor er die Bestandsliste holt. Die Quelle legt es an –
+ * oder findet es an der Seminarnummer schon vor und legt NICHTS an. In beiden
+ * Fällen bekommt der Eintrag der Zentrale danach den Herkunftsstempel und ist
+ * ab sofort ein abgeglichenes Seminar wie jedes andere: gesperrt, gepflegt in
+ * der Quelle. Hatte die Quelle es schon, steht der Stand auf 0, damit derselbe
+ * Lauf ihre Fassung holt – die Quelle gewinnt, auch hier.
+ *
+ * Warum vormerken und nicht sofort schicken: aus demselben Grund, aus dem die
+ * Quelle nur klopft (siehe oben). Ist die Quelle in dieser Sekunde nicht
+ * erreichbar, bleibt die Vormerkung stehen, und der nächste Lauf versucht es
+ * wieder. Nichts geht verloren, und die Spalte „Abgleich" zeigt, was wartet.
+ *
+ * Seminare, die schon aus einer Quelle stammen, wandern NICHT weiter – auch
+ * gelöste nicht. Sie gehören bereits einer Website, und ein Umzug zwischen zwei
+ * Quellen würde in der alten Quelle einen Eintrag zurücklassen, den die Zentrale
+ * fortan als Kollision zweier Nummernkreise melden müsste.
  *
  * ── Was NICHT abgeglichen wird ───────────────────────────────────────────
  * Anmeldungen, Anmeldeformulare, Mail-Trigger, PLZ-Tabelle, Kampagnen,
@@ -135,12 +178,42 @@ class BI_Sync {
 	const META_ANMELDUNGEN = '_bi_sync_anmeldungen'; // Anmeldungen, die in der Quelle liegen
 	const META_GELOEST   = '_bi_sync_geloest';     // 1 = von Hand aus dem Abgleich gelöst
 	const META_FEHLT     = '_bi_sync_fehlt';       // Datum, an dem der Eintrag in der Quelle verschwand
+	const META_NUR_DORT  = '_bi_sync_nur_dort';    // Datum, seit dem die Quelle den Eintrag zurückhält
+	const META_UEBERGABE = '_bi_sync_uebergabe';   // Kennung der Quelle, an die das Seminar übergeben werden soll
 
 	/* ---- Änderungsmarke an den Beiträgen der Quelle ---- */
 	const META_GEAENDERT = '_bi_sync_geaendert';
 
+	/* ---- Haken an den Beiträgen der Quelle: „Nicht an die Zentrale weitergeben" ---- */
+	const META_NUR_HIER  = '_bi_nur_hier';
+
+	/* ---- Vermerk an den Beiträgen der Quelle: von der Zentrale übernommen ---- */
+	const META_UEBERNOMMEN = '_bi_sync_uebernommen';
+
+	/** Sperre gegen zwei gleichzeitige Übernahmen in der Quelle */
+	const OPT_SPERRE = 'bi_sync_uebernahme_sperre';
+
+	/**
+	 * Wahr, solange der Abgleich selbst Begriffe schreibt.
+	 *
+	 * seminar_schreiben() setzt die Bildungszentren, BEVOR der Herkunftsstempel
+	 * steht. Ohne diese Weiche hielte uebergabe_vormerken() jedes frisch aus
+	 * Sprockhövel geholte Seminar für ein eigenes der Zentrale, das gerade
+	 * Sprockhövel zugeordnet wurde – und schickte es dorthin zurück.
+	 */
+	private static $schreibt = false;
+
 	/** Seminare je HTTP-Anfrage. Bewusst klein: ein Paket trägt ganze Fließtexte. */
 	const HAEPPCHEN = 25;
+
+	/**
+	 * Seminare je Übergabe. Kleiner als beim Abholen, weil die Quelle hier
+	 * SCHREIBT – samt Beitragsbild, das sie erst herunterlädt. Fünf passen
+	 * sicher in die 15 Sekunden einer Anfrage. Läuft es doch einmal darüber,
+	 * geht nichts verloren: Die Vormerkung bleibt, und beim nächsten Versuch
+	 * antwortet die Quelle für das schon Angelegte mit „vorhanden".
+	 */
+	const UEBERGABE_HAEPPCHEN = 5;
 
 	/** Sekunden, die ein Cron-Aufruf höchstens arbeitet, bevor er sich neu einplant. */
 	const BUDGET = 20;
@@ -181,7 +254,8 @@ class BI_Sync {
 			'rolle'     => 'aus',
 			// Rolle QUELLE: Zentralen, die abholen dürfen – [ ['url','schluessel'] ]
 			'zentralen' => array(),
-			// Rolle ZENTRALE: Quellen, die abgeholt werden – [ ['slug','name','url','schluessel'] ]
+			// Rolle ZENTRALE: Quellen, die abgeholt werden – [ ['slug','name','url','schluessel','orte'] ]
+			// 'orte' = Term-IDs der Bildungszentren (bi_ort), die zu dieser Quelle gehören
 			'quellen'   => array(),
 			// Rolle QUELLE: welche Post-Status herausgegeben werden
 			'status'    => array( 'publish' ),
@@ -215,6 +289,16 @@ class BI_Sync {
 		if ( ! $s['status'] ) {
 			$s['status'] = array( 'publish' );
 		}
+		foreach ( $s['quellen'] as $i => $q ) {
+			if ( ! is_array( $q ) ) {
+				unset( $s['quellen'][ $i ] );
+				continue;
+			}
+			$s['quellen'][ $i ]['orte'] = isset( $q['orte'] ) && is_array( $q['orte'] )
+				? array_values( array_filter( array_map( 'intval', $q['orte'] ) ) )
+				: array();
+		}
+		$s['quellen'] = array_values( $s['quellen'] );
 		return $s;
 	}
 
@@ -254,6 +338,7 @@ class BI_Sync {
 		add_action( 'admin_post_bi_sync_jetzt', array( __CLASS__, 'handle_jetzt' ) );
 		add_action( 'admin_post_bi_sync_loesen', array( __CLASS__, 'handle_loesen' ) );
 		add_action( 'admin_post_bi_sync_abbrechen', array( __CLASS__, 'handle_abbrechen' ) );
+		add_action( 'admin_post_bi_sync_uebergabe', array( __CLASS__, 'handle_uebergabe' ) );
 
 		if ( self::ist_quelle() ) {
 			// Änderungsmarke setzen. Ohne sie bliebe eine Änderung unsichtbar, die
@@ -276,6 +361,7 @@ class BI_Sync {
 			add_action( 'deleted_post', array( __CLASS__, 'klopfen_planen' ) );
 
 			add_action( self::HOOK_PING, array( __CLASS__, 'klopfen_senden' ) );
+			add_action( 'admin_notices', array( __CLASS__, 'hinweis_uebernommen' ) );
 		}
 
 		if ( self::ist_zentrale() ) {
@@ -288,9 +374,14 @@ class BI_Sync {
 			add_filter( 'post_row_actions', array( __CLASS__, 'zeilen_aktion' ), 10, 2 );
 			add_action( 'admin_notices', array( __CLASS__, 'hinweis_im_editor' ) );
 
+			// Übergabe: Zuordnung zu einem Bildungszentrum mit eigener Website
+			add_action( 'set_object_terms', array( __CLASS__, 'uebergabe_vormerken' ), 10, 6 );
+
 			foreach ( bi_seminar_post_types() as $pt ) {
 				add_filter( 'manage_' . $pt . '_posts_columns', array( __CLASS__, 'spalte' ) );
 				add_action( 'manage_' . $pt . '_posts_custom_column', array( __CLASS__, 'spalte_inhalt' ), 10, 2 );
+				add_filter( 'bulk_actions-edit-' . $pt, array( __CLASS__, 'massen_aktion' ) );
+				add_filter( 'handle_bulk_actions-edit-' . $pt, array( __CLASS__, 'massen_aktion_ausfuehren' ), 10, 3 );
 			}
 		}
 	}
@@ -425,6 +516,14 @@ class BI_Sync {
 				'callback'            => array( __CLASS__, 'route_paket' ),
 				'permission_callback' => array( __CLASS__, 'darf_abholen' ),
 			) );
+			// Seit 1.142.0: Die Zentrale übergibt ein Seminar, das jetzt hierher
+			// gehört. Derselbe Schlüssel wie fürs Abholen – wer abholen darf, ist
+			// die Zentrale, und nur sie übergibt.
+			register_rest_route( self::NS, '/sync/uebernehmen', array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'route_uebernehmen' ),
+				'permission_callback' => array( __CLASS__, 'darf_abholen' ),
+			) );
 		}
 
 		if ( self::ist_zentrale() && self::all()['quellen'] ) {
@@ -503,10 +602,12 @@ class BI_Sync {
 		$zeilen = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			"SELECT p.ID, p.post_type, p.post_modified_gmt,
 			        nr.meta_value AS nummer,
-			        ge.meta_value AS geaendert
+			        ge.meta_value AS geaendert,
+			        nh.meta_value AS nur_hier
 			   FROM {$wpdb->posts} p
 			   INNER JOIN {$wpdb->postmeta} nr ON nr.post_id = p.ID AND nr.meta_key = '_bi_seminarnummer'
 			   LEFT  JOIN {$wpdb->postmeta} ge ON ge.post_id = p.ID AND ge.meta_key = '" . self::META_GEAENDERT . "'
+			   LEFT  JOIN {$wpdb->postmeta} nh ON nh.post_id = p.ID AND nh.meta_key = '" . self::META_NUR_HIER . "'
 			   LEFT  JOIN {$wpdb->postmeta} sd ON sd.post_id = p.ID AND sd.meta_key = '_bi_startdatum'
 			  WHERE p.post_type IN ({$pt_in})
 			    AND p.post_status IN ({$st_in})
@@ -515,9 +616,16 @@ class BI_Sync {
 			$werte
 		) );
 
-		$eintraege = array();
+		$eintraege       = array();
+		$zurueckgehalten = array();
 		foreach ( (array) $zeilen as $z ) {
 			$schluessel = $z->post_type . ':' . trim( (string) $z->nummer );
+			// „Nicht an die Zentrale weitergeben": nicht in den Bestand, aber
+			// ausdrücklich benannt – sonst hielte die Zentrale es für gelöscht.
+			if ( '1' === (string) $z->nur_hier ) {
+				$zurueckgehalten[] = $schluessel;
+				continue;
+			}
 			// Der spätere von beiden Zeitpunkten gewinnt – siehe stand_von().
 			$eintraege[ $schluessel ] = max(
 				(int) $z->geaendert,
@@ -538,6 +646,10 @@ class BI_Sync {
 			'stichtag'  => self::stichtag(),
 			'anzahl'    => count( $eintraege ),
 			'eintraege' => $eintraege,
+			// Seit 1.137.0. Eine ältere Zentrale kennt den Schlüssel nicht und
+			// blendet diese Seminare als „verschwunden" aus – im Ergebnis
+			// dasselbe, nur mit der falschen Begründung im Protokoll.
+			'zurueckgehalten' => array_values( array_unique( $zurueckgehalten ) ),
 		) );
 	}
 
@@ -558,17 +670,45 @@ class BI_Sync {
 		}
 		$wunsch = array_slice( array_map( 'strval', $wunsch ), 0, 200 );
 
+		$ids = array();
+		foreach ( $wunsch as $schluessel ) {
+			$post_id = self::post_zu_schluessel( $schluessel, $s['status'] );
+			if ( $post_id ) {
+				$ids[] = $post_id;
+			}
+		}
+
+		return rest_ensure_response( array_merge(
+			array(
+				'format'  => 'bi-sync-paket',
+				'version' => self::FORMAT_VERSION,
+				'site'    => home_url(),
+			),
+			self::paket_bauen( $ids, ! empty( $s['reihen'] ) )
+		) );
+	}
+
+	/**
+	 * Seminare samt Begriffen und Reihen ins Paketformat bringen.
+	 *
+	 * Eine Routine für beide Richtungen: Die Quelle packt so für die Zentrale
+	 * (route_paket), die Zentrale packt so für die Übergabe an eine Quelle
+	 * (uebergeben). Zwei Fassungen liefen mit der Zeit auseinander, und dann
+	 * käme ein übergebenes Seminar anders an, als es beim Abholen zurückkommt.
+	 *
+	 * @return array{terms:array,reihen:array,seminare:array}
+	 */
+	private static function paket_bauen( $post_ids, $mit_reihen ) {
 		$terms_used = array();
 		$eintraege  = array();
 		$reihen_ids = array();
-		$mit_reihen = ! empty( $s['reihen'] );
 
-		foreach ( $wunsch as $schluessel ) {
-			$post_id = self::post_zu_schluessel( $schluessel, $s['status'] );
-			if ( ! $post_id ) {
+		foreach ( (array) $post_ids as $post_id ) {
+			$post_id = (int) $post_id;
+			$post    = get_post( $post_id );
+			if ( ! $post ) {
 				continue;
 			}
-			$post   = get_post( $post_id );
 			$pt     = $post->post_type;
 			$fields = BI_CPT::meta_fields( $pt );
 
@@ -599,7 +739,7 @@ class BI_Sync {
 				'terms'     => BI_Datenpflege::paket_terms( $post_id, BI_CPT::taxonomies( $pt ), $terms_used ),
 				'bild'      => (string) get_the_post_thumbnail_url( $post_id, 'full' ),
 				'sync'      => array(
-					'schluessel'  => $schluessel,
+					'schluessel'  => self::schluessel_fuer( $post_id ),
 					'stand'       => self::stand_von( $post_id ),
 					// get_edit_post_link() gäbe hier nichts zurück: Es prüft die
 					// Rechte der angemeldeten Person, und bei einem Abruf über die
@@ -640,14 +780,232 @@ class BI_Sync {
 			);
 		}
 
-		return rest_ensure_response( array(
-			'format'   => 'bi-sync-paket',
-			'version'  => self::FORMAT_VERSION,
-			'site'     => home_url(),
+		return array(
 			'terms'    => $terms_export,
 			'reihen'   => $reihen_export,
 			'seminare' => $eintraege,
+		);
+	}
+
+	/* ===================================================================
+	 *  Rolle QUELLE – ein Seminar aus der Zentrale übernehmen
+	 * =================================================================== */
+
+	/**
+	 * Die Zentrale übergibt Seminare, die jetzt hierher gehören.
+	 *
+	 * Je Seminar eine von drei Antworten:
+	 *   angelegt   – neu angelegt, ab jetzt hier gepflegt
+	 *   vorhanden  – die Seminarnummer gibt es hier schon. Dann wird NICHTS
+	 *                geschrieben: Eine Nummer ist je Installation und Seminarform
+	 *                genau ein Seminar, und was hier steht, gewinnt. Die
+	 *                Zentrale holt beim selben Lauf diese Fassung ab.
+	 *   abgelehnt  – ohne Nummer, ohne Titel, unbekannter Beitragstyp
+	 *
+	 * Die Antwort ist nach Schlüssel geordnet, damit die Zentrale sie ihren
+	 * Einträgen zuordnen kann, ohne sich auf die Reihenfolge zu verlassen.
+	 */
+	public static function route_uebernehmen( $request ) {
+		$seminare = $request->get_param( 'seminare' );
+		if ( ! is_array( $seminare ) ) {
+			return new WP_Error( 'bi_sync_param', 'Keine Seminare angegeben.', array( 'status' => 400 ) );
+		}
+		$seminare = array_slice( $seminare, 0, self::HAEPPCHEN );
+
+		// Zwei Übergaben gleichzeitig legten dasselbe Seminar zweimal an: Beide
+		// fragen post_zu_nummer(), beide hören „gibt es nicht". Genau so standen
+		// am 25.08.2026 in Berlin 152 Seminare doppelt.
+		if ( ! self::sperre_nehmen() ) {
+			return new WP_Error( 'bi_sync_besetzt', 'Hier läuft gerade schon eine Übernahme.', array( 'status' => 409 ) );
+		}
+
+		$ergebnisse = array();
+		try {
+			$terms = $request->get_param( 'terms' );
+			BI_Datenpflege::terms_anlegen( is_array( $terms ) ? $terms : array() );
+			$reihen = $request->get_param( 'reihen' );
+			self::reihen_ergaenzen( is_array( $reihen ) ? $reihen : array() );
+
+			foreach ( $seminare as $eintrag ) {
+				$r = self::uebernahme_schreiben( $eintrag );
+				if ( '' !== $r['schluessel'] ) {
+					$ergebnisse[ $r['schluessel'] ] = $r;
+				}
+			}
+		} finally {
+			self::sperre_freigeben();
+		}
+
+		if ( $ergebnisse && class_exists( 'BI_Cache' ) ) {
+			BI_Cache::leeren( true );
+		}
+
+		return rest_ensure_response( array(
+			'format'     => 'bi-sync-uebernahme',
+			'version'    => self::FORMAT_VERSION,
+			'site'       => home_url(),
+			'ergebnisse' => $ergebnisse,
 		) );
+	}
+
+	/** Ein übergebenes Seminar anlegen – oder feststellen, dass es schon da ist. */
+	private static function uebernahme_schreiben( $eintrag ) {
+		$antwort = function ( $schluessel, $status, $extra = array() ) {
+			return array_merge( array( 'schluessel' => (string) $schluessel, 'status' => $status ), $extra );
+		};
+		if ( ! is_array( $eintrag ) ) {
+			return $antwort( '', 'abgelehnt' );
+		}
+
+		$pt   = (string) ( $eintrag['post_type'] ?? '' );
+		$meta = isset( $eintrag['meta'] ) && is_array( $eintrag['meta'] ) ? $eintrag['meta'] : array();
+		$nummer     = trim( (string) ( $meta['_bi_seminarnummer'] ?? '' ) );
+		$schluessel = (string) ( $eintrag['sync']['schluessel'] ?? '' );
+		if ( '' === $schluessel && '' !== $nummer ) {
+			$schluessel = $pt . ':' . $nummer;
+		}
+
+		if ( ! in_array( $pt, bi_seminar_post_types(), true ) ) {
+			return $antwort( $schluessel, 'abgelehnt', array( 'grund' => 'unbekannter Beitragstyp' ) );
+		}
+		if ( '' === $nummer ) {
+			return $antwort( $schluessel, 'abgelehnt', array( 'grund' => 'ohne Seminarnummer' ) );
+		}
+		$title = wp_strip_all_tags( (string) ( $eintrag['title'] ?? '' ) );
+		if ( '' === trim( $title ) ) {
+			return $antwort( $schluessel, 'abgelehnt', array( 'grund' => 'ohne Titel' ) );
+		}
+
+		// Die Nummer ist der Schlüssel – siehe BI_CPT::post_zu_nummer().
+		$da = BI_CPT::post_zu_nummer( $nummer, $pt );
+		if ( $da ) {
+			// post_zu_nummer() findet auch Entwürfe, Ausstehendes und Privates –
+			// richtig so, denn auch die tragen die Nummer. Herausgegeben wird aber
+			// nur, was im freigegebenen Status steht. Ohne diese Angabe hielte die
+			// Zentrale das Seminar für übergeben, fände es nicht in der
+			// Bestandsliste und blendete es aus: nirgends mehr öffentlich.
+			$post_status = (string) get_post_status( $da );
+			return $antwort( $schluessel, 'vorhanden', array(
+				'stand'         => self::stand_von( $da ),
+				'edit_url'      => admin_url( 'post.php?post=' . $da . '&action=edit' ),
+				'nur_hier'      => self::nur_hier( $da ),
+				'post_status'   => $post_status,
+				'herausgegeben' => in_array( $post_status, self::all()['status'], true ),
+			) );
+		}
+
+		$post_id = wp_insert_post( array(
+			'post_type'    => $pt,
+			'post_title'   => $title,
+			'post_content' => wp_kses_post( (string) ( $eintrag['content'] ?? '' ) ),
+			'post_status'  => in_array( $eintrag['status'] ?? '', array( 'publish', 'draft', 'pending', 'private' ), true )
+				? $eintrag['status'] : 'draft',
+		), true );
+		if ( ! $post_id || is_wp_error( $post_id ) ) {
+			return $antwort( $schluessel, 'abgelehnt', array( 'grund' => 'konnte nicht angelegt werden' ) );
+		}
+		$post_id = (int) $post_id;
+
+		foreach ( BI_CPT::meta_fields( $pt ) as $key => $cfg ) {
+			if ( array_key_exists( $key, $meta ) ) {
+				update_post_meta( $post_id, $key, BI_Datenpflege::sanitize_meta( (string) $meta[ $key ], $cfg ) );
+			}
+		}
+
+		$terms = isset( $eintrag['terms'] ) && is_array( $eintrag['terms'] ) ? $eintrag['terms'] : array();
+		foreach ( $terms as $tax => $namen ) {
+			if ( ! taxonomy_exists( $tax ) || ! is_array( $namen ) ) {
+				continue;
+			}
+			wp_set_object_terms( $post_id, array_values( array_filter( array_map( 'strval', $namen ), 'strlen' ) ), $tax, false );
+		}
+
+		BI_Reihen::zuordnen( $post_id );
+
+		if ( ! empty( $eintrag['bild'] ) ) {
+			BI_Datenpflege::bild_holen( (string) $eintrag['bild'], $post_id );
+		}
+
+		// Woher es kam – für den Fall, dass hier jemand fragt, wer das angelegt hat.
+		update_post_meta( $post_id, self::META_UEBERNOMMEN, current_time( 'Y-m-d H:i:s' ) );
+		self::markieren( $post_id );
+
+		return $antwort( $schluessel, 'angelegt', array(
+			'stand'    => self::stand_von( $post_id ),
+			'edit_url' => admin_url( 'post.php?post=' . $post_id . '&action=edit' ),
+		) );
+	}
+
+	/** Hinweis in der Bearbeiten-Maske der Quelle: Dieses Seminar kam aus der Zentrale. */
+	public static function hinweis_uebernommen() {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'post' !== $screen->base ) {
+			return;
+		}
+		$post_id = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$seit    = $post_id ? (string) get_post_meta( $post_id, self::META_UEBERNOMMEN, true ) : '';
+		if ( '' === $seit ) {
+			return;
+		}
+		echo '<div class="notice notice-info"><p>Dieses Seminar wurde am ' . esc_html( mysql2date( 'd.m.Y \u\m H:i', $seit ) )
+			. ' von der Zentrale übergeben, weil es dort diesem Bildungszentrum zugeordnet wurde. Es wird ab jetzt hier gepflegt; die Zentrale holt Änderungen wie bei jedem anderen Seminar ab.</p></div>';
+	}
+
+	/**
+	 * Fehlende Ausbildungsreihen anlegen, vorhandene NICHT anfassen.
+	 *
+	 * Eine Reihe gleichen Namens, die es hier schon gibt, ist die hiesige – die
+	 * Quelle pflegt ihre Reihen selbst. Ohne diesen Schritt legte
+	 * BI_Reihen::zuordnen() eine leere Reihe als Entwurf an.
+	 */
+	private static function reihen_ergaenzen( $reihen ) {
+		foreach ( (array) $reihen as $r ) {
+			$titel = trim( wp_strip_all_tags( (string) ( $r['title'] ?? '' ) ) );
+			if ( '' === $titel || BI_Reihen::reihe_id( $titel, false ) ) {
+				continue;
+			}
+			$postarr = array(
+				'post_type'    => BI_Reihen::CPT,
+				'post_title'   => $titel,
+				'post_content' => wp_kses_post( (string) ( $r['content'] ?? '' ) ),
+				'post_excerpt' => sanitize_textarea_field( (string) ( $r['excerpt'] ?? '' ) ),
+				'post_status'  => in_array( $r['status'] ?? '', array( 'publish', 'draft', 'pending', 'private' ), true )
+					? $r['status'] : 'draft',
+			);
+			if ( ! empty( $r['slug'] ) ) {
+				$postarr['post_name'] = sanitize_title( (string) $r['slug'] );
+			}
+			$rid = wp_insert_post( $postarr, true );
+			if ( ! $rid || is_wp_error( $rid ) ) {
+				continue;
+			}
+			foreach ( BI_Reihen::meta_fields() as $key => $cfg ) {
+				if ( isset( $r['meta'][ $key ] ) ) {
+					update_post_meta( (int) $rid, $key, BI_Datenpflege::sanitize_meta( (string) $r['meta'][ $key ], $cfg ) );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Sperre nehmen. add_option() ist atomar: Es schlägt fehl, wenn die Option
+	 * schon steht. Eine Sperre, die älter als zwei Minuten ist, gilt als
+	 * liegengeblieben (abgebrochene Anfrage) und wird übernommen.
+	 */
+	private static function sperre_nehmen() {
+		if ( add_option( self::OPT_SPERRE, time(), '', false ) ) {
+			return true;
+		}
+		$seit = (int) get_option( self::OPT_SPERRE, 0 );
+		if ( time() - $seit > 2 * MINUTE_IN_SECONDS ) {
+			update_option( self::OPT_SPERRE, time(), false );
+			return true;
+		}
+		return false;
+	}
+
+	private static function sperre_freigeben() {
+		delete_option( self::OPT_SPERRE );
 	}
 
 	/** Die Quelle meldet, dass es Neues gibt. Der Schlüssel benennt sie. */
@@ -796,7 +1154,20 @@ class BI_Sync {
 			'suppress_filters' => true,
 			'no_found_rows'    => true,
 		) );
-		return $found ? (int) $found[0] : 0;
+		if ( ! $found ) {
+			return 0;
+		}
+		// Zweite Tür für dieselbe Regel wie in route_bestand(): Wer den Schlüssel
+		// kennt, bekommt ein zurückgehaltenes Seminar trotzdem nicht.
+		if ( self::nur_hier( (int) $found[0] ) ) {
+			return 0;
+		}
+		return (int) $found[0];
+	}
+
+	/** Soll dieses Seminar nur in dieser Installation stehen? (Quelle) */
+	public static function nur_hier( $post_id ) {
+		return '1' === (string) get_post_meta( (int) $post_id, self::META_NUR_HIER, true );
 	}
 
 	/**
@@ -907,16 +1278,27 @@ class BI_Sync {
 		$stand[ $slug ] = time();
 		update_option( self::OPT_TAKT, $stand, false );
 
+		// ZUERST ÜBERGEBEN, DANN ABHOLEN. In dieser Reihenfolge steht ein
+		// übergebenes Seminar schon in der Bestandsliste, die gleich geholt wird.
+		// Andersherum hielte der Aufräumschritt es für „in der Quelle nicht
+		// vorhanden" und blendete es aus – mitten in seinem Umzug.
+		$uebergabe = self::uebergeben( $q, $slug );
+
 		$antwort = self::abrufen( $q, 'sync/bestand', null );
 		if ( is_wp_error( $antwort ) ) {
 			self::protokoll_schreiben( $slug, array(
-				'fehler' => 'Bestandsliste nicht erreichbar: ' . $antwort->get_error_message(),
+				'fehler'   => 'Bestandsliste nicht erreichbar: ' . $antwort->get_error_message(),
+				'zahlen'   => array( 'uebergeben' => $uebergabe['zahl'] ),
+				'hinweise' => $uebergabe['hinweise'],
 			) );
 			return 'abgebrochen';
 		}
 
 		$bestand  = isset( $antwort['eintraege'] ) && is_array( $antwort['eintraege'] ) ? $antwort['eintraege'] : array();
 		$stichtag = isset( $antwort['stichtag'] ) ? (string) $antwort['stichtag'] : '';
+		$zurueck  = isset( $antwort['zurueckgehalten'] ) && is_array( $antwort['zurueckgehalten'] )
+			? array_values( array_filter( array_map( 'strval', $antwort['zurueckgehalten'] ), 'strlen' ) )
+			: array();
 
 		// EINE SICHERUNG, DIE SCHON EINMAL GEBRAUCHT WIRD, WENN MAN SIE VERMISST:
 		// Ein leerer Bestand bei erreichbarer Quelle sähe aus wie „dort wurde
@@ -924,12 +1306,16 @@ class BI_Sync {
 		// dieser Quelle in der Zentrale ausblenden. Häufigere Ursache ist aber
 		// eine halb eingerichtete Quelle (falscher Status, Wartungsmodus, leere
 		// Datenbank nach einem Umzug). Deshalb: nichts tun und laut sein.
-		if ( ! $bestand ) {
+		// Ausnahme: Die Quelle hält ALLES ausdrücklich zurück. Dann ist der
+		// leere Bestand keine Panne, sondern so gewollt.
+		if ( ! $bestand && ! $zurueck ) {
 			self::protokoll_schreiben( $slug, array(
 				'fehler' => sprintf(
 					'Die Quelle meldet einen leeren Bestand%s. Es wurde nichts geändert – bitte in der Quelle prüfen, ob dort Seminare im freigegebenen Status stehen und ob das Zeitfenster nicht zu eng steht.',
 					$stichtag ? ' (abgefragt ab Startdatum ' . $stichtag . ')' : ''
 				),
+				'zahlen'   => array( 'uebergeben' => $uebergabe['zahl'] ),
+				'hinweise' => $uebergabe['hinweise'],
 			) );
 			return 'abgebrochen';
 		}
@@ -950,16 +1336,19 @@ class BI_Sync {
 			'begonnen' => time(),
 			'offen'    => $offen,
 			'bestand'  => array_keys( $bestand ),
+			'zurueckgehalten' => $zurueck,
 			'stichtag' => $stichtag,
 			'gesamt'   => count( $offen ),
 			'zahlen'   => array(
-				'neu'           => 0,
-				'aktualisiert'  => 0,
-				'uebernommen'   => 0,
-				'ausgeblendet'  => 0,
-				'uebersprungen' => 0,
+				'neu'             => 0,
+				'aktualisiert'    => 0,
+				'uebernommen'     => 0,
+				'ausgeblendet'    => 0,
+				'zurueckgehalten' => 0,
+				'uebersprungen'   => 0,
+				'uebergeben'      => $uebergabe['zahl'],
 			),
-			'hinweise' => array(),
+			'hinweise' => $uebergabe['hinweise'],
 		);
 		update_option( self::OPT_LAUF, $lauf, false );
 
@@ -992,30 +1381,66 @@ class BI_Sync {
 				return 'unterwegs';
 			}
 
-			$haeppchen = array_splice( $lauf['offen'], 0, self::HAEPPCHEN );
+			// Nach einem Fehlschlag einzeln, bis das gescheiterte Häppchen
+			// abgearbeitet ist – danach wieder in vollen Häppchen.
+			$einzeln   = (int) ( $lauf['einzeln'] ?? 0 );
+			$haeppchen = array_splice( $lauf['offen'], 0, $einzeln > 0 ? 1 : self::HAEPPCHEN );
+			if ( $einzeln > 0 ) {
+				$lauf['einzeln'] = $einzeln - 1;
+			}
 			$paket     = self::abrufen( $q, 'sync/paket', array( 'schluessel' => $haeppchen ) );
 
 			if ( is_wp_error( $paket ) ) {
-				// Das Häppchen zurück in die Schlange – sonst gilt es als erledigt
-				// und die Seminare darin würden bis zur nächsten Änderung in der
-				// Quelle nie wieder geholt.
-				$lauf['offen'] = array_merge( $haeppchen, $lauf['offen'] );
-				$fehler++;
-				$lauf['hinweise'][] = 'Ein Häppchen kam nicht an: ' . $paket->get_error_message();
+				$meldung = $paket->get_error_message();
 
+				// EIN KAPUTTES SEMINAR DARF NICHT DIE GANZE QUELLE AUFHALTEN.
+				// Früher wurde dasselbe 25er-Häppchen dreimal hintereinander
+				// angefragt und dann alles abgebrochen. Scheiterte die Quelle an
+				// einem einzigen Seminar (PHP-Fehler, Zeitlimit beim Packen), kam
+				// so nie wieder irgendetwas an. Jetzt: Ein volles Häppchen, das
+				// scheitert, wird einzeln nachgefragt. Was dann noch scheitert,
+				// wandert ans Ende der Schlange und wird beim zweiten Mal
+				// übersprungen – mit Namen im Protokoll.
+				if ( count( $haeppchen ) > 1 ) {
+					$lauf['offen']   = array_merge( $haeppchen, $lauf['offen'] );
+					$lauf['einzeln'] = count( $haeppchen );
+					$lauf['hinweise'][] = 'Ein Häppchen kam nicht an (' . $meldung . ') – es wird einzeln weiter geholt.';
+					self::kurz_warten( $meldung );
+					continue;
+				}
+
+				$schluessel = (string) $haeppchen[0];
+				$fehler++;
+				$lauf['versuche'][ $schluessel ] = (int) ( $lauf['versuche'][ $schluessel ] ?? 0 ) + 1;
+
+				// Mehrere verschiedene Seminare hintereinander: Dann liegt es nicht
+				// an einem Seminar, sondern an der Quelle. Abbruch mit Bericht.
 				if ( $fehler >= self::FEHLVERSUCHE ) {
+					$lauf['offen'] = array_merge( $haeppchen, $lauf['offen'] );
 					delete_option( self::OPT_LAUF );
 					self::protokoll_schreiben( $slug, array(
 						'fehler'   => sprintf(
-							'Nach %d Fehlversuchen abgebrochen: %s Die Bestandsliste kam an, die Seminardaten nicht – prüfe, ob POST-Anfragen an /wp-json/ auf der Quelle durchkommen (Sicherheits-Plugin, WAF, Server-Regel).',
+							'Nach %d Fehlversuchen abgebrochen: %s Die Bestandsliste kam an, die Seminardaten nicht. %s',
 							$fehler,
-							$paket->get_error_message()
+							$meldung,
+							self::fehler_erklaeren( $meldung )
 						),
 						'zahlen'   => $lauf['zahlen'],
 						'hinweise' => $lauf['hinweise'],
 					) );
 					return 'abgebrochen';
 				}
+
+				if ( $lauf['versuche'][ $schluessel ] >= 2 ) {
+					$lauf['zahlen']['uebersprungen']++;
+					$lauf['hinweise'][] = sprintf(
+						'Seminar %s ließ sich zweimal nicht holen (%s) und wurde übersprungen. Der nächste Lauf versucht es wieder. Bleibt es dabei, liegt es an diesem Seminar in der Quelle – dort das Fehlerprotokoll prüfen.',
+						$schluessel, $meldung
+					);
+				} else {
+					$lauf['offen'][] = $schluessel; // ans Ende, die anderen zuerst
+				}
+				self::kurz_warten( $meldung );
 				continue;
 			}
 			$fehler = 0;
@@ -1043,7 +1468,7 @@ class BI_Sync {
 			'dauer'    => time() - (int) $lauf['begonnen'],
 		) );
 
-		if ( $lauf['zahlen']['neu'] || $lauf['zahlen']['aktualisiert'] || $lauf['zahlen']['ausgeblendet'] ) {
+		if ( $lauf['zahlen']['neu'] || $lauf['zahlen']['aktualisiert'] || $lauf['zahlen']['ausgeblendet'] || ! empty( $lauf['zahlen']['zurueckgehalten'] ) || ! empty( $lauf['zahlen']['uebergeben'] ) ) {
 			if ( class_exists( 'BI_Cache' ) ) {
 				BI_Cache::leeren( true );
 			}
@@ -1052,6 +1477,38 @@ class BI_Sync {
 			}
 		}
 		return 'fertig';
+	}
+
+	/**
+	 * Was ein HTTP-Fehler beim Holen der Seminardaten bedeutet.
+	 *
+	 * Bis 1.142.1 stand hier für jeden Code derselbe Satz über blockierte
+	 * POST-Anfragen. Der stimmt bei 403/405/406. Ein 5xx-Fehler heißt etwas
+	 * anderes: Die Anfrage ist angekommen, aber die Quelle ist daran gescheitert.
+	 */
+	private static function fehler_erklaeren( $meldung ) {
+		$code = preg_match( '/HTTP (\d{3})/', (string) $meldung, $m ) ? (int) $m[1] : 0;
+		if ( $code >= 500 ) {
+			return 'Die Quelle hat die Anfrage bekommen, konnte sie aber nicht beantworten (Serverfehler, Überlastung oder Wartung). '
+				. 'Meist ist es ein PHP-Fehler oder ein Zeit- bzw. Speicherlimit auf der Quelle – dort das Fehlerprotokoll oder die WordPress-Mail „technisches Problem" prüfen. '
+				. 'Auf LiteSpeed-Servern meldet sich ein PHP-Absturz als 503. Kurz nach einem Deploy: prüfen, ob dort alle Dateien in derselben Fassung liegen. '
+				. 'Seltener blockt ein Sicherheits-Plugin oder eine Server-Regel POST-Anfragen an /wp-json/ mit 503.';
+		}
+		if ( 429 === $code ) {
+			return 'Die Quelle oder ihr Hoster bremst zu viele Anfragen. Etwas später erneut abgleichen; hält es an, beim Hoster nach einem Limit für /wp-json/ fragen.';
+		}
+		return 'Prüfe, ob POST-Anfragen an /wp-json/ auf der Quelle durchkommen (Sicherheits-Plugin, WAF, Server-Regel).';
+	}
+
+	/**
+	 * Nach einem Serverfehler kurz durchatmen, bevor die nächste Anfrage geht.
+	 * Eine überlastete Quelle oder ein Hoster, der drosselt, hat nichts davon,
+	 * wenn sofort die nächste Anfrage nachkommt.
+	 */
+	private static function kurz_warten( $meldung ) {
+		if ( preg_match( '/HTTP (5\d\d|429)/', (string) $meldung ) && ! defined( 'BI_SYNC_TEST' ) ) {
+			sleep( 3 );
+		}
 	}
 
 	/** Zustand eines gerade unterwegs befindlichen Laufs – oder null. */
@@ -1133,13 +1590,19 @@ class BI_Sync {
 		}
 
 		// Begriffe: genau die aus dem Paket, auch wenn es keine sind.
+		// Mit Weiche, siehe self::$schreibt: Der Stempel steht noch nicht.
 		$terms = isset( $eintrag['terms'] ) && is_array( $eintrag['terms'] ) ? $eintrag['terms'] : array();
-		foreach ( $terms as $tax => $namen ) {
-			if ( ! taxonomy_exists( $tax ) || ! is_array( $namen ) ) {
-				continue;
+		self::$schreibt = true;
+		try {
+			foreach ( $terms as $tax => $namen ) {
+				if ( ! taxonomy_exists( $tax ) || ! is_array( $namen ) ) {
+					continue;
+				}
+				$namen = array_values( array_filter( array_map( 'strval', $namen ), 'strlen' ) );
+				wp_set_object_terms( $post_id, $namen, $tax, false );
 			}
-			$namen = array_values( array_filter( array_map( 'strval', $namen ), 'strlen' ) );
-			wp_set_object_terms( $post_id, $namen, $tax, false );
+		} finally {
+			self::$schreibt = false;
 		}
 
 		// Zuordnung zur Ausbildungsreihe aus „Teil | Reihe" auflösen. Der
@@ -1154,6 +1617,10 @@ class BI_Sync {
 		update_post_meta( $post_id, self::META_EDIT, esc_url_raw( (string) ( $eintrag['sync']['edit_url'] ?? '' ) ) );
 		update_post_meta( $post_id, self::META_ANMELDUNGEN, (int) ( $eintrag['sync']['anmeldungen'] ?? 0 ) );
 		delete_post_meta( $post_id, self::META_FEHLT );
+		delete_post_meta( $post_id, self::META_NUR_DORT );
+		// Ein vorgemerktes eigenes Seminar, das die Quelle beim Erstlauf an der
+		// Nummer übernimmt, ist damit umgezogen – die Vormerkung ist erledigt.
+		delete_post_meta( $post_id, self::META_UEBERGABE );
 
 		// Beitragsbild nur, wo noch keines steht – ein zweiter Lauf soll die
 		// Mediathek nicht mit Kopien füllen.
@@ -1359,11 +1826,19 @@ class BI_Sync {
 	private static function aufraeumen( &$lauf ) {
 		$slug     = (string) $lauf['quelle'];
 		$bestand  = array_flip( (array) $lauf['bestand'] );
+		$zurueck  = array_flip( (array) ( $lauf['zurueckgehalten'] ?? array() ) );
 		$stichtag = (string) ( $lauf['stichtag'] ?? '' );
 		$hier     = self::eigener_bestand( $slug );
 
+		// Zuerst, was die Quelle ausdrücklich zurückhält. Eigener Zweig, weil
+		// das kein Verschwinden ist: Das Seminar lebt in der Quelle weiter,
+		// soll aber nur dort zu sehen sein.
+		foreach ( array_keys( $zurueck ) as $schluessel ) {
+			self::zurueckhalten( (string) $schluessel, $slug, $lauf );
+		}
+
 		foreach ( $hier as $schluessel => $eintrag ) {
-			if ( isset( $bestand[ $schluessel ] ) ) {
+			if ( isset( $bestand[ $schluessel ] ) || isset( $zurueck[ $schluessel ] ) ) {
 				continue;
 			}
 
@@ -1393,6 +1868,8 @@ class BI_Sync {
 			}
 			update_post_meta( $eintrag['id'], '_bi_anzeigen', '0' );
 			update_post_meta( $eintrag['id'], self::META_FEHLT, current_time( 'Y-m-d H:i:s' ) );
+			// War er vorher zurückgehalten und ist jetzt ganz weg, gilt das Fehlen.
+			delete_post_meta( $eintrag['id'], self::META_NUR_DORT );
 			$lauf['zahlen']['ausgeblendet']++;
 			$lauf['hinweise'][] = sprintf(
 				'In der Quelle nicht mehr vorhanden, deshalb ausgeblendet: %s (%s)',
@@ -1400,6 +1877,264 @@ class BI_Sync {
 				$schluessel
 			);
 		}
+	}
+
+	/**
+	 * Ein Seminar, das die Quelle zurückhält, hier ausblenden.
+	 *
+	 * Gesucht wird wie beim Schreiben (finden()): erst am Herkunftsstempel,
+	 * dann an der blanken Seminarnummer. Der zweite Blick ist hier genauso
+	 * nötig wie beim Erstlauf – die meisten Seminare der Bildungszentren stehen
+	 * in der Zentrale noch aus dem CSV-Import, ohne Stempel. Was so gefunden
+	 * wird, bekommt den Stempel mit Stand 0: Nimmt die Quelle den Haken später
+	 * heraus, ist ihr Stand jünger, und der nächste Lauf holt das Seminar frisch.
+	 *
+	 * Nicht angefasst wird, was von Hand gelöst ist oder einer anderen Quelle
+	 * gehört – dieselben Regeln wie überall in diesem Modul.
+	 */
+	private static function zurueckhalten( $schluessel, $slug, &$lauf ) {
+		$vorhanden = self::finden( $schluessel, $slug );
+		if ( ! is_array( $vorhanden ) || empty( $vorhanden['id'] ) ) {
+			return; // gelöst, fremd oder hier gar nicht vorhanden – nichts zu tun
+		}
+		$id = (int) $vorhanden['id'];
+
+		// Schon vermerkt? Dann nicht jedes Mal neu zählen.
+		if ( get_post_meta( $id, self::META_NUR_DORT, true ) ) {
+			return;
+		}
+
+		if ( 'uebernommen' === $vorhanden['ergebnis'] ) {
+			update_post_meta( $id, self::META_QUELLE, $slug );
+			update_post_meta( $id, self::META_SCHLUESSEL, $schluessel );
+			update_post_meta( $id, self::META_STAND, 0 );
+		}
+		delete_post_meta( $id, self::META_UEBERGABE );
+
+		update_post_meta( $id, '_bi_anzeigen', '0' );
+		update_post_meta( $id, self::META_NUR_DORT, current_time( 'Y-m-d H:i:s' ) );
+		delete_post_meta( $id, self::META_FEHLT );
+
+		$lauf['zahlen']['zurueckgehalten'] = (int) ( $lauf['zahlen']['zurueckgehalten'] ?? 0 ) + 1;
+		$lauf['hinweise'][] = sprintf(
+			'Von der Quelle zurückgehalten („Nicht an die Zentrale weitergeben"), deshalb hier ausgeblendet: %s (%s)',
+			get_the_title( $id ),
+			$schluessel
+		);
+	}
+
+	/* ===================================================================
+	 *  Rolle ZENTRALE – Übergabe an eine Quelle
+	 * =================================================================== */
+
+	/** Zu welcher Quelle gehören diese Bildungszentren? Kennung oder ''. */
+	public static function quelle_fuer_orte( $term_ids ) {
+		$term_ids = array_map( 'intval', (array) $term_ids );
+		if ( ! $term_ids ) {
+			return '';
+		}
+		foreach ( self::all()['quellen'] as $q ) {
+			if ( ! empty( $q['slug'] ) && array_intersect( $term_ids, (array) ( $q['orte'] ?? array() ) ) ) {
+				return (string) $q['slug'];
+			}
+		}
+		return '';
+	}
+
+	/** Zu welcher Quelle gehört dieses Seminar nach seinem Bildungszentrum? */
+	public static function quelle_fuer_seminar( $post_id ) {
+		$ids = wp_get_object_terms( (int) $post_id, BI_TAX_ORT, array( 'fields' => 'ids' ) );
+		return is_wp_error( $ids ) ? '' : self::quelle_fuer_orte( $ids );
+	}
+
+	/** Kann dieses Seminar übergeben werden? Nur eigene – siehe Kopf der Datei. */
+	public static function ist_eigenes( $post_id ) {
+		return bi_is_seminar_post( $post_id ) && ! get_post_meta( (int) $post_id, self::META_QUELLE, true );
+	}
+
+	/**
+	 * Das Bildungszentrum eines Seminars wurde geändert.
+	 *
+	 * Ausgelöst wird NUR durch eine tatsächliche Änderung, nicht durch jedes
+	 * Speichern: Ein CSV-Import, der dieselben Begriffe noch einmal setzt, soll
+	 * nichts in Bewegung bringen. Wer ein schon zugeordnetes Seminar nachträglich
+	 * übergeben will, nimmt die Zeilen- oder Massenaktion in der Seminarliste.
+	 *
+	 * Wird die Zuordnung vor dem nächsten Lauf wieder geändert, folgt die
+	 * Vormerkung ihr – auf eine andere Quelle oder ganz weg.
+	 */
+	public static function uebergabe_vormerken( $object_id, $terms, $tt_ids, $taxonomy, $append, $old_tt_ids ) {
+		if ( BI_TAX_ORT !== $taxonomy || self::$schreibt ) {
+			return;
+		}
+		$neu = array_map( 'intval', (array) $tt_ids );
+		$alt = array_map( 'intval', (array) $old_tt_ids );
+		sort( $neu );
+		sort( $alt );
+		if ( $neu === $alt ) {
+			return;
+		}
+		if ( ! self::ist_eigenes( $object_id ) ) {
+			return;
+		}
+		self::vormerken( $object_id, self::quelle_fuer_seminar( $object_id ) );
+	}
+
+	/** Vormerkung setzen ('' = aufheben) und den Lauf für diese Quelle anstoßen. */
+	public static function vormerken( $post_id, $slug ) {
+		$post_id = (int) $post_id;
+		if ( '' === (string) $slug ) {
+			delete_post_meta( $post_id, self::META_UEBERGABE );
+			return;
+		}
+		update_post_meta( $post_id, self::META_UEBERGABE, (string) $slug );
+		self::einreihen( (string) $slug );
+		wp_schedule_single_event( time() + 10, self::HOOK_TICK );
+	}
+
+	/**
+	 * Vorgemerkte Seminare an die Quelle übergeben. Läuft am Anfang jedes Laufs.
+	 *
+	 * Höchstens UEBERGABE_HAEPPCHEN je Lauf. Bleibt mehr übrig, reiht sich die Quelle
+	 * gleich wieder ein – ein Lauf soll nicht an der Übergabe ersticken, bevor
+	 * er überhaupt abgeholt hat.
+	 *
+	 * Nur Veröffentlichtes. Ein Entwurf bleibt vorgemerkt und geht, sobald er
+	 * veröffentlicht ist – die Quelle gibt ohnehin nur heraus, was in ihrem
+	 * freigegebenen Status steht, und ein dort unsichtbarer Entwurf hieße für
+	 * die Zentrale beim Aufräumen „verschwunden".
+	 *
+	 * @return array{zahl:int,hinweise:string[]}
+	 */
+	private static function uebergeben( $q, $slug ) {
+		$out = array( 'zahl' => 0, 'hinweise' => array() );
+		$ids = get_posts( array(
+			'post_type'        => bi_seminar_post_types(),
+			'post_status'      => 'publish',
+			'numberposts'      => self::UEBERGABE_HAEPPCHEN,
+			'fields'           => 'ids',
+			'meta_key'         => self::META_UEBERGABE,
+			'meta_value'       => $slug,
+			'orderby'          => 'ID',
+			'order'            => 'ASC',
+			'suppress_filters' => true,
+			'no_found_rows'    => true,
+		) );
+		if ( ! $ids ) {
+			return $out;
+		}
+		$name = (string) ( $q['name'] ?? $slug );
+
+		$bereit = array();
+		foreach ( $ids as $id ) {
+			$id = (int) $id;
+			if ( ! self::ist_eigenes( $id ) ) {
+				delete_post_meta( $id, self::META_UEBERGABE ); // inzwischen abgeglichen – erledigt
+				continue;
+			}
+			if ( '' === self::schluessel_fuer( $id ) ) {
+				// Vormerkung aufheben, sonst stünde dieselbe Zeile in jedem Bericht
+				// und belegte einen Platz im Häppchen, der nie frei wird.
+				delete_post_meta( $id, self::META_UEBERGABE );
+				$out['hinweise'][] = sprintf(
+					'Nicht an %s übergeben, weil die Seminarnummer fehlt: %s. Nummer eintragen und in der Seminarliste „an %s übergeben" wählen.',
+					$name, get_the_title( $id ), $name
+				);
+				continue;
+			}
+			$bereit[] = $id;
+		}
+		if ( ! $bereit ) {
+			return $out;
+		}
+
+		$body    = array_merge(
+			array(
+				'format'  => 'bi-sync-paket',
+				'version' => self::FORMAT_VERSION,
+				'site'    => home_url(),
+			),
+			self::paket_bauen( $bereit, ! empty( self::get( 'reihen' ) ) )
+		);
+		$antwort = self::abrufen( $q, 'sync/uebernehmen', $body );
+		if ( is_wp_error( $antwort ) ) {
+			$msg = $antwort->get_error_message();
+			if ( false !== strpos( $msg, 'HTTP 404' ) ) {
+				$msg .= ' Die Übergabe braucht in der Quelle das Plugin ab Version 1.142.0.';
+			}
+			$out['hinweise'][] = sprintf(
+				'%d Seminar(e) konnten nicht an %s übergeben werden und bleiben vorgemerkt: %s',
+				count( $bereit ), $name, $msg
+			);
+			return $out;
+		}
+
+		$ergebnisse = isset( $antwort['ergebnisse'] ) && is_array( $antwort['ergebnisse'] ) ? $antwort['ergebnisse'] : array();
+		foreach ( $bereit as $id ) {
+			$schluessel = self::schluessel_fuer( $id );
+			$titel      = get_the_title( $id );
+			$r          = $ergebnisse[ $schluessel ] ?? null;
+			$status     = is_array( $r ) ? (string) ( $r['status'] ?? '' ) : '';
+
+			if ( 'angelegt' === $status ) {
+				self::stempeln( $id, $slug, $schluessel, (int) ( $r['stand'] ?? 0 ), (string) ( $r['edit_url'] ?? '' ) );
+				$out['zahl']++;
+				$out['hinweise'][] = sprintf( 'An %s übergeben und dort angelegt: %s (%s)', $name, $titel, $schluessel );
+			} elseif ( 'vorhanden' === $status
+				&& array_key_exists( 'herausgegeben', $r ) && ! $r['herausgegeben'] && empty( $r['nur_hier'] ) ) {
+				// DIE QUELLE HAT DIE NUMMER, GIBT SIE ABER NICHT HERAUS – meist ein
+				// Entwurf. Jetzt zu stempeln hieße: Die Bestandsliste kennt das
+				// Seminar nicht, der Aufräumschritt blendet es hier aus, und es ist
+				// nirgends mehr öffentlich. Also bleibt es, wo es ist, und die
+				// Vormerkung steht: Sobald die Quelle es veröffentlicht, geht die
+				// Übergabe beim nächsten Lauf durch.
+				$out['hinweise'][] = sprintf(
+					'%s führt die Seminarnummer schon, aber nicht veröffentlicht (Status „%s"): %s (%s). Es bleibt hier sichtbar und vorgemerkt – in %s veröffentlichen (%s), dann geht die Übergabe beim nächsten Lauf durch. Ist es dort ein anderes Seminar, die Nummer prüfen.',
+					$name, (string) ( $r['post_status'] ?? '?' ), $titel, $schluessel, $name, (string) ( $r['edit_url'] ?? '' )
+				);
+			} elseif ( 'vorhanden' === $status ) {
+				// Stand 0: Derselbe Lauf holt gleich die Fassung der Quelle. Die
+				// Nummer gibt es dort schon, also IST es dort schon – und dort gewinnt.
+				self::stempeln( $id, $slug, $schluessel, 0, (string) ( $r['edit_url'] ?? '' ) );
+				$out['zahl']++;
+				$hinweis = sprintf(
+					'%s führt die Seminarnummer schon – nichts angelegt, ab jetzt von dort abgeglichen: %s (%s)',
+					$name, $titel, $schluessel
+				);
+				if ( ! empty( $r['nur_hier'] ) ) {
+					$hinweis .= '. Dort steht der Haken „Nicht an die Zentrale weitergeben" – hier wird es deshalb ausgeblendet.';
+				}
+				$out['hinweise'][] = $hinweis;
+			} elseif ( 'abgelehnt' === $status ) {
+				delete_post_meta( $id, self::META_UEBERGABE );
+				$out['hinweise'][] = sprintf(
+					'%s hat die Übergabe abgelehnt (%s): %s (%s). Die Vormerkung ist aufgehoben.',
+					$name, (string) ( $r['grund'] ?? 'ohne Angabe' ), $titel, $schluessel
+				);
+			} else {
+				$out['hinweise'][] = sprintf(
+					'Keine Antwort von %s zu %s (%s) – bleibt vorgemerkt.',
+					$name, $titel, $schluessel
+				);
+			}
+		}
+
+		if ( count( $ids ) >= self::UEBERGABE_HAEPPCHEN ) {
+			self::einreihen( $slug ); // der Rest kommt im nächsten Lauf
+		}
+		return $out;
+	}
+
+	/** Ein übergebenes Seminar gehört ab jetzt der Quelle. */
+	private static function stempeln( $post_id, $slug, $schluessel, $stand, $edit_url ) {
+		update_post_meta( $post_id, self::META_QUELLE, $slug );
+		update_post_meta( $post_id, self::META_SCHLUESSEL, $schluessel );
+		update_post_meta( $post_id, self::META_STAND, (int) $stand );
+		update_post_meta( $post_id, self::META_EDIT, esc_url_raw( $edit_url ) );
+		delete_post_meta( $post_id, self::META_UEBERGABE );
+		delete_post_meta( $post_id, self::META_FEHLT );
+		delete_post_meta( $post_id, self::META_NUR_DORT );
+		delete_post_meta( $post_id, self::META_GELOEST );
 	}
 
 	/* ===================================================================
@@ -1531,6 +2266,15 @@ class BI_Sync {
 		}
 		$slug = (string) get_post_meta( $post_id, self::META_QUELLE, true );
 		if ( ! $slug ) {
+			$ziel = (string) get_post_meta( $post_id, self::META_UEBERGABE, true );
+			if ( $ziel ) {
+				$zq    = self::quelle_finden( $ziel );
+				$zname = $zq ? (string) $zq['name'] : $ziel;
+				$wann  = ( 'publish' === get_post_status( $post_id ) ) ? 'beim nächsten Abgleich' : 'sobald veröffentlicht';
+				echo '<span style="color:#2271b1" title="Gehört nach seinem Bildungszentrum zu ' . esc_attr( $zname ) . ' und wird dorthin übergeben. Danach wird es dort gepflegt und hier abgeglichen.">→ an ' . esc_html( $zname ) . '</span>';
+				echo '<br><span style="color:#787c82;font-size:11px">' . esc_html( $wann ) . '</span>';
+				return;
+			}
 			echo '<span style="color:#787c82">—</span>';
 			return;
 		}
@@ -1539,6 +2283,12 @@ class BI_Sync {
 
 		if ( get_post_meta( $post_id, self::META_GELOEST, true ) ) {
 			echo '<span title="Wird nicht mehr abgeglichen">🔓 ' . esc_html( $name ) . ' (gelöst)</span>';
+			return;
+		}
+
+		$nur_dort = (string) get_post_meta( $post_id, self::META_NUR_DORT, true );
+		if ( $nur_dort ) {
+			echo '<span style="color:#787c82" title="Die Quelle gibt dieses Seminar nicht weiter (Haken „Nicht an die Zentrale weitergeben“). Hier ausgeblendet seit ' . esc_attr( $nur_dort ) . '">⊘ nur in ' . esc_html( $name ) . '</span>';
 			return;
 		}
 
@@ -1568,7 +2318,7 @@ class BI_Sync {
 			return $actions;
 		}
 		if ( ! get_post_meta( $post->ID, self::META_QUELLE, true ) ) {
-			return $actions;
+			return self::zeilen_aktion_uebergabe( $actions, $post );
 		}
 		$geloest = (bool) get_post_meta( $post->ID, self::META_GELOEST, true );
 		$url     = wp_nonce_url(
@@ -1581,10 +2331,113 @@ class BI_Sync {
 		return $actions;
 	}
 
+	/**
+	 * Zeilenaktion für eigene Seminare: „an … übergeben" bzw. zurücknehmen.
+	 *
+	 * Die Zuordnung allein merkt nur vor, wenn sie GEÄNDERT wird. Seminare, die
+	 * schon vor dem Eintragen der Bildungszentren richtig zugeordnet waren,
+	 * kommen über diesen Weg (oder die Massenaktion) auf die Reise.
+	 */
+	private static function zeilen_aktion_uebergabe( $actions, $post ) {
+		if ( ! in_array( $post->post_type, bi_seminar_post_types(), true ) ) {
+			return $actions;
+		}
+		$vorgemerkt = (string) get_post_meta( $post->ID, self::META_UEBERGABE, true );
+		$ziel       = $vorgemerkt ?: self::quelle_fuer_seminar( $post->ID );
+		if ( '' === $ziel ) {
+			return $actions;
+		}
+		$q    = self::quelle_finden( $ziel );
+		$name = $q ? (string) $q['name'] : $ziel;
+		$url  = wp_nonce_url(
+			admin_url( 'admin-post.php?action=bi_sync_uebergabe&post=' . (int) $post->ID . '&modus=' . ( $vorgemerkt ? 'zuruecknehmen' : 'vormerken' ) ),
+			'bi_sync_uebergabe_' . $post->ID
+		);
+		$actions['bi_sync'] = '<a href="' . esc_url( $url ) . '">'
+			. esc_html( $vorgemerkt ? 'Übergabe an ' . $name . ' zurücknehmen' : 'an ' . $name . ' übergeben' )
+			. '</a>';
+		return $actions;
+	}
+
+	/** Übergabe von Hand vormerken oder zurücknehmen (Zeilenaktion). */
+	public static function handle_uebergabe() {
+		if ( ! current_user_can( BI_CAP ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+		$post_id = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0;
+		check_admin_referer( 'bi_sync_uebergabe_' . $post_id );
+
+		if ( ! self::ist_eigenes( $post_id ) ) {
+			$msg = 'Dieses Seminar stammt schon aus einer Quelle und kann nicht übergeben werden.';
+		} elseif ( 'zuruecknehmen' === sanitize_key( bi_get( 'modus', '' ) ) ) {
+			self::vormerken( $post_id, '' );
+			$msg = 'Die Übergabe ist zurückgenommen. Das Seminar bleibt in der Zentrale.';
+		} else {
+			$ziel = self::quelle_fuer_seminar( $post_id );
+			if ( '' === $ziel ) {
+				$msg = 'Das Bildungszentrum dieses Seminars gehört zu keiner Quelle (Einstellungen → Abgleich).';
+			} else {
+				self::vormerken( $post_id, $ziel );
+				$q   = self::quelle_finden( $ziel );
+				$msg = sprintf( 'Vorgemerkt: Das Seminar geht beim nächsten Abgleich an %s.', $q ? $q['name'] : $ziel );
+			}
+		}
+
+		$zurueck = wp_get_referer() ?: admin_url( 'edit.php?post_type=' . get_post_type( $post_id ) );
+		wp_safe_redirect( add_query_arg( 'bi_msg', rawurlencode( $msg ), $zurueck ) );
+		exit;
+	}
+
+	/** Massenaktion in der Seminarliste – nur, wenn überhaupt Bildungszentren zugeordnet sind. */
+	public static function massen_aktion( $actions ) {
+		foreach ( self::all()['quellen'] as $q ) {
+			if ( ! empty( $q['orte'] ) ) {
+				$actions['bi_sync_uebergeben'] = 'An die Website des Bildungszentrums übergeben';
+				break;
+			}
+		}
+		return $actions;
+	}
+
+	public static function massen_aktion_ausfuehren( $redirect, $action, $post_ids ) {
+		if ( 'bi_sync_uebergeben' !== $action || ! current_user_can( BI_CAP ) ) {
+			return $redirect;
+		}
+		$ja   = 0;
+		$nein = 0;
+		foreach ( (array) $post_ids as $id ) {
+			$ziel = self::ist_eigenes( $id ) ? self::quelle_fuer_seminar( $id ) : '';
+			if ( '' === $ziel ) {
+				$nein++;
+				continue;
+			}
+			self::vormerken( $id, $ziel );
+			$ja++;
+		}
+		$msg = sprintf( '%d Seminar(e) für die Übergabe vorgemerkt.', $ja );
+		if ( $nein ) {
+			$msg .= sprintf( ' %d übergangen: schon aus einer Quelle oder ohne Bildungszentrum mit eigener Website.', $nein );
+		}
+		return add_query_arg( 'bi_msg', rawurlencode( $msg ), $redirect );
+	}
+
 	/** Hinweis über der Bearbeiten-Maske, falls doch jemand hineinkommt. */
 	public static function hinweis_im_editor() {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( ! $screen || 'post' !== $screen->base ) {
+		if ( ! $screen ) {
+			return;
+		}
+
+		// Rückmeldung der Zeilen- und Massenaktionen in der Seminarliste.
+		if ( 'edit' === $screen->base && in_array( $screen->post_type, bi_seminar_post_types(), true ) ) {
+			$msg = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			if ( '' !== $msg ) {
+				echo '<div class="notice notice-info is-dismissible"><p>' . esc_html( $msg ) . '</p></div>';
+			}
+			return;
+		}
+
+		if ( 'post' !== $screen->base ) {
 			return;
 		}
 		$post_id = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -1592,7 +2445,18 @@ class BI_Sync {
 			return;
 		}
 		$slug = (string) get_post_meta( $post_id, self::META_QUELLE, true );
-		if ( ! $slug || get_post_meta( $post_id, self::META_GELOEST, true ) ) {
+		if ( ! $slug ) {
+			$ziel = (string) get_post_meta( $post_id, self::META_UEBERGABE, true );
+			if ( $ziel ) {
+				$q = self::quelle_finden( $ziel );
+				echo '<div class="notice notice-info"><p><strong>Dieses Seminar wird übergeben.</strong> Sein Bildungszentrum gehört zu <em>'
+					. esc_html( $q ? $q['name'] : $ziel ) . '</em>. Beim nächsten Abgleich wandert es dorthin und wird danach dort gepflegt; hier ist es dann nur noch lesbar.'
+					. ( 'publish' === get_post_status( $post_id ) ? '' : ' Übergeben wird erst, wenn es veröffentlicht ist.' )
+					. '</p></div>';
+			}
+			return;
+		}
+		if ( get_post_meta( $post_id, self::META_GELOEST, true ) ) {
 			return;
 		}
 		$q    = self::quelle_finden( $slug );
@@ -1664,6 +2528,8 @@ class BI_Sync {
 		$q_urls  = isset( $_POST['q_url'] ) && is_array( $_POST['q_url'] ) ? wp_unslash( $_POST['q_url'] ) : array();
 		$q_keys  = isset( $_POST['q_key'] ) && is_array( $_POST['q_key'] ) ? wp_unslash( $_POST['q_key'] ) : array();
 		$q_slugs = isset( $_POST['q_slug'] ) && is_array( $_POST['q_slug'] ) ? wp_unslash( $_POST['q_slug'] ) : array();
+		$q_orte  = isset( $_POST['q_orte'] ) && is_array( $_POST['q_orte'] ) ? wp_unslash( $_POST['q_orte'] ) : array();
+		$ort_vergeben = array();
 		foreach ( $q_urls as $i => $url ) {
 			$url  = esc_url_raw( trim( (string) $url ) );
 			$key  = trim( (string) ( $q_keys[ $i ] ?? '' ) );
@@ -1689,11 +2555,24 @@ class BI_Sync {
 				$n++;
 			}
 			$vergeben[ $slug ] = true;
+
+			// Ein Bildungszentrum gehört zu höchstens EINER Quelle – sonst wäre
+			// offen, wohin ein Seminar übergeben wird. Die erste Zeile gewinnt.
+			$orte = array();
+			foreach ( (array) ( $q_orte[ $i ] ?? array() ) as $term_id ) {
+				$term_id = (int) $term_id;
+				if ( $term_id && ! isset( $ort_vergeben[ $term_id ] ) ) {
+					$ort_vergeben[ $term_id ] = true;
+					$orte[] = $term_id;
+				}
+			}
+
 			$quellen[] = array(
 				'slug'       => $slug,
 				'name'       => $name ?: $slug,
 				'url'        => $url,
 				'schluessel' => $key,
+				'orte'       => $orte,
 			);
 		}
 		$s['quellen'] = $quellen;
@@ -1816,6 +2695,45 @@ class BI_Sync {
 		exit;
 	}
 
+	/** Wie viele Seminare hier den Haken „Nicht an die Zentrale weitergeben" tragen. */
+	private static function anzahl_nur_hier() {
+		global $wpdb;
+		$pt_in = implode( ',', array_fill( 0, count( bi_seminar_post_types() ), '%s' ) );
+		return (int) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			"SELECT COUNT(*) FROM {$wpdb->posts} p
+			   INNER JOIN {$wpdb->postmeta} nh ON nh.post_id = p.ID AND nh.meta_key = '" . self::META_NUR_HIER . "'
+			  WHERE p.post_type IN ({$pt_in})
+			    AND p.post_status NOT IN ('trash','auto-draft')
+			    AND nh.meta_value = '1'",
+			bi_seminar_post_types()
+		) );
+	}
+
+	/**
+	 * Begriffe der Taxonomie „Bildungszentrum" für die Auswahl je Quelle.
+	 *
+	 * Nur echte Bildungszentren – in der Taxonomie stehen aus alten Jahrgängen
+	 * auch Hotels und Tagungshäuser (siehe BI_Datenpflege::fremde_orte()), und
+	 * eine Liste von fünfzig Häkchen lädt zum Danebenklicken ein. Erkennt die
+	 * Prüfung keinen einzigen, steht alles da – lieber zu viel als eine leere
+	 * Spalte, mit der sich nichts einrichten lässt.
+	 */
+	private static function bildungszentren() {
+		$terms = get_terms( array( 'taxonomy' => BI_TAX_ORT, 'hide_empty' => false ) );
+		if ( is_wp_error( $terms ) || ! is_array( $terms ) ) {
+			return array();
+		}
+		$gewaehlt = array();
+		foreach ( self::all()['quellen'] as $q ) {
+			$gewaehlt = array_merge( $gewaehlt, (array) ( $q['orte'] ?? array() ) );
+		}
+		$echte = array_values( array_filter( $terms, function ( $t ) use ( $gewaehlt ) {
+			return in_array( (int) $t->term_id, $gewaehlt, true )
+				|| ( method_exists( 'BI_CPT', 'ist_bildungszentrum' ) && BI_CPT::ist_bildungszentrum( $t->name ) );
+		} ) );
+		return $echte ?: $terms;
+	}
+
 	/** Ein Schlüssel, der sich nicht raten lässt. */
 	public static function schluessel_erzeugen() {
 		return wp_generate_password( 48, false, false );
@@ -1874,7 +2792,7 @@ class BI_Sync {
 					<th scope="row">Rolle dieser Website</th>
 					<td>
 						<label><input type="radio" name="rolle" value="aus" <?php checked( $s['rolle'], 'aus' ); ?>> <strong>Aus</strong> – kein Abgleich</label><br>
-						<label><input type="radio" name="rolle" value="quelle" <?php checked( $s['rolle'], 'quelle' ); ?>> <strong>Quelle</strong> – hier werden Seminare gepflegt (Sprockhövel, Berlin)</label><br>
+						<label><input type="radio" name="rolle" value="quelle" <?php checked( $s['rolle'], 'quelle' ); ?>> <strong>Quelle</strong> – hier werden Seminare gepflegt (Sprockhövel, Berlin, Lohr/Bad Orb)</label><br>
 						<label><input type="radio" name="rolle" value="zentrale" <?php checked( $s['rolle'], 'zentrale' ); ?>> <strong>Zentrale</strong> – hier laufen alle Bestände zusammen (bildung.igmetall.de)</label>
 						<p class="description">Eine Website ist entweder Quelle oder Zentrale, nie beides.</p>
 					</td>
@@ -1884,7 +2802,10 @@ class BI_Sync {
 			<hr>
 			<h3>Wenn diese Website <em>Quelle</em> ist</h3>
 			<p class="description">Trage hier die Zentralen ein, die den Bestand abholen dürfen. Ohne Eintrag
-			   ist die Abhol-Adresse gar nicht erst vorhanden – sie kann dann auch nicht angegriffen werden.</p>
+			   ist die Abhol-Adresse gar nicht erst vorhanden – sie kann dann auch nicht angegriffen werden.
+			   Mit demselben Schlüssel darf die Zentrale Seminare hierher <strong>übergeben</strong>: solche, die sie
+			   dort diesem Bildungszentrum zugeordnet hat. Sie werden hier angelegt und ab dann hier gepflegt.
+			   Steht die Seminarnummer hier schon, wird nichts angelegt.</p>
 
 			<table class="widefat striped" style="max-width:900px">
 				<thead><tr><th style="width:45%">Adresse der Zentrale</th><th>Gemeinsamer Schlüssel</th></tr></thead>
@@ -1915,6 +2836,16 @@ class BI_Sync {
 						<p class="description">Ausgeblendete Seminare (Haken „Auf der Website anzeigen" aus) wandern
 						   <strong>mit</strong> – samt Haken. Sie sind in der Zentrale dann genauso ausgeblendet.
 						   Nur was hier gar nicht mehr herausgegeben wird, gilt der Zentrale als verschwunden.</p>
+						<p class="description"><strong>Einzelne Seminare nur hier zeigen:</strong> Im Seminar unter
+						   <em>Teilnahme und Sichtbarkeit</em> den Haken <em>Nicht an die Zentrale weitergeben</em> setzen
+						   (geht auch per Massenbearbeitung). Die Zentrale blendet das Seminar dann aus, falls sie es schon
+						   hat, und vermerkt im Protokoll, dass es zurückgehalten wird.
+						   <?php
+						   $n_hier = self::anzahl_nur_hier();
+						   if ( $n_hier ) {
+							   echo 'Derzeit ' . esc_html( number_format_i18n( $n_hier ) ) . ' Seminar' . ( 1 === $n_hier ? '' : 'e' ) . ' mit diesem Haken.';
+						   }
+						   ?></p>
 					</td>
 				</tr>
 				<tr>
@@ -1948,17 +2879,30 @@ class BI_Sync {
 			<p class="description">Die Quellen, deren Bestand hier zusammenläuft.</p>
 
 			<table class="widefat striped" style="max-width:1100px">
-				<thead><tr><th>Bezeichnung</th><th style="width:30%">Adresse</th><th>Gemeinsamer Schlüssel</th><th style="width:110px">Kennung</th></tr></thead>
+				<thead><tr><th>Bezeichnung</th><th style="width:24%">Adresse</th><th>Gemeinsamer Schlüssel</th><th style="width:18%">Bildungszentren</th><th style="width:110px">Kennung</th></tr></thead>
 				<tbody>
 				<?php
 				$zeilen = $s['quellen'];
-				$zeilen[] = array( 'slug' => '', 'name' => '', 'url' => '', 'schluessel' => '' );
-				foreach ( $zeilen as $q ) :
+				$zeilen[] = array( 'slug' => '', 'name' => '', 'url' => '', 'schluessel' => '', 'orte' => array() );
+				$bz     = self::bildungszentren();
+				foreach ( $zeilen as $i => $q ) :
+					$gewaehlt = array_map( 'intval', (array) ( $q['orte'] ?? array() ) );
 					?>
 					<tr>
 						<td><input type="text" class="regular-text" name="q_name[]" value="<?php echo esc_attr( $q['name'] ?? '' ); ?>" placeholder="Sprockhövel"></td>
 						<td><input type="url" class="regular-text" name="q_url[]" value="<?php echo esc_attr( $q['url'] ?? '' ); ?>" placeholder="https://igmetall-sprockhoevel.de"></td>
 						<td><?php self::schluessel_feld( 'q_key[]', $q['schluessel'] ?? '' ); ?></td>
+						<td>
+							<?php if ( ! $bz ) : ?>
+								<span class="description">noch keine Bildungszentren angelegt</span>
+							<?php endif; ?>
+							<?php foreach ( $bz as $term ) : ?>
+								<label style="display:block;white-space:nowrap">
+									<input type="checkbox" name="q_orte[<?php echo (int) $i; ?>][]" value="<?php echo (int) $term->term_id; ?>" <?php checked( in_array( (int) $term->term_id, $gewaehlt, true ) ); ?>>
+									<?php echo esc_html( $term->name ); ?>
+								</label>
+							<?php endforeach; ?>
+						</td>
 						<td>
 							<input type="text" class="small-text code" name="q_slug[]" value="<?php echo esc_attr( $q['slug'] ?? '' ); ?>" readonly>
 							<input type="hidden" name="q_slug_vorhanden[]" value="1">
@@ -1970,6 +2914,13 @@ class BI_Sync {
 			<p class="description">Die <strong>Kennung</strong> vergibt sich beim ersten Speichern aus der Bezeichnung und
 			   bleibt danach stehen: An ihr hängt jeder Herkunftsstempel in der Datenbank. Die Bezeichnung lässt sich
 			   jederzeit ändern, die Kennung nicht.</p>
+			<p class="description"><strong>Bildungszentren</strong> – welche zu dieser Quelle gehören. Ordnest du hier ein
+			   <em>eigenes</em> Seminar einem dieser Bildungszentren zu, wird es beim nächsten Abgleich an die Quelle
+			   übergeben: Es wird dort angelegt (oder, wenn die Seminarnummer dort schon steht, dort vorgefunden), dort
+			   angezeigt und ab da dort gepflegt. Hier ist es danach ein abgeglichenes Seminar wie jedes andere.
+			   Seminare, die schon zugeordnet waren, bevor du hier etwas angehakt hast, übergibst du in der Seminarliste
+			   – einzeln mit <em>an … übergeben</em> oder per Massenaktion. Ein Bildungszentrum gehört zu höchstens
+			   einer Quelle.</p>
 
 			<table class="form-table" role="presentation">
 				<tr>
@@ -2025,6 +2976,9 @@ class BI_Sync {
 						(int) ( $z['uebernommen'] ?? 0 ),
 						(int) ( $z['uebersprungen'] ?? 0 )
 					);
+					if ( ! empty( $z['uebergeben'] ) ) {
+						printf( ' Vorab %d an die Quelle übergeben.', (int) $z['uebergeben'] );
+					}
 					?>
 				</p>
 				<?php if ( ! empty( $unterwegs['hinweise'] ) ) : ?>
@@ -2088,6 +3042,20 @@ class BI_Sync {
 						<td>
 							<?php if ( ! empty( $e['fehler'] ) ) : ?>
 								<span style="color:#b32d2e">⚠ <?php echo esc_html( $e['fehler'] ); ?></span>
+								<?php
+								// Die Übergabe läuft VOR dem Abholen. Scheitert danach das
+								// Abholen, ist sie trotzdem geschehen – das gehört in den Bericht.
+								if ( ! empty( $e['zahlen']['uebergeben'] ) ) {
+									printf( '<br>%d an die Quelle übergeben', (int) $e['zahlen']['uebergeben'] );
+								}
+								if ( ! empty( $e['hinweise'] ) ) {
+									echo '<ul style="margin:6px 0 0 16px;list-style:disc">';
+									foreach ( array_slice( (array) $e['hinweise'], 0, 25 ) as $h ) {
+										echo '<li>' . esc_html( $h ) . '</li>';
+									}
+									echo '</ul>';
+								}
+								?>
 							<?php else :
 								$z = $e['zahlen'] ?? array();
 								printf(
@@ -2098,6 +3066,12 @@ class BI_Sync {
 									(int) ( $z['ausgeblendet'] ?? 0 ),
 									(int) ( $z['uebersprungen'] ?? 0 )
 								);
+								if ( ! empty( $z['zurueckgehalten'] ) ) {
+									printf( ', %d zurückgehalten', (int) $z['zurueckgehalten'] );
+								}
+								if ( ! empty( $z['uebergeben'] ) ) {
+									printf( ', %d an die Quelle übergeben', (int) $z['uebergeben'] );
+								}
 								if ( ! empty( $e['hinweise'] ) ) {
 									echo '<ul style="margin:6px 0 0 16px;list-style:disc">';
 									foreach ( array_slice( (array) $e['hinweise'], 0, 25 ) as $h ) {

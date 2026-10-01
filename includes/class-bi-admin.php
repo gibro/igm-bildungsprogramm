@@ -56,6 +56,89 @@ class BI_Admin {
 	 * @param string $form  '' (beide), 'praesenz' oder 'online'.
 	 * @param array  $extra Weitere Query-Argumente, z. B. bi_missing_start.
 	 */
+	/**
+	 * Kommende, veröffentlichte Seminare (beide Formen), für die
+	 * BI_Mailer::bildungszentrum_email() keine Adresse fände – gruppiert nach
+	 * Bildungszentrum.
+	 *
+	 * Dieselbe Rangfolge wie beim Versand: gültige Adresse am Seminar, sonst
+	 * die E-Mail am ERSTEN Begriff des Bildungszentrums (wp_get_object_terms
+	 * sortiert wie dort nach Namen). Eine ungültige Adresse am Seminar zählt
+	 * wie eine fehlende, denn auch der Versand überspringt sie.
+	 *
+	 * @return array Liste von ['name','slug','anzahl'], die größten Gruppen zuerst.
+	 */
+	public static function ohne_bz_empfaenger( $today ) {
+		global $wpdb;
+		$typen = bi_seminar_post_types();
+		$platz = implode( ',', array_fill( 0, count( $typen ), '%s' ) );
+		$rows  = $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.ID, m.meta_value AS mail
+			   FROM {$wpdb->posts} p
+			   JOIN {$wpdb->postmeta} s ON s.post_id = p.ID AND s.meta_key = '_bi_startdatum' AND s.meta_value >= %s
+			   LEFT JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_bi_bz_email'
+			  WHERE p.post_type IN ( $platz ) AND p.post_status = 'publish'",
+			array_merge( array( $today ), $typen )
+		) );
+
+		$offen = array();
+		foreach ( (array) $rows as $r ) {
+			if ( ! is_email( trim( (string) $r->mail ) ) ) {
+				$offen[ (int) $r->ID ] = true;
+			}
+		}
+		if ( ! $offen ) {
+			return array();
+		}
+
+		// Erster Begriff je Seminar – so, wie der Versand ihn nimmt.
+		$erster = array();
+		$ids    = array_keys( $offen );
+		foreach ( array_chunk( $ids, 500 ) as $block ) {
+			$terms = wp_get_object_terms( $block, BI_TAX_ORT, array( 'fields' => 'all_with_object_id' ) );
+			if ( is_wp_error( $terms ) ) {
+				continue;
+			}
+			foreach ( $terms as $t ) {
+				$oid = (int) $t->object_id;
+				if ( ! isset( $erster[ $oid ] ) ) {
+					$erster[ $oid ] = $t;
+				}
+			}
+		}
+
+		$gruppen = array();
+		$mail_am = array(); // term_id => hat gültige Adresse?
+		foreach ( $ids as $id ) {
+			$t = $erster[ $id ] ?? null;
+			if ( $t ) {
+				$tid = (int) $t->term_id;
+				if ( ! isset( $mail_am[ $tid ] ) ) {
+					$mail_am[ $tid ] = (bool) is_email( (string) get_term_meta( $tid, 'email', true ) );
+				}
+				if ( $mail_am[ $tid ] ) {
+					continue; // die Adresse am Bildungszentrum springt ein
+				}
+				$key  = 't' . $tid;
+				$name = $t->name;
+				$slug = $t->slug;
+			} else {
+				$key  = 'ohne';
+				$name = 'ohne Bildungszentrum';
+				$slug = BI_CPT::OHNE;
+			}
+			if ( ! isset( $gruppen[ $key ] ) ) {
+				$gruppen[ $key ] = array( 'name' => $name, 'slug' => $slug, 'anzahl' => 0 );
+			}
+			$gruppen[ $key ]['anzahl']++;
+		}
+
+		usort( $gruppen, function ( $a, $b ) {
+			return $b['anzahl'] - $a['anzahl'];
+		} );
+		return $gruppen;
+	}
+
 	public static function seminarliste_url( $form = '', $extra = array() ) {
 		$args = array( 'post_type' => BI_CPT );
 		if ( '' !== $form ) {
@@ -213,65 +296,36 @@ class BI_Admin {
 			);
 		}
 
-		// (2) Bildungszentren ohne hinterlegte E-Mail – nur relevant, wenn ein aktiver
-		//     Trigger vom Typ „bildungszentrum" diese Adresse tatsächlich nutzt.
-		if ( isset( $active_types['bildungszentrum'] ) ) {
-			$ohne_mail = array();
-			$ort_terms = get_terms( array( 'taxonomy' => BI_TAX_ORT, 'hide_empty' => false ) );
-			if ( is_array( $ort_terms ) ) {
-				foreach ( $ort_terms as $t ) {
-					if ( ! get_term_meta( $t->term_id, 'email', true ) ) {
-						$ohne_mail[] = $t->name;
-					}
+		// (2) Kommende Seminare, bei denen die Bildungszentrums-Benachrichtigung
+		//     KEINEN Empfänger findet.
+		//
+		//     Gerechnet wie der Versand selbst (BI_Mailer::bildungszentrum_email):
+		//     erst die Adresse am Seminar, dann die am Begriff des Bildungszentrums.
+		//     Bis 1.139.0 standen hier zwei getrennte Prüfungen, und beide lagen
+		//     daneben: Die eine meldete Bildungszentren ohne Adresse am Begriff –
+		//     auch wenn jedes ihrer Seminare eine eigene Adresse trug und keine
+		//     Mail verloren ging. Die andere, die wirklich betroffene Seminare
+		//     gezählt hätte, lief nur beim Alt-Typ „ansprechpartner" und blieb
+		//     nach dessen Umbenennung in „bildungszentrum" stumm.
+		if ( isset( $active_types['bildungszentrum'] ) || isset( $active_types['ansprechpartner'] ) ) {
+			$ohne_empfaenger = self::ohne_bz_empfaenger( $today );
+			if ( $ohne_empfaenger ) {
+				$gesamt = 0;
+				$teile  = array();
+				foreach ( $ohne_empfaenger as $g ) {
+					$gesamt += $g['anzahl'];
+					$teile[] = sprintf(
+						'<a href="%s">%s (%s)</a>',
+						esc_url( self::seminarliste_url( '', array( 'bi_missing_ap' => 1, BI_TAX_ORT => $g['slug'] ) ) ),
+						esc_html( $g['name'] ),
+						esc_html( number_format_i18n( $g['anzahl'] ) )
+					);
 				}
-			}
-			if ( $ohne_mail ) {
-				$names = esc_html( implode( ', ', array_slice( $ohne_mail, 0, 8 ) ) ) . ( count( $ohne_mail ) > 8 ? ' …' : '' );
 				$hinweise[] = sprintf(
-					'<strong>%s ohne hinterlegte E-Mail</strong> – der Trigger „Benachrichtigung an Bildungszentrum" läuft dort ins Leere: %s. <a href="%s">Bearbeiten</a>',
-					1 === count( $ohne_mail ) ? '1 Bildungszentrum' : count( $ohne_mail ) . ' Bildungszentren',
-					$names,
+					'<strong>%s ohne Empfänger für die Benachrichtigung ans Bildungszentrum</strong> – weder am Seminar noch am Bildungszentrum ist eine gültige Adresse hinterlegt, die Mail geht dort nicht raus: %s. Adresse am Seminar nachtragen oder <a href="%s">am Bildungszentrum hinterlegen</a>.',
+					1 === $gesamt ? '1 kommendes Seminar' : esc_html( number_format_i18n( $gesamt ) ) . ' kommende Seminare',
+					implode( ', ', $teile ),
 					esc_url( admin_url( 'edit-tags.php?taxonomy=' . BI_TAX_ORT . '&post_type=' . BI_CPT ) )
-				);
-			}
-		}
-
-		// (2b) Kommende Seminare ohne Ansprechpartner-E-Mail – nur relevant, wenn ein
-		//      aktiver Trigger vom Typ „ansprechpartner" diese Adresse nutzt.
-		if ( isset( $active_types['ansprechpartner'] ) ) {
-			// Je Beitragstyp getrennt zählen, damit der Link auf die richtige Liste zeigt.
-			// Beide nutzen denselben Meta-Schlüssel; bei Online-Seminaren heißt das Feld
-			// nur „Anmeldung (E-Mail)".
-			foreach ( bi_seminar_post_types() as $pt ) {
-				$q_ohne_ap = new WP_Query( array(
-					'post_type'      => $pt,
-					'post_status'    => 'publish',
-					'fields'         => 'ids',
-					'posts_per_page' => 1,
-					'meta_query'     => array(
-						'relation' => 'AND',
-						array( 'key' => '_bi_startdatum', 'value' => $today, 'compare' => '>=', 'type' => 'DATE' ),
-						// Gezählt wird die ZUSTELLADRESSE. Die der Ansprechperson darf
-						// fehlen, ohne dass eine Mail ausbleibt – seit die beiden
-						// Rollen getrennte Felder haben (1.116.0).
-						array(
-							'relation' => 'OR',
-							array( 'key' => '_bi_bz_email', 'compare' => 'NOT EXISTS' ),
-							array( 'key' => '_bi_bz_email', 'value' => '', 'compare' => '=' ),
-						),
-					),
-				) );
-				$ohne_ap = (int) $q_ohne_ap->found_posts;
-				if ( ! $ohne_ap ) {
-					continue;
-				}
-				$wort  = ( BI_ONLINE === $pt ) ? 'Online-Seminar' : 'Seminar';
-				$feld  = ( BI_ONLINE === $pt ) ? 'Anmelde-E-Mail' : 'E-Mail des Bildungszentrums';
-				$hinweise[] = sprintf(
-					'<strong>%s ohne %s</strong> – dort greift nur noch die Adresse am Begriff des Bildungszentrums; fehlt auch die, findet die Benachrichtigung keinen Empfänger. <a href="%s">Prüfen</a>',
-					1 === $ohne_ap ? '1 kommendes ' . $wort : $ohne_ap . ' kommende ' . $wort . 'e',
-					$feld,
-					esc_url( admin_url( 'edit.php?post_type=' . $pt . '&bi_missing_ap=1' ) )
 				);
 			}
 		}
