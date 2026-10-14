@@ -31,6 +31,9 @@
  *   attach_beschluss bool – Beschlussvorlage nach § 37 Abs. 6 BetrVG als WORD-Datei
  *                    anhängen (nur schedule=instant). Seminardetails erzeugt BI_PDF,
  *                    die Beschlussvorlage BI_Beschluss – jeweils beim Versand.
+ *   attach_themenplan bool – Themenplan des Seminars anhängen (nur schedule=instant),
+ *                    eine Kopie der Datei aus uploads/bi-themenplaene/ (BI_Themenplan).
+ *                    Gibt es zum Seminar keinen, geht die Mail ohne ihn raus.
  *
  * Wöchentlicher Versand:
  *   Trigger mit schedule=weekly senden bei der Anmeldung nichts, sondern legen einen
@@ -232,6 +235,9 @@ class BI_Mailer {
 		}
 		if ( $hit ) {
 			update_option( self::OPTION, $rest );
+			if ( BI_Settings::regelwerk() ) {
+				BI_Regeln::ziel_entfernt( 'mail', $id );
+			}
 		}
 		return $hit;
 	}
@@ -245,7 +251,11 @@ class BI_Mailer {
 		$t['id']     = 0;
 		$t['active'] = 0;
 		$t['name']   = trim( ( $t['name'] ?? '' ) . ' (Kopie)' );
-		return self::put_trigger( $t );
+		$neu         = self::put_trigger( $t );
+		if ( BI_Settings::regelwerk() ) {
+			BI_Regeln::mail_kopieren( (int) $id, $neu );
+		}
+		return $neu;
 	}
 
 	/** @return bool true, wenn der Status geändert wurde. */
@@ -311,6 +321,17 @@ class BI_Mailer {
 				'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
 			),
 		) );
+
+		// Frische Installation, Regelwerk läuft schon (es wird beim Laden
+		// übernommen, also vor der Aktivierung): Die drei Vorlagen bekommen
+		// ihre Regeln gleich mit – sonst gingen sie nie raus.
+		if ( BI_Settings::regelwerk() ) {
+			foreach ( self::get_triggers() as $t ) {
+				foreach ( BI_Regeln::aus_trigger( $t ) as $r ) {
+					BI_Regeln::put( $r );
+				}
+			}
+		}
 	}
 
 	/** ---------- Versand ---------- */
@@ -345,7 +366,7 @@ class BI_Mailer {
 				continue;
 			}
 			// Bedingung nur im Echtbetrieb prüfen (beim Soforttest ignorieren)
-			if ( '' === $force_to && ! self::condition_met( $trigger, $submission ) ) {
+			if ( '' === $force_to && ! self::soll_senden( $trigger, $submission ) ) {
 				continue;
 			}
 
@@ -398,7 +419,7 @@ class BI_Mailer {
 
 			// PDF-Anhänge nur beim Sofortversand: In der Wochenzusammenfassung
 			// stecken mehrere Seminare in einer Mail, ein Anhang wäre dort nicht zuzuordnen.
-			$attachments = self::build_attachments( $trigger, $submission );
+			$attachments = self::build_attachments( $trigger, $submission, '' !== $force_to );
 
 			$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '', $reply_to, $attachments, $cc );
 
@@ -479,7 +500,7 @@ class BI_Mailer {
 			// darf nicht mitkommen, weil ein anderer Teil in Präsenz läuft.
 			$buendel = array();
 			foreach ( $submissions as $i => $sub ) {
-				if ( '' === $force_to && ! self::condition_met( $trigger, $sub ) ) {
+				if ( '' === $force_to && ! self::soll_senden( $trigger, $sub ) ) {
 					continue;
 				}
 				$to = self::resolve_recipient( $trigger, $sub, $ctx_je_teil[ $i ] );
@@ -535,8 +556,23 @@ class BI_Mailer {
 				// gelten immer für genau ein Seminar.
 				$attachments = array();
 				foreach ( $gruppe as $sub ) {
-					$attachments = array_merge( $attachments, self::build_attachments( $trigger, $sub ) );
+					$attachments = array_merge( $attachments, self::build_attachments( $trigger, $sub, '' !== $force_to ) );
 				}
+				// Dieselbe Datei je Teil (etwa Datenschutzhinweise aus der Mediathek)
+				// nur einmal: gleicher Name = gleicher Anhang. Seminardetails und
+				// Beschlussvorlage tragen die Seminarnummer im Namen und bleiben.
+				$einmal = array();
+				foreach ( $attachments as $pfad ) {
+					$name = basename( $pfad );
+					if ( isset( $einmal[ $name ] ) ) {
+						if ( class_exists( 'BI_PDF' ) ) {
+							BI_PDF::cleanup( array( $pfad ) );
+						}
+						continue;
+					}
+					$einmal[ $name ] = $pfad;
+				}
+				$attachments = array_values( $einmal );
 
 				$ok = self::send( $to, $subject, $body, $trigger['from'] ?? '', $reply_to, $attachments, $cc );
 
@@ -562,21 +598,74 @@ class BI_Mailer {
 	 * @return string[] Dateipfade (leer, wenn nichts angehängt werden soll oder die
 	 *                  Erzeugung fehlschlägt – die Mail geht dann ohne Anhang raus).
 	 */
-	private static function build_attachments( $trigger, $submission ) {
-		if ( empty( $trigger['attach_seminar'] ) && empty( $trigger['attach_beschluss'] ) ) {
-			return array();
+	private static function build_attachments( $trigger, $submission, $test = false ) {
+		// Seit 1.147.0 sagen die Regeln, was mitgeht – und eine Regel darf an
+		// Angaben der Anmeldung hängen (Mitglied nein → Datenschutzhinweise).
+		// Die Haken am Trigger werden dann nicht mehr gelesen. Beim Soforttest
+		// gehen alle Anhänge der Benachrichtigung mit, wie die Mail selbst auch
+		// ohne Bedingung rausgeht.
+		$dateien = array();
+		if ( BI_Settings::regelwerk() ) {
+			$trigger['attach_seminar']    = 0;
+			$trigger['attach_beschluss']  = 0;
+			$trigger['attach_themenplan'] = 0;
+			foreach ( BI_Regeln::anhaenge( (int) ( $trigger['id'] ?? 0 ), $submission, $test ) as $a ) {
+				if ( 'datei' === $a['anhang'] ) {
+					$dateien[] = (int) $a['datei'];
+				} else {
+					$trigger[ 'attach_' . $a['anhang'] ] = 1;
+				}
+			}
 		}
-		if ( ! class_exists( 'BI_PDF' ) || ! BI_PDF::available() ) {
-			error_log( '[BI-Mailer] PDF-Anhänge angefordert, aber die PDF-Erzeugung steht nicht bereit.' );
-			return array();
+
+		$files = array();
+		$ctx   = null;
+		foreach ( $dateien as $att_id ) {
+			$file = BI_Regeln::mediathek_datei( $att_id );
+			if ( ! $file ) {
+				continue;
+			}
+			// Ein PDF mit Formularfeldern, die wie Platzhalter heißen, wird mit
+			// den Angaben dieser Anmeldung ausgefüllt (seit 1.148.0) – in der
+			// temporären Kopie, nie im Original der Mediathek. Ohne solche
+			// Felder geht die Datei unverändert mit wie bisher.
+			if ( 'pdf' === strtolower( pathinfo( $file, PATHINFO_EXTENSION ) ) && self::pdf_formular_laden() ) {
+				if ( null === $ctx ) {
+					$ctx = self::build_context( $submission );
+				}
+				BI_PDF_Formular::datei_fuellen( $file, $ctx );
+			}
+			$files[] = $file;
+		}
+
+		$will_pdf  = ! empty( $trigger['attach_seminar'] ) || ! empty( $trigger['attach_beschluss'] );
+		$will_plan = ! empty( $trigger['attach_themenplan'] );
+		if ( ! $will_pdf && ! $will_plan ) {
+			return $files;
 		}
 
 		$seminar_id = (int) ( $submission['seminar_id'] ?? 0 );
 		if ( ! $seminar_id ) {
-			return array();
+			return $files;
 		}
 
-		$files = array();
+		// Der Themenplan braucht keine PDF-Erzeugung – er ist eine fertige Datei.
+		// Deshalb vor der Prüfung auf FPDF, damit er auch ohne sie mitgeht.
+		if ( $will_plan && class_exists( 'BI_Themenplan' ) ) {
+			$file = BI_Themenplan::anhang_datei( $seminar_id );
+			if ( $file ) {
+				$files[] = $file;
+			}
+		}
+
+		if ( ! $will_pdf ) {
+			return $files;
+		}
+		if ( ! class_exists( 'BI_PDF' ) || ! BI_PDF::available() ) {
+			error_log( '[BI-Mailer] PDF-Anhänge angefordert, aber die PDF-Erzeugung steht nicht bereit.' );
+			return $files;
+		}
+
 		if ( ! empty( $trigger['attach_seminar'] ) ) {
 			$file = BI_PDF::seminar_file( $seminar_id );
 			if ( $file ) {
@@ -595,6 +684,32 @@ class BI_Mailer {
 			}
 		}
 		return $files;
+	}
+
+	/**
+	 * Das Ausfüll-Modul für PDF-Formulare nachladen – erst, wenn wirklich ein
+	 * PDF angehängt wird. Mit file_exists, damit eine beim Handdeploy
+	 * vergessene Datei nur das Ausfüllen kostet, nicht die Website.
+	 */
+	public static function pdf_formular_laden() {
+		if ( ! class_exists( 'BI_PDF_Formular' ) ) {
+			$datei = BI_PATH . 'includes/class-bi-pdf-formular.php';
+			if ( ! file_exists( $datei ) ) {
+				return false;
+			}
+			require_once $datei;
+		}
+		return class_exists( 'BI_PDF_Formular' );
+	}
+
+	/** Platzhalter-Werte zu einer Anmeldung – für Vorschauen außerhalb des Versands. */
+	public static function kontext_fuer( $submission ) {
+		return self::build_context( $submission );
+	}
+
+	/** Eine erfundene Beispielanmeldung (Max Mustermann) – für Vorschauen. */
+	public static function beispiel_anmeldung( $to = '' ) {
+		return self::sample_submission( '' !== $to ? $to : 'max.mustermann@example.org' );
 	}
 
 	private static function resolve_recipient( $trigger, $submission, $ctx ) {
@@ -624,6 +739,20 @@ class BI_Mailer {
 	 * die Kosten trägt und wer deshalb informiert werden muss.
 	 */
 	const COND_ANMELDUNG_FREI = 'anmeldung:freistellung';
+
+	/**
+	 * Geht diese Benachrichtigung zu dieser Anmeldung raus?
+	 *
+	 * Seit 1.147.0 aus dem gemeinsamen Regelwerk: Sie geht, wenn mindestens
+	 * eine eingeschaltete Regel „Benachrichtigung verschicken" für sie zutrifft.
+	 * Solange das Regelwerk nicht läuft, gilt die eigene Bedingung wie bisher.
+	 */
+	private static function soll_senden( $trigger, $submission ) {
+		if ( BI_Settings::regelwerk() ) {
+			return BI_Regeln::sendet( (int) ( $trigger['id'] ?? 0 ), $submission );
+		}
+		return self::condition_met( $trigger, $submission );
+	}
 
 	private static function condition_met( $trigger, $submission ) {
 		// Seminarform: leer = beide. Ohne diese Prüfung würde jede Präsenz-Vorlage
@@ -1106,6 +1235,7 @@ class BI_Mailer {
 			'{email}'                => 'E-Mail des Teilnehmers',
 			'{mitglied}'             => 'IG-Metall-Mitglied (ja/nein)',
 			'{mitgliedsnummer}'      => 'Mitgliedsnummer',
+			'{einwilligung}'         => 'Einwilligung Datenverarbeitung („ja" oder leer)',
 			'{funktion}'             => 'Funktion im Betriebsrat',
 			'{betrieb}'              => 'Betrieb',
 			'{betrieb_strasse}'      => 'Straße + Hausnr. (Betrieb)',
@@ -1225,6 +1355,7 @@ class BI_Mailer {
 			'{email}'                  => $submission['email'],
 			'{mitglied}'               => $d['mitglied'] ?? '',
 			'{mitgliedsnummer}'        => $d['mitgliedsnummer'] ?? '',
+			'{einwilligung}'           => '1' === (string) ( $d['einwilligung'] ?? '' ) ? 'ja' : '',
 			'{funktion}'               => $d['funktion'] ?? '',
 			'{betrieb}'                => $submission['betrieb'],
 			'{betrieb_strasse}'        => $d['betrieb_strasse'] ?? '',
@@ -1719,7 +1850,9 @@ class BI_Mailer {
 			<?php echo self::url_notices(); // phpcs:ignore – intern escaped ?>
 
 			<p>Jede Benachrichtigung ist ein eigener Eintrag. Sie wird nach einer Anmeldung verschickt, sofern
-				sie aktiv ist und ihre Bedingung zutrifft – entweder <strong>sofort</strong> oder gesammelt als
+				sie aktiv ist und <?php if ( BI_Settings::regelwerk() ) : ?>eine ihrer
+				<a href="<?php echo esc_url( BI_Regeln::page_url() . '#bi-rg-mail' ); ?>">Regeln</a><?php else : ?>ihre Bedingung<?php endif; ?>
+				zutrifft – entweder <strong>sofort</strong> oder gesammelt als
 				<strong>wöchentliche Zusammenfassung</strong>.</p>
 
 			<div class="bi-hero">
@@ -1859,6 +1992,27 @@ class BI_Mailer {
 								anders als die Antwortadressen werden die Kopien nicht zusammengefasst.</p>
 						</td>
 					</tr>
+					<?php if ( BI_Settings::regelwerk() ) : ?>
+					<tr>
+						<th>Wird verschickt</th>
+						<td>
+							<?php if ( $id ) : ?>
+								<?php
+								$liste = BI_Regeln::kurzliste_html( 'mail', $id );
+								echo $liste ? $liste : '<p><strong>Keine Regel – diese Benachrichtigung geht nie raus.</strong></p>'; // phpcs:ignore – intern escaped
+								?>
+								<a class="button button-small" href="<?php echo esc_url( BI_Regeln::neu_fuer_mail( 'mail', $id ) ); ?>">+ Bedingung</a>
+								<a href="<?php echo esc_url( BI_Regeln::page_url() . '#bi-rg-mail-' . $id ); ?>">alle Regeln dieser Benachrichtigung</a>
+							<?php else : ?>
+								<p>Eine neue Benachrichtigung geht zunächst <strong>bei jeder Anmeldung</strong> raus.
+									Einschränken lässt sie sich nach dem Speichern über die Regeln.</p>
+							<?php endif; ?>
+							<p class="description">Wann eine Benachrichtigung rausgeht (Seminarform, Freistellung, Angaben der Anmeldung …),
+								steht seit Version 1.147.0 unter <a href="<?php echo esc_url( BI_Regeln::page_url() ); ?>">Bildungsprogramm → Regeln</a>.
+								Sie geht, wenn sie aktiv ist und <strong>mindestens eine</strong> ihrer Regeln zutrifft.</p>
+						</td>
+					</tr>
+					<?php else : ?>
 					<tr>
 						<th><label for="bi_cond_form">Seminarform</label></th>
 						<td>
@@ -1930,6 +2084,7 @@ class BI_Mailer {
 								So greift bei jeder Anmeldung genau eine der beiden.</p>
 						</td>
 					</tr>
+					<?php endif; ?>
 					<tr>
 						<th><label for="bi_subject">Betreff</label></th>
 						<td><input type="text" id="bi_subject" class="large-text" name="subject" value="<?php echo esc_attr( $t['subject'] ); ?>"></td>
@@ -1938,6 +2093,25 @@ class BI_Mailer {
 						<th><label>Text</label></th>
 						<td><?php echo self::editor_field( 'body', $t['body'], 14, '', self::placeholders() ); // phpcs:ignore – intern escaped ?></td>
 					</tr>
+					<?php if ( BI_Settings::regelwerk() ) : ?>
+					<tr data-when-schedule="instant">
+						<th>Anhänge</th>
+						<td>
+							<?php if ( $id ) : ?>
+								<?php
+								$liste = BI_Regeln::kurzliste_html( 'anhang', $id );
+								echo $liste ? $liste : '<p>Keine Anhänge.</p>'; // phpcs:ignore – intern escaped
+								?>
+								<a class="button button-small" href="<?php echo esc_url( BI_Regeln::neu_fuer_mail( 'anhang', $id ) ); ?>">+ Anhang</a>
+							<?php else : ?>
+								<p>Anhänge lassen sich nach dem Speichern hinzufügen.</p>
+							<?php endif; ?>
+							<p class="description">Seminardetails (PDF), Beschlussvorlage (Word), Themenplan oder eine Datei aus der Mediathek –
+								immer oder nur unter einer Bedingung, z. B. Datenschutzhinweise nur, wenn die Person kein Mitglied ist.
+								Bei der <strong>Wochenzusammenfassung</strong> gibt es keine Anhänge – dort stecken mehrere Seminare in einer Mail.</p>
+						</td>
+					</tr>
+					<?php else : ?>
 					<tr data-when-schedule="instant">
 						<th>Anhänge</th>
 						<td>
@@ -1951,6 +2125,14 @@ class BI_Mailer {
 								Arbeitgeber, mit Betrieb und Anschrift, Name, Seminar und Terminen vorausgefüllt.
 								Bewusst als <code>.docx</code>, damit der Betriebsrat Sitzungsdatum sowie Ort und Datum noch ergänzen kann.
 							</label>
+							<?php if ( ! empty( $t['attach_themenplan'] ) || ( class_exists( 'BI_Themenplan' ) && BI_Themenplan::vorhanden() ) ) : ?>
+							<label style="display:block;margin-top:6px">
+								<input type="checkbox" name="attach_themenplan" value="1" <?php checked( ! empty( $t['attach_themenplan'] ) ); ?>>
+								<strong>Themenplan</strong> – die Datei aus
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=' . BI_Datenpflege::PAGE . '&tab=themenplaene' ) ); ?>">Datenpflege → Themenpläne</a>,
+								die zur Seminarnummer passt. Gibt es zum gebuchten Seminar keinen, geht die Mail ohne ihn raus.
+							</label>
+							<?php endif; ?>
 							<p class="description">Die Anhänge werden beim Versand aus den Seminar- und Anmeldedaten erzeugt und danach wieder gelöscht.
 								Logo und Veranstalteranschrift kommen aus
 								<a href="<?php echo esc_url( admin_url( 'admin.php?page=bi-einstellungen&tab=pdf' ) ); ?>">Einstellungen → PDF-Anhänge</a>;
@@ -1958,6 +2140,7 @@ class BI_Mailer {
 								Bei der <strong>Wochenzusammenfassung</strong> gibt es keine Anhänge – dort stecken mehrere Seminare in einer Mail.</p>
 						</td>
 					</tr>
+					<?php endif; ?>
 					<tr>
 						<th><label for="bi_schedule">Versandart</label></th>
 						<td>
@@ -2109,7 +2292,7 @@ class BI_Mailer {
 			'subject' => '', 'body' => '', 'cond_tax' => '', 'cond_value' => '', 'cond_op' => 'is',
 			'cond_form' => '', // leer = beide Seminarformen
 			'schedule' => 'instant', 'digest_subject' => '', 'digest_intro' => '',
-			'attach_seminar' => 0, 'attach_beschluss' => 0,
+			'attach_seminar' => 0, 'attach_beschluss' => 0, 'attach_themenplan' => 0,
 		);
 	}
 
@@ -2169,6 +2352,11 @@ class BI_Mailer {
 	private static function consistency_notices( $triggers, $taxes ) {
 		$type_labels = self::type_labels();
 
+		// Mit dem Regelwerk stehen die Bedingungen nicht mehr hier – die
+		// Prüfung auf Lücken und Mehrfachversand macht dann die Regelseite.
+		// Hier bleibt, was an der Benachrichtigung selbst hängt.
+		$regelwerk = BI_Settings::regelwerk();
+
 		$groups = array();
 		foreach ( $triggers as $t ) {
 			if ( empty( $t['active'] ) ) {
@@ -2202,6 +2390,18 @@ class BI_Mailer {
 					$names( array( $t ) )
 				);
 			}
+		}
+
+		if ( $regelwerk ) {
+			foreach ( $triggers as $t ) {
+				if ( ! empty( $t['active'] ) && ! BI_Regeln::regeln_fuer( 'mail', (string) (int) $t['id'] ) ) {
+					$notices[] = sprintf(
+						'%s ist aktiv, hat aber keine eingeschaltete Regel – sie wird nie verschickt. Unter „Regeln" eine Bedingung anlegen.',
+						$names( array( $t ) )
+					);
+				}
+			}
+			return $notices;
 		}
 
 		// Ein Bedingungswert, zu dem es keinen Begriff gibt, ist fast immer ein
@@ -2452,9 +2652,25 @@ class BI_Mailer {
 			'digest_intro'   => sanitize_textarea_field( $row['digest_intro'] ?? '' ),
 			'attach_seminar'  => ! empty( $row['attach_seminar'] ) ? 1 : 0,
 			'attach_beschluss' => ! empty( $row['attach_beschluss'] ) ? 1 : 0,
+			'attach_themenplan' => ! empty( $row['attach_themenplan'] ) ? 1 : 0,
 		);
 
+		// Läuft das Regelwerk, stehen Bedingung und Anhänge nicht mehr in der
+		// Maske. Die gespeicherten alten Werte bleiben dann, wie sie sind
+		// (Rückweg auf 1.146.0) – sonst würde jedes Speichern sie löschen.
+		$regelwerk = BI_Settings::regelwerk();
+		if ( $regelwerk ) {
+			$alt = $id ? self::get_trigger( $id ) : null;
+			foreach ( array( 'cond_tax', 'cond_value', 'cond_op', 'cond_form', 'attach_seminar', 'attach_beschluss', 'attach_themenplan' ) as $k ) {
+				$data[ $k ] = $alt[ $k ] ?? ( 'cond_op' === $k ? 'is' : ( 0 === strpos( $k, 'attach_' ) ? 0 : '' ) );
+			}
+		}
+		$neu = ! $id || ! self::get_trigger( $id );
+
 		$id  = self::put_trigger( $data );
+		if ( $regelwerk && $neu ) {
+			BI_Regeln::immer_regel( $id );
+		}
 		$msg = sprintf(
 			'%s gespeichert (%s).',
 			$data['name'] !== '' ? '„' . $data['name'] . '"' : 'Benachrichtigung',
@@ -2464,7 +2680,7 @@ class BI_Mailer {
 		// Gespeichert wird trotzdem – aber nicht stillschweigend: Ein Wert ohne
 		// Begriff fiele sonst erst auf, wenn Mails ausbleiben.
 		$warn = '';
-		$bad  = self::cond_unknown_values( $data );
+		$bad  = $regelwerk ? array() : self::cond_unknown_values( $data );
 		if ( $bad ) {
 			$warn = sprintf(
 				'Achtung: Unter „%s“ gibt es keinen Begriff „%s“. Ein solcher Wert trifft nie zu – bei „hat“ fehlt die Mail, bei „nicht hat“ kommt sie immer. Bitte die Werte aus der Liste wählen.',
@@ -2799,7 +3015,12 @@ class BI_Mailer {
 			'ort'             => 'Dresden',
 			'telefon'         => '0123 456789',
 			'email'           => $to,
-			'mitgliedsnummer' => '1234567',
+			'mobil'           => '0151 1234567',
+			// Nichtmitglied mit Einwilligung: So zeigt der Soforttest auch das
+			// ausgefüllte Einwilligungs-PDF, wenn eine Regel es anhängt.
+			'mitglied'        => 'nein',
+			'einwilligung'    => '1',
+			'funktion'        => 'BR-Mitglied',
 			'betrieb'         => 'Muster GmbH',
 			'betrieb_strasse' => 'Werkstraße 2',
 			'betrieb_plz'     => '01067',

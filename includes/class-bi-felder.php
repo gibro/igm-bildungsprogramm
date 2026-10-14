@@ -8,10 +8,10 @@
  * ============================================================================
  *  Die in BI_CPT::meta_fields() und BI_Online::meta_fields() fest deklarierten
  *  Felder werden im übrigen Code beim Namen genannt – `_bi_startdatum` allein
- *  über 50-mal: Datumsfilter, Verfügbarkeits-Ampel, „buchbar", Mail-Platzhalter,
+ *  über 50-mal: Datumsfilter, „buchbar", Mail-Platzhalter,
  *  PDF-Anhang, Detailseite. Ein Löschen oder ein neuer Schlüssel würde dort
  *  nichts sichtbar kaputtmachen, sondern still ins Leere laufen: Seminare
- *  verschwänden aus dem Datumsfilter, die Ampel bliebe grau, Mails hätten
+ *  verschwänden aus dem Datumsfilter, Fristregeln griffen nicht, Mails hätten
  *  Lücken. Deshalb:
  *
  *    Kernfelder (Schlüssel ohne Präfix `_bix_`)

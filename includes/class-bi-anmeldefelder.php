@@ -122,6 +122,11 @@ class BI_Anmeldefelder {
 			'email'           => array( 'label' => 'E-Mail', 'type' => 'email', 'placeholder' => 'name@beispiel.de', 'max' => 180 ),
 			'mitglied'        => array( 'label' => 'Bist du Mitglied der IG Metall?', 'type' => 'radio', 'default' => 'ja', 'options' => array( 'ja' => 'Ja', 'nein' => 'Nein' ) ),
 			'mitgliedsnummer' => array( 'label' => 'Mitgliedsnummer', 'type' => 'text', 'placeholder' => 'z. B. 1234567890', 'max' => 40 ),
+			// Seit 1.148.0: Einwilligung für Nichtmitglieder. Im Standardformular
+			// nur sichtbar, wenn „Mitglied" = nein (siehe BI_Formulare::wenn_*).
+			// Ihr Platzhalter {einwilligung} kreuzt im Einwilligungs-PDF das
+			// Kästchen „Einwilligung" an (BI_PDF_Formular).
+			'einwilligung'    => array( 'label' => 'Ich willige ein, dass meine hier angegebenen personenbezogenen Daten von der IG Metall im Rahmen des Anmeldeprozesses verarbeitet werden.', 'type' => 'checkbox', 'hint' => 'Die Einwilligung kann jederzeit für die Zukunft widerrufen werden, z. B. an datenschutz@igmetall.de.' ),
 
 			'betrieb'         => array( 'label' => 'Betrieb / Arbeitgeber', 'type' => 'text', 'placeholder' => 'Name des Unternehmens', 'max' => 150 ),
 			'betrieb_strasse' => array( 'label' => 'Straße & Hausnummer (Betrieb)', 'type' => 'text', 'placeholder' => 'Werkstraße 1', 'max' => 150 ),

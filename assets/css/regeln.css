@@ -1,0 +1,61 @@
+/* Regeln – Übersicht und Bearbeiten-Maske (Bildungsprogramm → Regeln) */
+
+.bi-rg-intro { max-width: 960px; font-size: 14px; }
+.bi-rg-nav { display: flex; gap: 16px; margin: 12px 0 4px; }
+.bi-rg h2[id^="bi-rg-"] { margin-top: 32px; padding-top: 12px; border-top: 1px solid #dcdcde; }
+
+.bi-rg-spalten { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin: 10px 0 14px; }
+
+.bi-rg-box { background: #fff; border: 1px solid #c3c4c7; border-radius: 4px; padding: 12px 14px; }
+.bi-rg-kopf { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.bi-rg-kopf h3 { margin: 0 0 6px; font-size: 14px; }
+.bi-rg-beschr { margin: 0 0 8px; color: #646970; }
+.bi-rg-leer { margin: 4px 0; color: #646970; font-style: italic; }
+
+.bi-rg-liste { margin: 6px 0 0; padding: 0; list-style: none; }
+.bi-rg-regel { padding: 8px 0; border-top: 1px solid #f0f0f1; }
+.bi-rg-regel:first-child { border-top: 0; }
+.bi-rg-regel.is-off .bi-rg-satz { color: #8c8f94; text-decoration: line-through; }
+.bi-rg-satz { font-size: 13px; line-height: 1.5; }
+.bi-rg-pfeil { color: #646970; margin: 0 4px; }
+.bi-rg-info, .bi-rg-notiz { font-size: 12px; color: #646970; margin-top: 2px; }
+.bi-rg-notiz { font-style: italic; }
+.bi-rg-links { font-size: 12px; margin-top: 4px; }
+.bi-rg-loeschen { color: #b32d2e; }
+.bi-rg-rot { color: #b32d2e; font-weight: 600; }
+.bi-rg-gelb { color: #8a6100; }
+.bi-rg-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 3px; background: #f0f0f1; color: #50575e; font-size: 11px; font-weight: 400; vertical-align: middle; }
+.bi-rg-muted { color: #646970; font-weight: 400; }
+
+.bi-rg-mail { border-left: 4px solid #2271b1; padding: 4px 0 4px 14px; margin: 18px 0; }
+.bi-rg-mail.is-off { border-left-color: #c3c4c7; opacity: .75; }
+.bi-rg-mailkopf { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+.bi-rg-mailkopf h3 { margin: 0; }
+
+.bi-rg-bericht h2 { margin: 10px 0 6px; }
+
+/* Bearbeiten-Maske */
+.bi-rg-form { max-width: 1000px; }
+.bi-rg-schritt { background: #fff; border: 1px solid #c3c4c7; border-radius: 4px; padding: 6px 16px 10px; margin: 16px 0; }
+.bi-rg-schritt h2 { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.bi-rg-nr { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: #2271b1; color: #fff; font-size: 13px; align-items: center; justify-content: center; }
+
+.bi-rg-bed { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 10px; margin: 0 0 8px; background: #f6f7f7; border-radius: 4px; }
+.bi-rg-bed.is-ungueltig { background: #fcf0f1; }
+.bi-rg-und { font-weight: 600; color: #646970; min-width: 28px; padding-top: 5px; }
+.bi-rg-bed:first-child .bi-rg-und { visibility: hidden; }
+.bi-rg-werte { flex: 1 1 320px; }
+.bi-rg-optionen { max-height: 170px; overflow: auto; background: #fff; border: 1px solid #dcdcde; border-radius: 3px; padding: 4px 8px; margin-bottom: 6px; }
+.bi-rg-optionen label { display: block; padding: 2px 0; }
+.bi-rg-weg { color: #b32d2e !important; padding-top: 5px !important; }
+.bi-rg-fehler { flex-basis: 100%; color: #b32d2e; font-size: 12px; }
+.bi-rg-ziel { margin: 6px 0 10px; }
+
+.bi-rg-probe fieldset { border: 1px solid #dcdcde; padding: 6px 12px; max-width: 640px; }
+.bi-rg-probe-erg { margin: 14px 0; max-width: 1000px; }
+.bi-rg-probe-liste { margin: 4px 0 0 18px; list-style: disc; }
+
+@media (max-width: 782px) {
+	.bi-rg-spalten { grid-template-columns: 1fr; }
+	.bi-rg-bed select, .bi-rg-werte input.regular-text { max-width: 100%; }
+}

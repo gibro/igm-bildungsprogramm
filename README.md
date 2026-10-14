@@ -29,7 +29,7 @@ Formular-Plugins benötigt.
 - [Benachrichtigungen](#benachrichtigungen)
   - [Wohin die Post geht](#wohin-die-post-geht)
   - [Kopie an (Cc)](#kopie-an-cc)
-- [Verfügbarkeits-Ampel](#verfügbarkeits-ampel)
+- [Verfügbarkeits-Ampel (entfernt)](#verfügbarkeits-ampel-entfernt-in-11460)
 - [Kampagnen-Auswertung](#kampagnen-auswertung)
 - [Die Detailseiten](#die-detailseiten)
   - [Seminardetails als PDF](#seminardetails-als-pdf-herunterladen)
@@ -40,8 +40,10 @@ Formular-Plugins benötigt.
   - [Übersicht aller Reihen](#übersicht-aller-reihen)
 - [Der Import-Lauf](#der-import-lauf)
 - [Voraussetzungen und Verweise](#voraussetzungen-und-verweise-seit-11350)
-  - [Teil-Import: einzelne Felder nachtragen](#teil-import-einzelne-felder-nachtragen)
+  - [Teil-Import: einzelne Felder überschreiben](#teil-import-einzelne-felder-überschreiben-seit-11430-in-der-datenpflege)
 - [Kosten und Orte ab Programm 2027](#kosten-und-orte-ab-programm-2027)
+- [Regeln: ein Regelwerk für alles (seit 1.147.0)](#regeln-ein-regelwerk-für-alles-seit-11470)
+  - [Übernahme der alten Regeln](#übernahme-der-alten-regeln)
 - [Anmeldevarianten](#anmeldevarianten)
 - [Anmeldeformulare](#anmeldeformulare)
   - [Der Feld-Bestand](#der-feld-bestand)
@@ -93,10 +95,6 @@ Formular-Plugins benötigt.
 - **CSV-Import für PLZ → Geschäftsstelle** (eigene Tabelle, schneller Lookup).
 - **Marketing-Kacheln**: Bild-/Text-Teaser, die auf die Suche mit vorbefüllten
   Filtern verlinken – inklusive Backend-Builder mit Live-Vorschau.
-- **Verfügbarkeits-Ampel**: auf der Detailseite steht neben dem Termin, ob er
-  noch frei ist (*Verfügbar* / *Fast ausgebucht* / *Warteliste möglich*). Die
-  Angabe wird nachts mit der Seminarsuche auf `igmetall.de` abgeglichen und über
-  die Seminarnummer zugeordnet.
 - **Kampagnen-Auswertung**: eigene Links für Newsletter und Mailings, die den
   Weg vom Klick über die Seminaransicht bis zur abgeschickten Anmeldung
   nachvollziehbar machen.
@@ -1151,6 +1149,12 @@ verhalten sich auch alle bestehenden Benachrichtigungen), *nur Präsenz* oder
 *nur Online*. Damit lassen sich zwei Fassungen desselben Textes sauber trennen –
 Online-Seminare brauchen keinen Anreisetag, dafür den Zugangslink.
 
+> **Seit 1.147.0** stehen Seminarform, Bedingung und Anhänge nicht mehr in der
+> Benachrichtigung, sondern als Regeln unter *Bildungsprogramm → Regeln* – und
+> eine Regel darf dort auch Angaben der Anmeldung lesen (z. B. Datenschutzhinweise
+> nur für Nicht-Mitglieder). Siehe [Regeln](#regeln-ein-regelwerk-für-alles-seit-11470).
+> Die folgenden Absätze beschreiben den Stand bis 1.146.0.
+
 Optionale **Bedingung** pro Trigger: nur senden, wenn das Seminar einen
 bestimmten Taxonomie-Wert **hat** oder **nicht hat** (z. B. nur bei
 Themenfeld „Datenschutz", oder nur wenn Bildungszentrum *nicht*
@@ -1427,215 +1431,30 @@ in die Mail zu tragen. Dasselbe gilt für Absender und Antwortadresse.
 
 Festgehalten in `tests/test-mail-empfaenger.php`.
 
-## Verfügbarkeits-Ampel
+## Verfügbarkeits-Ampel (entfernt in 1.146.0)
 
-Auf der Seminar-Detailseite steht neben dem Termin, wie es um die Plätze steht:
+Bis 1.145.0 stand auf der Detailseite neben jedem Termin eine Ampel
+(*Verfügbar* / *Fast ausgebucht* / *Warteliste möglich*). Ein Crawler holte sie
+nachts von den öffentlichen Seiten auf `modules.igmetall.de` und setzte daraus
+auch den Haken **Ausgebucht**. Die Quelle lieferte unzuverlässig und wird neu
+aufgebaut – das Modul ist deshalb **ersatzlos entfernt**. Kommt die
+Verfügbarkeit wieder, dann über eine Schnittstelle (API), nicht als Crawler.
 
-| Punkt | Beschriftung der Quelle |
-|---|---|
-| grün | Verfügbar |
-| orange | Fast ausgebucht |
-| rot | Warteliste möglich |
+Was geblieben ist: der Haken **Ausgebucht** am Seminar. Er wird von Hand oder
+per Import gepflegt und zeigt auf der Detailseite weiter den roten Kasten
+„Ausgebucht"; die Terminzeile nennt den Grund statt des Buttons.
 
-Die Angabe stammt aus dem Seminarverwaltungssystem des Vorstands und wird über
-die Seminarsuche auf `igmetall.de` abgeglichen. Verknüpft wird über die
-**Seminarnummer** – deshalb erscheint eine Ampel nur dort, wo die Nummer
-gepflegt ist und auf beiden Seiten übereinstimmt.
+Beim ersten Aufruf nach dem Update räumt `bi_ampel_entfernen()` (DB-Version 9)
+einmalig auf:
 
-*Einstellungen → Verfügbarkeits-Ampel* steuert das Modul, zeigt den Stand und
-erlaubt einen Abgleich von Hand.
-
-### Wie der Abgleich arbeitet
-
-Beim Seitenaufruf wird **nichts** nachgeladen. Die Website liest ausschließlich
-die eigene Tabelle `wp_bi_ampel`. Ein fremder Server bestimmt so weder die
-Ladezeit noch die Verfügbarkeit der eigenen Seite.
-
-Der Abgleich läuft nachts, in Häppchen von je etwa 20 Abrufen pro Taktschlag:
-
-1. Trefferliste der erweiterten Seminarsuche holen → Kennungen der Seminarangebote
-2. je Angebot die Termintabelle holen und auslesen
-3. ist der Lauf vollständig, wird er als neue Generation live geschaltet und die
-   alte gelöscht
-
-Schritt 3 ist der Grund, warum ein abgebrochener Lauf nichts kaputt macht: bis
-er durch ist, bleibt die bisherige Generation unverändert sichtbar. Ein
-vollständiger Lauf braucht rund eine Stunde (etwa 230 Angebote mit gut einer
-Sekunde Pause dazwischen – Rücksicht auf die fremde Infrastruktur).
-
-### Der Abgleich setzt den Haken „Ausgebucht"
-
-Seit 1.78.0 zeigt der Lauf die Verfügbarkeit nicht nur an, er **pflegt daraus
-den vorhandenen Haken** am Seminar:
-
-| Zustand der Quelle | Haken „Ausgebucht" |
-|---|---|
-| grün – Verfügbar | wird entfernt |
-| orange – Fast ausgebucht | wird entfernt |
-| **rot – Warteliste möglich** | **wird gesetzt** |
-| unbekannter Zustand | bleibt, wie er ist |
-
-Damit greift alles, was ohnehin am Haken hängt: kein Buchen-Button, „Ausgebucht"
-in der Terminliste, Ausschluss aus den buchbaren Seminaren des Anmeldeformulars.
-
-Drei Grenzen:
-
-- **In beide Richtungen.** Wird ein Termin wieder frei, fällt der Haken weg —
-  sonst bliebe er für immer als ausgebucht stehen.
-- **Nur bekannte Nummern.** Seminare, deren Seminarnummer in der Generation
-  nicht vorkommt, rührt der Abgleich nicht an — dort entscheidet weiter die
-  Pflege.
-- **Nur nach einem vollständigen Lauf**, direkt nachdem die neue Generation live
-  ist. Ein Lauf ohne Daten fasst die Haken nicht an; sonst würde eine Störung
-  der Quelle den ganzen Katalog freigeben. Festgehalten in
-  `tests/test-ampel-lauf.php`.
-
-Das Protokoll des Laufs nennt die Bilanz: *„… 2 auf ‚ausgebucht' gesetzt,
-1 wieder freigegeben."*
-
-#### Handkorrekturen halten
-
-Meldet die Quelle einen Termin falsch als voll und nimmt jemand den Haken von
-Hand heraus, **setzt der nächste Abgleich ihn nicht wieder**. Bis 1.98.0 hielt
-eine solche Korrektur nur bis zum nächsten Lauf — also höchstens einen Tag.
-
-Dafür merkt sich die Ampel in `_bi_ausgebucht_ampel`, was sie **selbst** zuletzt
-geschrieben hat. Weicht der Haken heute davon ab, war ein Mensch am Werk:
-
-| Lage | Was der Abgleich tut |
-|---|---|
-| Haken = Notiz | normal: er schreibt den Stand der Quelle |
-| Haken ≠ Notiz, Quelle sagt **dasselbe wie zuvor** | **nichts** — die Korrektur bleibt stehen |
-| Haken ≠ Notiz, Quelle sagt **etwas Neues** | die frische Nachricht sticht die Korrektur |
-
-Die zweite Hälfte ist die wichtigere: Ohne sie fröre ein einmal von Hand
-freigegebenes Seminar für immer als buchbar ein, auch wenn es später wirklich
-voll ist. Beide Richtungen gelten — auch ein von Hand *gesetzter* Haken bleibt
-stehen, etwa wenn das Bildungszentrum früher Bescheid weiß als die Quelle.
-
-Sichtbar ist das an drei Stellen:
-
-- Das Protokoll zählt sie mit: *„… 3 Handkorrektur(en) unangetastet gelassen."*
-- *Einstellungen → Verfügbarkeits-Ampel* listet unter **Handkorrekturen** jede
-  betroffene Seminarnummer mit beiden Ständen — was der Haken sagt und was die
-  Quelle sagt.
-- Ein Knopf hebt alle auf einmal auf. Er löscht die **Notiz**, nicht den Haken:
-  Der Stand am Seminar bleibt, wie er ist, bis die Quelle das nächste Mal etwas
-  sagt. Eine einzelne Korrektur nimmt man zurück, indem man den Haken wieder auf
-  den Stand der Quelle setzt — dann sind sich beide einig.
-
-> **Ein Import hebt die Korrektur auf.** Steht der Haken in einer eingelesenen
-> CSV-Datei oder in einem JSON-Paket, ist das eine frische Aussage der
-> Programmplanung und keine Korrektur an der Ampel — die Notiz wird dabei
-> vergessen. Ohne diese Ausnahme hielte ein Reimport, der alle Haken auf „nein"
-> setzt, anschließend jedes volle Seminar fälschlich als buchbar fest.
-
-Festgehalten in `tests/test-ampel-handkorrektur.php`.
-
-#### Abschalten gibt die Seminare wieder frei (seit 1.100.0)
-
-Ist die Quelle zeitweise unzuverlässig und meldet Termine als voll, die es nicht
-sind, schaltet man das Modul ab. Bis 1.99.4 war das nur die halbe Miete: Die
-Haken **Ausgebucht**, die die Ampel gesetzt hatte, blieben stehen — und ohne
-Abgleich nahm sie niemand mehr zurück. Jedes betroffene Seminar musste von Hand
-gesucht und freigegeben werden.
-
-**Seit 1.100.0 nimmt das Abschalten sie mit.** Wer den Haken *Ampel anzeigen und
-regelmäßig abgleichen* entfernt und speichert, bekommt zurückgemeldet, wie viele
-Seminare dabei wieder buchbar wurden.
-
-Angefasst wird nur, was der Ampel gehört. Das weiß sie aus zwei Vermerken:
-
-| Am Seminar steht | Herkunft des Hakens | Freigabe |
-|---|---|---|
-| `_bi_ausgebucht_von_ampel` = 1 | der Abgleich hat den Haken selbst umgelegt | ja |
-| `_bi_ausgebucht_von_ampel` = 0 | von Hand oder aus einem Import gesetzt | **nein** |
-| kein Vermerk, Notiz `_bi_ausgebucht_ampel` = 1 | Altbestand von vor 1.100.0 | ja |
-| kein Vermerk, keine Notiz | die Ampel war dort nie | **nein** |
-
-Der Vermerk entsteht bei jedem Abgleich, der ein Seminar berührt — auch als
-ausdrückliches *„gehört mir nicht"*. Deshalb bleibt ein von Hand gesetzter Haken
-selbst dann fremd, wenn die Quelle ihm zustimmt.
-
-Die dritte Zeile ist der Übergang: Vor 1.100.0 hielt die Ampel nur fest, *was*
-sie zuletzt geschrieben hat, nicht *ob* sie den Haken damit bewegt hat. Für diese
-Seminare ist die Notiz der einzige Hinweis — und sie sagt immerhin, dass dort
-zuletzt die Ampel „voll" geschrieben hat. Läuft ein Abgleich, trägt er den
-fehlenden Vermerk nach derselben Regel nach; danach ist die Herkunft eindeutig.
-
-Mit dem Haken gehen Vermerk und Notiz. Danach steht am Seminar keine halbe
-Aussage der Ampel mehr: Wird das Modul später wieder eingeschaltet, schreibt der
-erste Abgleich dort ohne Rückfrage den Stand der Quelle. Bliebe die Notiz
-stehen, sähe die Freigabe wie eine Handkorrektur aus und hielte ein später
-wirklich volles Seminar auf Dauer als buchbar fest.
-
-> **Der Knopf für danach.** Wurde schon abgeschaltet und die Haken stehen noch,
-> hilft *Einstellungen → Verfügbarkeits-Ampel → **Von der Ampel gesetzte
-> Ausbuchungen***. Der Abschnitt listet die betroffenen Seminare und gibt sie auf
-> Knopfdruck alle frei. Er ist auch bei eingeschaltetem Modul sichtbar — dann mit
-> dem Hinweis, dass eine Freigabe nur bis zum nächsten Abgleich hält.
-
-Festgehalten in `tests/test-ampel-freigabe.php`.
-
-### Wann keine Ampel erscheint
-
-Es wird lieber gar nichts angezeigt als etwas Falsches. Die Ampel entfällt,
-wenn
-
-- die Seminarnummer nicht in der Tabelle steht (z. B. frisch importiert),
-- die Quelle einen unbekannten Zustand liefert,
-- die Daten älter sind als die eingestellte Höchstfrist (Vorgabe 48 Stunden),
-- das Modul abgeschaltet ist.
-
-Eine grüne Ampel auf einem vollen Seminar wäre schlimmer als keine Ampel. Zu
-jeder angezeigten Ampel gehört deshalb auch die Angabe „Stand: TT.MM.JJJJ".
-
-### Nach einem Seminar-Import
-
-Jeder CSV-Import mit Treffern fordert automatisch einen außerplanmäßigen
-Abgleich an, der mit dem nächsten Taktschlag anläuft (also binnen Minuten statt
-erst in der Nacht). Bis der Lauf durch ist – rund eine Stunde –, zeigen die
-neuen Termine schlicht keine Ampel; die bereits gepflegten behalten
-unverändert ihre.
-
-Die Kennzahl **„Eigene Seminare abgedeckt"** im Einstellungs-Tab ist die
-Kontrolle danach: bricht sie nach einem Import ein, passen die Seminarnummern
-nicht mehr zusammen.
-
-### Abgleich von Hand
-
-*Einstellungen → Verfügbarkeits-Ampel → „Abgleich jetzt starten"*. Der Tab zeigt
-dann einen Fortschrittsbalken und **treibt den Lauf selbst voran**, solange er
-offen bleibt — rund fünf Minuten für den kompletten Katalog. Das ist der Weg auf
-Test- und Redaktionssystemen: dort feuert WP-Cron mangels Besuchern kaum, ein
-Lauf käme sonst über den ersten Schritt nicht hinaus.
-
-Darunter steht eine **Stichprobe**: die nächsten zehn anstehenden Seminare mit
-dem, was das Nachschlagen zu ihrer Nummer liefert. Fehlt auf einer Detailseite
-die Ampel, steht hier der Grund — „Nummer steht nicht in den abgeglichenen
-Daten", „noch kein Abgleich durchgelaufen", „Daten zu alt".
-
-### Betrieb
-
-Der Taktgeber läuft über WP-Cron und feuert damit nur bei Seitenaufrufen. Für
-einen verlässlichen nächtlichen Abgleich gehört ein echter System-Cron auf
-`wp-cron.php` eingerichtet und `DISABLE_WP_CRON` in die `wp-config.php`:
-
-```cron
-*/5 * * * * curl -s https://bildung.igmetall.de/wp-cron.php?doing_wp_cron > /dev/null
-```
-
-Das Backend meldet von sich aus, wenn ein Lauf keine Daten geliefert hat oder
-die Quelle einen unbekannten Zustand schickt. Beides sind Frühwarnzeichen für
-einen Relaunch von `igmetall.de`.
-
-> **Besser als Scraping wäre ein Export.** `bildung.igmetall.de` und
-> `www.igmetall.de` gehören zur selben Organisation, und die Seminarnummern
-> stammen ohnehin aus derselben Quelle. Eine nächtliche CSV
-> `Seminarnummer;Status` würde diesen ganzen Abgleich ersetzen und übersteht
-> jeden Relaunch. Der Parser sitzt deshalb in einem eigenen Modul
-> (`class-bi-ampel-parser.php`) und ist gegen eine CSV-Quelle austauschbar,
-> ohne dass Anzeige oder Datenmodell davon berührt werden.
+- Haken **Ausgebucht**, die die Ampel gesetzt hatte, werden freigegeben – nur
+  die mit Vermerk `_bi_ausgebucht_von_ampel` = 1 bzw. (Altbestand) Notiz
+  `_bi_ausgebucht_ampel` = 1. Von Hand oder aus einem Import gesetzte bleiben.
+  Ein Hinweis im Backend listet die freigegebenen Seminare; wo ein Termin
+  wirklich voll ist, gehört der Haken von Hand wieder hinein.
+- Gelöscht werden die beiden Notizfelder, die Tabelle `wp_bi_ampel`, die
+  Optionen `bi_ampel_*`, der Cron-Hook `bi_ampel_tick` und die
+  Einstellungen `ampel_*`.
 
 ## Kampagnen-Auswertung
 
@@ -1756,8 +1575,8 @@ Reihenseite. Die **Seminarnummer steht nicht unter dem Titel**, sondern in der
 Box „Seminardetails": Sie ist eine Angabe wie Zeitraum oder Ort und entscheidet
 über dem Titel nichts. Im Band stehen Zeitraum, Ort, Freistellung und
 Zielgruppe. Links Beschreibung, Themen und die weiteren Termine desselben
-Seminars; rechts die Box „Seminardetails" mit der Verfügbarkeits-Ampel als
-farbig hinterlegtem Kasten, der Datenliste, der Kostenaufstellung und dem
+Seminars; rechts die Box „Seminardetails" mit dem roten Kasten „Ausgebucht"
+(nur wenn der Haken steht), der Datenliste, der Kostenaufstellung und dem
 Buchungsbereich, darunter die Box „Seminardetails als PDF" und die
 Ansprechperson.
 
@@ -1773,7 +1592,7 @@ Titel und Subline („07.09.–11.09.2026 · Sprockhövel"), darunter eine
 
 | Seite | Tabs | Aktionsleiste |
 |---|---|---|
-| Seminar | Überblick (Text, Themen, Angaben-Kasten mit Ampel) · Termine (gezeigter Termin als „Ausgewählt", darunter die weiteren) · Kosten (Aufstellung, Beschluss-Satz, PDF) · Kontakt | „Jetzt buchen · 1.250,00 €" als Link; Geschäftsstellen-Variante: Knopf klappt die PLZ-Suche über der Leiste auf |
+| Seminar | Überblick (Text, Themen, Angaben-Kasten) · Termine (gezeigter Termin als „Ausgewählt", darunter die weiteren) · Kosten (Aufstellung, Beschluss-Satz, PDF) · Kontakt | „Jetzt buchen · 1.250,00 €" als Link; Geschäftsstellen-Variante: Knopf klappt die PLZ-Suche über der Leiste auf |
 | Reihe | Überblick (Bild, Kennzahlen-Raster, Einleitung, „Inhalte der Reihe ansehen") · Die N Teile (Akkordeon) · Termine (nur mit festen Gruppen) · Details (Angaben mit Piktogramm, Kosten-Kasten) | „Nächster Start 15.02.2027 · Bad Orb" und „Reihe buchen" – springt zu den Gruppen, sonst zu den Teilen |
 
 Ein Tab erscheint nur, wenn sein Inhalt etwas zeigt: Ohne weitere Termine kein
@@ -1857,7 +1676,6 @@ Spalten in der gewohnten Reihenfolge:
 |---|---|
 | **Seminarort** | Bildungszentrum bzw. Veranstalter\*in |
 | **Zeitraum** | verlinkt auf den Termin |
-| **Verfügbarkeit** | die [Ampel](#verfügbarkeits-ampel); entfällt ganz, wenn für keinen Termin etwas vorliegt |
 | — | **„Jetzt buchen"** → führt auf die Detailseite dieses Termins, bei nicht buchbaren Terminen steht dort der Grund |
 
 > **Der Button heißt in jeder Zeile gleich und führt immer aufs selbe Ziel.**
@@ -1868,12 +1686,12 @@ Spalten in der gewohnten Reihenfolge:
 #### Nicht buchbare Termine treten zurück
 
 Ein Termin, zu dem es nichts zu buchen gibt, **bleibt in der Liste** und wird
-ausgegraut gezeigt: grauer Grund, gedämpfte Schrift, **keine Ampel** und
+ausgegraut gezeigt: grauer Grund, gedämpfte Schrift und
 **kein Button**. Wo sonst der Button steht, nennt grauer Text den Grund:
 
 | Grund | Woher |
 |---|---|
-| **Ausgebucht** | Haken am Seminar – den setzt auch der [Verfügbarkeits-Abgleich](#der-abgleich-setzt-den-haken-ausgebucht) aus „Warteliste möglich" |
+| **Ausgebucht** | Haken am Seminar (von Hand oder per Import) |
 | **Keine Anmeldung** | Variante 3 der [Regel-Engine](#anmeldevarianten); der Text kommt aus *Einstellungen → Anmeldung* |
 
 Drei Entscheidungen dahinter:
@@ -1881,9 +1699,6 @@ Drei Entscheidungen dahinter:
 - **Zeigen statt verstecken.** Wer nicht buchen kann, will trotzdem wissen, dass
   es das Seminar gibt: wann, wo, zu welchen Kosten. Ein Termin, der einfach
   fehlt, wirft nur die Frage auf, ob er je existiert hat.
-- **Keine Ampel.** Der rote Punkt stünde neben einer Zeile, die ihren Zustand
-  schon im Klartext nennt – und bei „keine Anmeldung" wäre eine Verfügbarkeit
-  schlicht die falsche Auskunft.
 - **Kein ausgegrauter Button.** Der sieht aus wie ein Fehler und lädt zum
   Klicken ein. Text an derselben Stelle sagt dasselbe, ohne etwas zu versprechen.
 
@@ -2599,34 +2414,103 @@ Abgleich überträgt sie **nicht**, denn sie liegen in einer Option, nicht am Se
 **Keine Seitenzahlen in die Texte schreiben.** „(siehe Seite 12)" ergibt online
 keinen Sinn; der Link ersetzt ihn.
 
-### Teil-Import: einzelne Felder nachtragen
+### Themenpläne (seit 1.144.0)
+
+Themenpläne sind fertige Dokumente, die als Datei neben den Seminaren liegen –
+nicht im Seminar selbst:
+
+    wp-content/uploads/bi-themenplaene/<Seminarnummer>.pdf
+
+- **Zuordnung** allein über den Dateinamen: `B00027030.pdf` gehört zu jedem
+  Seminar mit der Nummer B00027030 (Präsenz und Online). Groß-/Kleinschreibung
+  zählt nicht.
+- **Formate:** PDF, Word (.docx/.doc), OpenDocument (.odt). Mehrere Dateien zu
+  einer Nummer → das PDF wird gezeigt.
+- **Anzeige (seit 1.145.0):** eigene Download-Box „Themenplan“ in der Sidebar,
+  direkt über „Seminardetails als PDF“ („Die Themen des Seminars in
+  chronologischer Reihenfolge zum Download“). Ohne Datei keine Box. Die PDF-Box
+  heißt im Text jetzt „Seminarzusammenfassung zum Ausdrucken und Weitergeben.“
+  (In 1.144.x stand der Plan als Zeile in der Datenliste – entfallen.)
+- **Als Mail-Anhang (seit 1.145.0):** Benachrichtigungen → Anhänge →
+  „Themenplan“ (`attach_themenplan`, nur Sofortversand). Die Option erscheint
+  nur, wenn es Themenpläne gibt (oder sie schon angehakt ist). Angehängt wird
+  immer eine KOPIE (`BI_Themenplan::anhang_datei()` → `BI_PDF::temp_datei()`),
+  weil der Mailer seine Anhänge nach dem Versand löscht. In der Zentrale wird
+  ein Plan, der nur in der Quelle liegt, dort abgeholt. Ohne Plan zum Seminar
+  geht die Mail ohne ihn raus. Funktioniert auch ohne FPDF.
+- **Pflege:** Datenpflege → Themenpläne – mehrere Dateien auf einmal hochladen,
+  Liste mit zugeordnetem Seminar (rot: keine passende Nummer), Löschen. Ablegen
+  per FTP geht genauso; das Verzeichnis legt das Plugin beim ersten Öffnen der
+  Seite an (mit leerer `index.php` gegen Verzeichnislisten).
+- **Abgleich:** Die Quelle gibt im Paket die Adresse ihres Plans mit
+  (`themenplan`), die Zentrale speichert sie in `_bi_sync_themenplan` und
+  verlinkt dorthin. Eine Datei in der Zentrale selbst geht vor. Damit auch per
+  FTP abgelegte Dateien ankommen, vergleicht `BI_Themenplan::abgleichen()` das
+  Verzeichnis mit dem letzten Stand (Option `bi_themenplan_stand`) und setzt bei
+  betroffenen Seminaren die Änderungsmarke – beim Öffnen der Verwaltung, nach
+  Upload/Löschen und bei jeder Bestandsabfrage der Zentrale.
+- **Viele Dateien auf einmal (1.144.1):** PHP nimmt je Anfrage nur
+  `max_file_uploads` Dateien an (meist 20) und verwirft den Rest ohne Meldung;
+  über `post_max_size` kommt gar nichts an. Die Maske schickt die Auswahl
+  deshalb per JavaScript in Paketen, die beide Grenzen einhalten
+  (`wp_ajax_bi_themenplan_paket`). Ohne JavaScript warnt sie, wenn die Grenze
+  erreicht wurde.
+- Fehlt `includes/class-bi-themenplan.php` nach einem Deploy, entfällt nur die
+  Zeile; die Website läuft weiter.
+- Test: `tests/test-themenplan.php`.
+
+### Teil-Import: einzelne Felder überschreiben (seit 1.143.0 in der Datenpflege)
 
 Der normale Import (oben) ist ein Voll-Import: Bei einem vorhandenen Seminar schreibt
 er immer auch Titel, Beschreibung und Status, und zwar **leer**, wenn die Spalte fehlt.
 Eine Datei mit nur `Seminarnummer;Voraussetzungen` hätte jede Beschreibung gelöscht.
 
-Für solche Fälle gibt es unter *Einstellungen → Seminar-Import* (und
-*Online-Seminar-Import*) den Kasten **„Nur einzelne Felder nachtragen
-(Teil-Import)"**:
+Für solche Fälle gibt es *Datenpflege → Teil-Import*. Er läuft in drei Schritten:
+
+1. **Hochladen:** CSV mit Kopfzeile und mindestens zwei Spalten, eine davon die
+   Seminarnummer. Dazu die Seminarform (Präsenz/Online) wählen. Dateien in
+   Windows-1252 (Excel-Standard) werden nach UTF-8 umgewandelt.
+2. **Zuordnen:** Jede Spalte der Datei wird einem Feld zugeordnet oder ignoriert.
+   Der Vorschlag erkennt dieselben Spaltennamen wie der Voll-Import. Möglich sind
+   **Titel, Beschreibung, alle Datenfelder und die Begriffe** (Bildungszentrum,
+   Themenfeld, Zielgruppe, Freistellung, Programm). Für jede Begriffsspalte wählst du,
+   ob die vorhandenen Begriffe **ersetzt** oder **ergänzt** werden.
+3. **Vorschau:** Jede Änderung mit Vorher → Nachher, dazu die Hinweise (unbekannte
+   oder doppelte Nummern, gesperrte Seminare). Erst „Änderungen übernehmen" schreibt.
+
+Regeln:
 
 - Schlüssel ist die **Seminarnummer**; **angelegt wird nie etwas**.
-- Geschrieben werden **nur** Meta-Felder, deren Spalte erkannt wird (dieselben Namen
-  und Aliasse wie beim Voll-Import). Titel, Beschreibung, Status und Begriffe bleiben
-  unberührt, auch wenn die Datei solche Spalten enthält.
+- Die Zellen werden **genauso umgewandelt wie beim Voll-Import**: `ja`/`nein`,
+  Datum (`01.03.2027` → `2027-03-01`), Uhrzeit (`9.30` → `09:30`), Beträge,
+  Auswahlfelder. (Die erste Fassung in 1.135.0 tat das nicht und machte aus `ja`
+  ein „nein".)
 - **Leere Zellen** lassen den vorhandenen Wert stehen, außer der Haken
-  „Leere Zellen leeren das Feld" ist gesetzt.
-- Eine Spalte **`Form`** (`Präsenz` / `Online`) verteilt die Zeilen auf beide
-  Seminarformen, ohne sie gilt der Reiter. Präsenz und Online dürfen dieselbe
-  Nummer führen; die Spalte hält sie auseinander.
-- **Probelauf** ist vorausgewählt: Er zählt nur, was sich ändern würde, und nennt
-  Beispiele für unbekannte Seminarnummern.
+  „Leere Zellen leeren das Feld" ist gesetzt. Ein Titel wird nie geleert,
+  Ja/Nein-Felder fallen auf ihren Standard zurück.
+- Eine Spalte **`Seminarform`** (oder `Form`, Werte `Präsenz` / `Online`) verteilt
+  die Zeilen auf beide Seminarformen. Felder, die es bei einer Form nicht gibt,
+  werden gezählt und übergangen.
+- Steht eine Nummer **mehrfach** in der Datei, zählt die erste Zeile; die Vorschau
+  nennt die Nummer.
+- Beim Bildungszentrum gilt dasselbe wie beim Voll-Import: Ein Name außerhalb der
+  Liste wird bei Präsenz zu „Andere", der Name landet im Seminarort, sofern der
+  noch leer ist.
+- Übernommen wird, was die Vorschau zeigt: Beim Klick wird der Plan aus Datei und
+  Zuordnung neu berechnet. Danach wird die Datei gelöscht, ein zweiter Klick schreibt
+  also nichts doppelt.
+
+**Bequemster Weg:** unter *Auswahl & Export* eine CSV ziehen, nicht benötigte Spalten
+löschen, Werte ändern, im Teil-Import wieder hochladen. Die Spalten sind dann schon
+richtig zugeordnet.
 
 **Bei mehreren Installationen:** Der Teil-Import muss auf **jeder** Website laufen,
 die Seminare selbst pflegt, mit derselben Datei. Unbekannte Nummern (die Seminare
-der anderen Standorte) werden nur gezählt. Der Grund: Der Abgleich spiegelt die
-Seminare einer Quelle vollständig, auch leere Felder. Hätte nur die Zentrale die
-Voraussetzungen, schriebe der nächste Abgleich sie mit dem leeren Wert der Quelle
-wieder weg.
+der anderen Standorte) werden nur gemeldet. In der **Zentrale** bleiben Seminare aus
+dem Abgleich unberührt und werden als gesperrt aufgeführt. Der Grund: Der Abgleich
+spiegelt die Seminare einer Quelle vollständig, auch leere Felder. Eine Änderung nur
+in der Zentrale schriebe der nächste Abgleich wieder weg. In einer Quelle gehen die
+Änderungen mit dem nächsten Abgleich an die Zentrale.
 
 ## Kosten und Orte ab Programm 2027
 
@@ -2906,7 +2790,161 @@ Ein Ja/Nein-Feld; in der Importdatei markiert ein `x`, wo Kinderbetreuung
 angeboten wird (leere Zelle = nein). Auf der Detailseite und im PDF steht die
 Zeile nur, wenn Betreuung angeboten wird – die Abwesenheit ist keine Nachricht.
 
+## Regeln: ein Regelwerk für alles (seit 1.147.0)
+
+Unter **Bildungsprogramm → Regeln** steht auf einer Seite, was bis 1.146.0 an
+drei Stellen mit drei verschiedenen Logiken stand:
+
+| Abschnitt | Was eine Regel festlegt | Bis 1.146.0 unter |
+|---|---|---|
+| Anmeldeweg | Keine Anmeldung / Geschäftsstelle / Direktanmeldung | Einstellungen → Anmeldung & Regeln |
+| Anmeldeformular | welches Formular ein Seminar bekommt | Anmeldeformulare → Zuordnung |
+| Benachrichtigungen | wann eine Mail rausgeht | Bedingung in der Benachrichtigung |
+| Anhänge | was an einer Mail hängt – auch nur unter einer Bedingung | Haken in der Benachrichtigung |
+
+Jede Regel ist ein Satz: **Wenn** Bedingungen **dann** Aktion.
+
+```text
+Wenn  Freistellung ist „Bildungsurlaub"  und  Bildungszentrum ist nicht „Sprockhövel"
+      →  Anmeldung über die Geschäftsstelle
+Wenn  Anmeldung: Mitglied ist „nein"
+      →  „Datenschutzhinweise" an „Bestätigung an Teilnehmer" anhängen
+```
+
+- **Mehrere Bedingungen müssen alle zutreffen** (und). Mehrere Werte in einer
+  Bedingung bedeuten *oder*. Ohne Bedingung gilt die Regel immer.
+- **Vergleiche:** *ist* / *ist nicht* (der ganze Wert), *enthält* / *enthält
+  nicht* (ein Teil genügt: `37,6` findet `§ 37,6 BetrVG`), *ist leer* /
+  *ist ausgefüllt*; bei der Anmeldefrist *ist (nicht) abgelaufen*. Verglichen
+  wird nachsichtig über `BI_Settings::norm()` – `§ 37,6`, `§ 37 Abs. 6` und
+  `§37.6` sind dasselbe. Bis 1.146.0 verglichen die Anmeldewege stillschweigend
+  mit „enthält" und die Benachrichtigungen mit „ist"; jetzt steht der Vergleich
+  sichtbar in der Regel.
+- **Felder aus zwei Quellen:** am **Seminar** (Freistellung, Themenfeld,
+  Zielgruppe, Bildungszentrum, Programm, Seminarform, Anmeldefrist, die drei
+  Haken) und in der **Anmeldung** (jedes Feld aus dem
+  [Feld-Bestand](#der-feld-bestand), auch eigene `x_`-Felder). Bei Auswahlfeldern
+  zählt der gespeicherte Wert wie die Beschriftung (`nein` = `Nein`), bei
+  Kästchen `ja` / `nein`.
+
+### Die Reihenfolge bedeutet nichts mehr
+
+Bis 1.146.0 gewann bei Anmeldeweg und Formular die erste zutreffende Regel von
+oben. Die Position ersetzte fehlende *und*/*nicht*-Bedingungen – mit einem
+Warntext („Die Fristregel gehört nach oben"), einer eigenen Verdeckt-Rechnung und
+einem bekannten Fehlerfall: „37,6 → Direktanmeldung" über „Haken nein → keine
+Anmeldung" machte gesperrte Seminare buchbar, und beide Zeilen sahen richtig aus.
+
+Jetzt gilt bei mehreren zutreffenden Regeln:
+
+| Abschnitt | Es gilt |
+|---|---|
+| Anmeldeweg | die strengere: **Keine** vor **Geschäftsstelle** vor **Direktanmeldung**. Eine Sperre kann keine Regel aufheben. |
+| Anmeldeformular | die **genauere** – die mit mehr Bedingungen. Gleich genaue Regeln mit verschiedenem Formular werden gelb gemeldet; bis dahin entscheidet die ältere. |
+| Benachrichtigungen, Anhänge | **alle** – eine Mail geht, wenn mindestens eine ihrer Regeln zutrifft; derselbe Anhang kommt nur einmal mit. |
+
+Störertext: Sperren ausschließlich Fristregeln, stehen die Fristtexte da
+(„Anmeldefrist abgelaufen"); sperrt auch eine andere Regel, die allgemeinen.
+
+### Was nur das Seminar wissen kann
+
+Anmeldeweg und Formular stehen fest, **bevor** jemand das Formular ausfüllt.
+Regeln für sie dürfen deshalb nur Felder des Seminars lesen; die Maske markiert
+eine Anmelde-Bedingung rot, und beim Speichern wird sie verworfen.
+
+### Ausbildungsreihen
+
+Eine Reihe beantwortet nur *Freistellung* (ihr eigenes Feld) und *Anzeigen*.
+Eine Regel gilt für eine Reihe nur, wenn sie mindestens eine Bedingung auf eines
+dieser Felder hat – sonst träfe „Haken ‚Anmeldung möglich‘ ist leer" jede Reihe.
+Bedingungen auf andere Felder treffen bei einer Reihe nicht zu, **außer
+verneinte**: „Bildungszentrum ist nicht Sprockhövel" ist für eine Reihe ohne
+Bildungszentrum wahr. Für Reihen ist auch „… → Direktanmeldung" eine echte
+Aussage; trifft keine Regel zu, entscheiden wie bisher die Freistellungen der
+Termine.
+
+### Trefferzahlen und Regel-Probe
+
+Unter jeder Regel für Anmeldeweg und Formular steht, auf wie viele Seminare sie
+zutrifft; rot nur, wenn auf keines. Werte, die es als Begriff oder Auswahl nicht
+gibt, werden gelb genannt. Regeln mit Anmeldefeldern lassen sich nicht vorab
+zählen – dafür gibt es die **Regel-Probe**: Seminarnummer eingeben, Angaben einer
+gedachten Anmeldung einstellen (z. B. Mitglied nein), und die Seite zeigt
+Anmeldeweg, Formular und jede Benachrichtigung mit ihren Anhängen, jeweils mit
+der Regel, die entschieden hat.
+
+### Anhänge aus der Mediathek
+
+Neben Seminardetails, Beschlussvorlage und Themenplan kann eine Regel eine
+**Datei aus der Mediathek** anhängen (z. B. Datenschutzhinweise als PDF). Sie geht
+als Kopie mit – nach dem Versand wird die Kopie gelöscht, das Original bleibt. Bei
+einer Reihenanmeldung kommt dieselbe Datei einmal mit, nicht je Teil. Bei der
+wöchentlichen Zusammenfassung gibt es keine Anhänge.
+
+### Übernahme der alten Regeln
+
+Beim ersten Aufruf nach dem Update übernimmt jede Installation ihre Regeln
+einmal selbst (`BI_Regeln::migrieren()`, Merker `bi_regeln_version`):
+
+1. **Anmeldewege:** jede alte Regel wird eine Regel mit einer Bedingung
+   (*enthält*). Stand bisher eine Direkt-Regel über einer Geschäftsstellen-Regel
+   und schlug sie, bekommt die Geschäftsstellen-Regel „und … enthält nicht …" –
+   das Verhalten bleibt gleich. Stand eine Direkt- oder Geschäftsstellen-Regel
+   über einer Sperre, wird das **bewusst nicht** übernommen: Jetzt gilt die Sperre
+   (so mit der Redaktion entschieden, Oktober 2026).
+2. **Formular-Zuordnung:** jede Regel bekommt „und nicht …" für jede frühere mit
+   anderem Formular. Ergebnis wie bisher.
+3. **Benachrichtigungen:** Seminarform und Bedingung werden eine Regel
+   „Benachrichtigung verschicken" (*ist* / *ist nicht*, wie bisher). Ohne
+   Bedingung: eine Regel ohne Bedingung = bei jeder Anmeldung.
+4. **Anhänge:** jeder gesetzte Anhang-Haken wird eine Regel ohne Bedingung.
+
+Danach steht oben auf der Regelseite ein **Bericht**: an allen Seminaren alt
+gegen neu gerechnet, mit jedem Seminar, das jetzt einen anderen Anmeldeweg oder
+ein anderes Formular bekommt. Erwartet sind dort nur Sperren aus Punkt 1.
+
+Die alten Daten bleiben **unverändert** gespeichert (`bi_settings['rules']`,
+`bi_formular_regeln`, die `cond_*`- und `attach_*`-Felder der
+Benachrichtigungen). Fehlt `includes/class-bi-regeln.php` nach einem Handdeploy,
+oder wird 1.146.0 zurückgespielt, rechnen die alten Stellen damit weiter wie
+bisher. Die Regeln gelten je Installation; der Abgleich überträgt sie nicht.
+
+Getestet in `tests/test-regelwerk.php` (u. a. alt gegen neu an zufälligen
+Regellisten) und `tests/test-regelwerk-oberflaeche.php` (Rauchtest der Seite).
+
+### Ausgefüllte PDF-Formulare als Anhang (seit 1.148.0)
+
+Hängt eine Regel eine **Datei aus der Mediathek** an und ist diese ein PDF mit
+Formularfeldern, werden die Felder beim Versand mit den Angaben der Anmeldung
+ausgefüllt – in der temporären Kopie, nie im Original.
+
+- Ein Feld, das wie ein Platzhalter heißt (`{name}`, `{strasse}`), bekommt
+  dessen Wert. Zusammensetzungen gehen: `{plz}/{betrieb_ort}` → „44787/Bochum";
+  fehlt ein Teil, fällt das Trennzeichen am Rand weg.
+- Ein Feldname ohne Klammern zählt als Platzhalter seines Namens:
+  `Datum` = `{datum}`, `Einwilligung` = `{einwilligung}`.
+- Kästchen werden angekreuzt, wenn der Wert weder leer noch „nein" ist.
+- Felder ohne bekannten Platzhalter bleiben, wie sie sind; ein PDF ohne ein
+  solches Feld geht unverändert mit.
+- Ausgefüllte Felder werden schreibgeschützt.
+
+Die Regelmaske listet nach dem Speichern alle Felder des PDFs mit „wird
+ausgefüllt" / „bleibt unverändert" und bietet eine **Vorschau mit
+Beispieldaten**. Technik: `includes/class-bi-pdf-formular.php` (eigener
+kleiner PDF-Leser, inkrementelles Speichern, eigenes Erscheinungsbild in
+Helvetica/WinAnsi; keine Bibliothek, kein Serverprogramm). Verschlüsselte PDFs
+gehen unverändert mit.
+
+Erster Anlass: die „Einwilligung zur Nutzung von Daten" für Nichtmitglieder –
+Regel *Anmeldung: Mitglied ist „nein" und Anmeldung: Einwilligung ist
+„angekreuzt" → Datei an „Geschäftsstelle"*.
+
 ## Anmeldevarianten
+
+> **Seit 1.147.0** stehen die Regeln unter *Bildungsprogramm → Regeln* –
+> siehe [Regeln](#regeln-ein-regelwerk-für-alles-seit-11470). Die Reihenfolge
+> spielt dort keine Rolle mehr. Die Beschreibung der Regelliste weiter unten gilt
+> für 1.146.0 und für den Rückfall, wenn `class-bi-regeln.php` fehlt.
 
 Wie sich jemand zu einem Seminar anmeldet, entscheidet sich unter
 *Einstellungen → Anmeldung & Regeln*. Es gibt **drei** Wege, und **alle drei
@@ -3094,7 +3132,26 @@ abgelehnt, aber die Folge steht da:
 Das kann gewollt sein – ein reines Online-Seminar braucht keine Geschäftsstelle –,
 still passieren darf es nicht.
 
+### Wenn-dann-Felder (seit 1.148.0)
+
+Jedes Feld eines Formulars hat die Spalte **Nur zeigen, wenn**. Zur Wahl stehen
+die Antworten aller Auswahlfelder, Optionsfelder und Kästchen desselben
+Formulars, z. B. „Bist du Mitglied der IG Metall?: Nein". Ist die Bedingung
+nicht erfüllt, ist das Feld unsichtbar, keine Pflicht und wird leer
+gespeichert – auch serverseitig, unabhängig vom Browser.
+
+Neues Kernfeld **`einwilligung`** (Kästchen, Platzhalter `{einwilligung}` =
+„ja" oder leer): Einwilligung in die Verarbeitung der Daten im Rahmen des
+Anmeldeprozesses. Beim Update auf 1.148.0 wird es einmalig in jedes Formular
+eingefügt, das nach der Mitgliedschaft fragt – hinter der Mitgliedsnummer,
+als Pflicht, nur sichtbar bei „Mitglied: Nein". Danach gehört es der
+Redaktion (Text ändern unter Feld-Bestand, entfernen im Formular).
+
 ### Zuordnung: welches Seminar bekommt welches Formular
+
+> **Seit 1.147.0** steht die Zuordnung unter *Bildungsprogramm → Regeln*; statt
+> der ersten zutreffenden Regel gewinnt die genauere – siehe
+> [Regeln](#regeln-ein-regelwerk-für-alles-seit-11470).
 
 Drei Stufen, die erste, die etwas sagt, gewinnt:
 
@@ -3193,7 +3250,7 @@ Drei Feinheiten:
 ### Ausgebucht — sichtbar, aber ohne Weg
 
 Der Termin ist voll. Er bleibt in allen Listen stehen und tritt zurück:
-[ausgegraut, ohne Ampel, ohne Button](#nicht-buchbare-termine-treten-zurück),
+[ausgegraut, ohne Button](#nicht-buchbare-termine-treten-zurück),
 mit „Ausgebucht" an der Stelle, wo sonst der Button steht. Wer nicht buchen kann,
 will trotzdem wissen, dass es den Termin gibt.
 
@@ -3257,7 +3314,7 @@ oft, was es bewirkt, und ein Knopf in die gefilterte Liste.
 | Was geprüft wird | Wirkung | Im Batch? |
 |---|---|---|
 | Startdatum | Weder im Datumsfilter noch in der Ergebnisliste sichtbar, nicht buchbar | nein |
-| Seminarnummer | Keine Verfügbarkeits-Ampel; dem Bildungszentrum fehlt die Zuordnung | nein |
+| Seminarnummer | Dem Bildungszentrum fehlt die Zuordnung; Import und Abgleich erkennen das Seminar nicht wieder | nein |
 | Beschreibung | Die Detailseite beginnt ohne Text | **ja, bis 50** |
 | Themen im Seminar | Der Abschnitt entfällt; auf einer Reihenseite klappt der Teil leer auf | **ja, bis 50** |
 | Ansprechpartner-E-Mail | Die Benachrichtigung findet keinen Empfänger | ja |
@@ -3455,10 +3512,10 @@ der Unterschied ist keine Bequemlichkeit, sondern eine Sicherung:
 
 **Kernfelder** sind die in `BI_CPT::kernfelder()` und `BI_Online::meta_fields()`
 deklarierten. Ihre Schlüssel stehen im übrigen Code – `_bi_startdatum` allein über
-50-mal, in Datumsfilter, Verfügbarkeits-Ampel, „buchbar", Mail-Platzhaltern,
+50-mal, in Datumsfilter, „buchbar", Mail-Platzhaltern,
 PDF-Anhang und Detailseite. Ein Löschen oder ein neuer Schlüssel würde dort nichts
 sichtbar kaputtmachen, sondern **still ins Leere laufen**: Seminare verschwänden
-aus dem Datumsfilter, die Ampel bliebe grau, Mails hätten Lücken. Deshalb liegen
+aus dem Datumsfilter, Fristregeln griffen nicht, Mails hätten Lücken. Deshalb liegen
 Schlüssel und Typ fest, und löschen ist nicht möglich. Die **Beschriftung** ist
 reine Anzeige und darf geändert werden.
 
@@ -4043,8 +4100,7 @@ Die häufigsten Fälle:
 
 Der Abgleich hängt am WordPress-eigenen Cron. Auf einer Website ohne Besucher
 läuft der nicht – dann hilft der Knopf *Jetzt abgleichen* oder ein echter
-System-Cron (`wp-cron.php`), wie er für die Verfügbarkeits-Ampel ohnehin
-empfohlen ist.
+System-Cron auf `wp-cron.php`.
 
 ### Ein Lauf, der noch unterwegs ist
 
@@ -4144,10 +4200,6 @@ Festgehalten in `tests/test-sync-abgleich.php`.
 | PLZ-Zuordnung | Tabelle `wp_bi_plz` |
 | Anmeldungen | Tabelle `wp_bi_anmeldungen` |
 | Benachrichtigungen (inkl. Kopie-Adresse) | Option `bi_mail_triggers` |
-| Verfügbarkeits-Ampel je Seminarnummer | Tabelle `wp_bi_ampel` |
-| Gültige Generation der Ampeldaten | Option `bi_ampel_live` |
-| Zustand des laufenden Abgleichs | Option `bi_ampel_lauf` |
-| Ergebnis des letzten Abgleichs | Option `bi_ampel_protokoll` |
 | Kampagnen (Newsletter-Links) | Tabelle `wp_bi_kampagnen` |
 | Kampagnen-Ereignisse | Tabelle `wp_bi_events` |
 | Kampagne einer Anmeldung | Spalte `kampagne` in `wp_bi_anmeldungen` |
@@ -4195,6 +4247,7 @@ igm-bildungsprogramm/
 │  ├─ class-bi-icons.php        Piktogramme der Detailseiten als Inline-SVG
 │  ├─ class-bi-registration.php Anmeldeformular [bi_anmeldung] + Tabelle
 │  ├─ class-bi-mailer.php       Mail-Trigger-Engine + Einstellungsseite
+│  ├─ class-bi-regeln.php       Regelwerk: Anmeldeweg, Formular, Mails, Anhänge + Seite „Regeln"
 │  ├─ class-bi-tracking.php     Kampagnen-Links + Auswertung Klick → Anmeldung
 │  ├─ class-bi-import.php       Seminar-CSV-Import mit Spalten-Mapping, Teil-Import
 │  ├─ class-bi-verweise.php     Seminarnamen in »…« verlinken, Reiter „Verweise"
@@ -4202,13 +4255,10 @@ igm-bildungsprogramm/
 │  ├─ class-bi-reihen.php       Ausbildungsreihen: CPT bi_reihe, Zuordnung, Reihenseite, [bi_reihen]
 │  ├─ class-bi-datenpflege.php  Arbeitsmenge filtern, CSV-/JSON-Export, Paket-Import
 │  ├─ class-bi-sync.php        Abgleich mehrerer Installationen (Quelle ↔ Zentrale)
-│  ├─ class-bi-ampel.php        Verfügbarkeits-Ampel: Tabelle, Lookup, Ausgabe, Cron
-│  ├─ class-bi-ampel-crawler.php  holt die Ampelzustände von modules.igmetall.de
-│  ├─ class-bi-ampel-parser.php   reines HTML-Parsing der Termintabelle (ohne WordPress)
 │  ├─ class-bi-plz.php          PLZ→Geschäftsstelle: Tabelle, Lookup, Import
 │  ├─ class-bi-anmeldefelder.php Feld-Bestand des Anmeldeformulars (Kern + eigene)
 │  ├─ class-bi-formulare.php    Anmeldeformulare: Seiten, Feldauswahl, Zuordnung
-│  ├─ class-bi-settings.php     Einstellungen (Anmeldevarianten, Regeln, Seiten, PDF)
+│  ├─ class-bi-settings.php     Einstellungen (Anmeldewege, Seiten, PDF; alte Regelliste als Rückfall)
 │  ├─ class-bi-pdf.php          Seminardetails als PDF (Mail-Anhang + Download)
 │  ├─ class-bi-pdf-doc.php      Grundgerüst der PDFs (lädt erst mit FPDF nach)
 │  ├─ class-bi-beschluss.php    Beschlussvorlage § 37 Abs. 6 BetrVG als Word-Datei

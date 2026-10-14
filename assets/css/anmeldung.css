@@ -91,6 +91,7 @@
 /* Felder-Grid (12 Spalten) */
 .bi-wiz__grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 20px 22px; }
 .bi-wiz__field { min-width: 0; }
+.bi-wiz__field[hidden] { display: none !important; } /* Wenn-dann-Feld, Bedingung nicht erfüllt */
 .bi-wiz__field--full { grid-column: 1 / -1; }
 .bi-wiz__field--col4 { grid-column: span 4; }
 .bi-wiz__field--col6 { grid-column: span 6; }

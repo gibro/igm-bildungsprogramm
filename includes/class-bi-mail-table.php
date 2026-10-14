@@ -43,7 +43,7 @@ class BI_Mail_Table extends WP_List_Table {
 			'cb'        => '<input type="checkbox">',
 			'name'      => 'Bezeichnung',
 			'type'      => 'Empfänger',
-			'condition' => 'Bedingung',
+			'condition' => BI_Settings::regelwerk() ? 'Wird verschickt' : 'Bedingung',
 			'schedule'  => 'Versandart',
 			'status'    => 'Status',
 		);
@@ -172,6 +172,13 @@ class BI_Mail_Table extends WP_List_Table {
 	}
 
 	protected function column_condition( $item ) {
+		if ( BI_Settings::regelwerk() ) {
+			$regeln = BI_Regeln::regeln_fuer( 'mail', (string) (int) $item['id'] );
+			if ( ! $regeln ) {
+				return '<span class="bi-warn">keine Regel – geht nie raus</span>';
+			}
+			return esc_html( ucfirst( BI_Regeln::mail_kurz( (int) $item['id'] ) ) );
+		}
 		$label = BI_Mailer::condition_label( $item, $this->taxes );
 		return $label
 			? esc_html( $label )

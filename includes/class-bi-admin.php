@@ -39,6 +39,7 @@ class BI_Admin {
 		'bi-anmeldungen',
 		'bi-formulare',                    // Anmeldeformulare (Felder, Seiten, Zuordnung)
 		'bi-mail-trigger',                 // Benachrichtigungen
+		'bi-regeln',                       // Regeln: Anmeldeweg, Formular, Benachrichtigungen, Anhänge
 		'bi-kampagnen',
 		'bi-kacheln',                      // Marketing (Kacheln + Listen; Slug aus der Zeit der Kacheln)
 		'bi-datenpflege',
@@ -349,7 +350,7 @@ class BI_Admin {
 		 * sondern eine, der man nicht mehr ansieht, wo sie herkommt.
 		 *
 		 * Was hier bleibt, ist die andere Sorte Meldung: Dinge, die JETZT etwas
-		 * blockieren (Test-Modus, abgebrochener Ampel-Lauf, Webinare ohne
+		 * blockieren (Test-Modus, Webinare ohne
 		 * Anmeldelink) – nicht die Bestandsaufnahme.
 		 */
 

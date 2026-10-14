@@ -3,7 +3,7 @@
  * Plugin Name:       Bildungsprogramm
  * Plugin URI:        https://bildung.igmetall.de/
  * Description:        Eigenständiges Seminar-/Veranstaltungssystem: Such- & Filterleiste, CSV-Import für Präsenz- und Online-Seminare sowie PLZ-Geschäftsstellen, Anmeldeformular mit konfigurierbaren Mail-Triggern. Unabhängig von Formidable.
- * Version:           1.142.3
+ * Version:           1.148.0
  * Author:            IG Metall Bildung
  * Text Domain:       bi-seminarsuche
  * Requires at least: 5.8
@@ -25,11 +25,9 @@
  *    class-bi-registration.php  – Anmeldeformular [bi_anmeldung] + Tabelle wp_bi_anmeldungen
  *    class-bi-mailer.php        – Mail-Trigger-Engine (sofort oder wöchentlich gesammelt) + Einstellungsseite
  *    class-bi-mail-table.php    – Listentabelle der Benachrichtigungen (wird bei Bedarf geladen)
+ *    class-bi-regeln.php        – ein Regelwerk für Anmeldeweg, Formular, Benachrichtigungen und Anhänge
  *    class-bi-tracking.php      – Kampagnen-Links (Newsletter) + Auswertung Klick → Anmeldung
  *    class-bi-retention.php     – Aufbewahrungsfrist der Anmeldungen (Löschen/Anonymisieren)
- *    class-bi-ampel.php         – Verfügbarkeits-Ampel: Tabelle, Nachschlagen, Ausgabe, Cron
- *    class-bi-ampel-crawler.php – holt die Ampelzustände von modules.igmetall.de
- *    class-bi-ampel-parser.php  – reines HTML-Parsing der Termintabelle (ohne WordPress)
  *    class-bi-filter.php        – Such-/Filterleiste [bi_seminarsuche] + Suchmaske [bi_suchmaske] + Autovervollständigung
  *    class-bi-suche.php         – Suchindex (wp_bi_suchindex), Wortschatz, Tippfehler-Korrektur
  *    class-bi-kacheln.php       – Marketing: Kacheln [bi_kachel] / [bi_kacheln] / [bi_kachel_reihen] und Listenansicht [bi_liste]
@@ -47,8 +45,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Direktaufruf verhindern
 }
 
-define( 'BI_VERSION', '1.142.3' );
-define( 'BI_DB_VERSION', '8' ); // Schema-Version der eigenen Tabellen (Upgrade via dbDelta)
+define( 'BI_VERSION', '1.148.0' );
+define( 'BI_DB_VERSION', '9' ); // Schema-Version der eigenen Tabellen (Upgrade via dbDelta)
 define( 'BI_FILE', __FILE__ );
 define( 'BI_PATH', plugin_dir_path( __FILE__ ) );
 define( 'BI_URL', plugin_dir_url( __FILE__ ) );
@@ -141,9 +139,6 @@ require_once BI_PATH . 'includes/class-bi-registration.php';
 require_once BI_PATH . 'includes/class-bi-mailer.php';
 require_once BI_PATH . 'includes/class-bi-tracking.php';
 require_once BI_PATH . 'includes/class-bi-retention.php';
-require_once BI_PATH . 'includes/class-bi-ampel-parser.php';
-require_once BI_PATH . 'includes/class-bi-ampel-crawler.php';
-require_once BI_PATH . 'includes/class-bi-ampel.php';
 require_once BI_PATH . 'includes/class-bi-filter.php';
 require_once BI_PATH . 'includes/class-bi-suche.php';
 require_once BI_PATH . 'includes/class-bi-kacheln.php';
@@ -198,8 +193,25 @@ if ( file_exists( $bi_verweise_datei ) ) {
 } else {
 	error_log( 'Bildungsprogramm: includes/class-bi-verweise.php fehlt – Seminarnamen in den Voraussetzungen werden nicht verlinkt. Datei nachträglich hochladen.' );
 }
+// Themenpläne: Fehlt die Datei, entfällt die Box „Themenplan“ auf der
+// Detailseite – alles andere bleibt, wie es ist.
+$bi_themenplan_datei = BI_PATH . 'includes/class-bi-themenplan.php';
+if ( file_exists( $bi_themenplan_datei ) ) {
+	require_once $bi_themenplan_datei;
+} else {
+	error_log( 'Bildungsprogramm: includes/class-bi-themenplan.php fehlt – Themenpläne werden nicht angezeigt. Datei nachträglich hochladen.' );
+}
 require_once BI_PATH . 'includes/class-bi-settings.php';
 require_once BI_PATH . 'includes/class-bi-admin.php';
+// Das Regelwerk (seit 1.147.0): Fehlt die Datei nach einem Handdeploy,
+// rechnen Einstellungen, Formulare und Benachrichtigungen mit ihren alten,
+// weiter gespeicherten Regeln – so wie bis 1.146.0. Kein Totalausfall.
+$bi_regeln_datei = BI_PATH . 'includes/class-bi-regeln.php';
+if ( file_exists( $bi_regeln_datei ) ) {
+	require_once $bi_regeln_datei;
+} else {
+	error_log( 'Bildungsprogramm: includes/class-bi-regeln.php fehlt – es gelten die alten Regeln aus 1.146.0, die Seite „Regeln“ fehlt. Datei nachträglich hochladen.' );
+}
 
 /** DB-Schema bei Plugin-Update aktualisieren (Aktivierungshook läuft bei Updates nicht) */
 add_action( 'plugins_loaded', function () {
@@ -207,9 +219,9 @@ add_action( 'plugins_loaded', function () {
 		BI_PLZ::create_table();
 		BI_Registration::create_table();
 		BI_Tracking::create_tables();
-		BI_Ampel::create_table();
 		BI_Suche::create_table();
 		bi_migrate_bz_email();
+		bi_ampel_entfernen();
 		update_option( 'bi_db_version', BI_DB_VERSION );
 	}
 }, 5 );
@@ -324,6 +336,130 @@ add_action( 'admin_post_bi_bz_migration_ok', function () {
 	exit;
 } );
 
+/**
+ * ============================================================
+ *  Einmaliges Aufräumen: Verfügbarkeits-Ampel entfernt (1.146.0)
+ * ============================================================
+ *
+ * Bis 1.145.0 holte ein Crawler die Verfügbarkeit von modules.igmetall.de und
+ * setzte daraus auch den Haken „Ausgebucht". Die Quelle war unzuverlässig und
+ * wird neu aufgebaut; kommt sie wieder, dann über eine Schnittstelle, nicht als
+ * Crawler. Bis dahin ist das Modul ersatzlos entfernt, und diese Funktion
+ * räumt seine Spuren weg:
+ *
+ *   1. Haken „Ausgebucht", die die Ampel gesetzt hatte, werden freigegeben –
+ *      dieselbe Regel wie früher beim Abschalten des Moduls: Gemeint ist nur,
+ *      was der Vermerk `_bi_ausgebucht_von_ampel` = 1 trägt, oder (Altbestand
+ *      vor 1.100.0) ohne Vermerk die Notiz `_bi_ausgebucht_ampel` = 1. Ohne
+ *      Abgleich nähme diese Haken sonst niemand mehr zurück. Von Hand oder aus
+ *      einem Import gesetzte Haken bleiben stehen.
+ *   2. Die Notizfelder, die Tabelle `wp_bi_ampel`, ihre Optionen, der
+ *      Taktgeber im Cron und die Ampel-Einstellungen verschwinden.
+ *
+ * Wiederholbar: Ein zweiter Lauf findet nichts mehr und ändert nichts.
+ */
+function bi_ampel_entfernen() {
+	global $wpdb;
+
+	$typen   = bi_seminar_post_types();
+	$platz_t = implode( ',', array_fill( 0, count( $typen ), '%s' ) );
+	$ids     = $wpdb->get_col( $wpdb->prepare(
+		"SELECT p.ID
+		   FROM {$wpdb->posts} p
+		   INNER JOIN {$wpdb->postmeta} a ON a.post_id = p.ID AND a.meta_key = '_bi_ausgebucht' AND a.meta_value = '1'
+		   LEFT JOIN {$wpdb->postmeta} q ON q.post_id = p.ID AND q.meta_key = '_bi_ausgebucht_von_ampel'
+		   LEFT JOIN {$wpdb->postmeta} n ON n.post_id = p.ID AND n.meta_key = '_bi_ausgebucht_ampel'
+		  WHERE p.post_type IN ($platz_t)
+		    AND p.post_status <> 'trash'
+		    AND ( q.meta_value = '1' OR ( q.meta_value IS NULL AND n.meta_value = '1' ) )", // phpcs:ignore WordPress.DB.PreparedSQL
+		$typen
+	) );
+	$ids = array_map( 'intval', (array) $ids );
+
+	// Über update_post_meta, nicht als eine UPDATE-Abfrage: So erfahren Seiten-
+	// Cache und Abgleich davon (beide hängen an updated_post_meta).
+	foreach ( $ids as $id ) {
+		update_post_meta( $id, '_bi_ausgebucht', '0' );
+	}
+
+	$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key IN ( '_bi_ausgebucht_ampel', '_bi_ausgebucht_von_ampel' )" );
+	$wpdb->query( 'DROP TABLE IF EXISTS ' . bi_table( 'ampel' ) ); // phpcs:ignore WordPress.DB.PreparedSQL
+
+	foreach ( array( 'bi_ampel_live', 'bi_ampel_lauf', 'bi_ampel_protokoll', 'bi_ampel_faellig' ) as $opt ) {
+		delete_option( $opt );
+	}
+	wp_clear_scheduled_hook( 'bi_ampel_tick' );
+
+	$settings = get_option( 'bi_settings' );
+	if ( is_array( $settings ) ) {
+		$vorher = count( $settings );
+		unset( $settings['ampel_aktiv'], $settings['ampel_intervall'], $settings['ampel_max_alter'], $settings['ampel_kontakt'] );
+		if ( count( $settings ) !== $vorher ) {
+			update_option( 'bi_settings', $settings );
+		}
+	}
+	wp_cache_flush(); // die Meta-Zwischenspeicher kennen die gelöschten Zeilen sonst noch
+
+	// Nur melden, wenn es etwas zu melden gibt – auf einer Installation, deren
+	// Ampel nie einen Haken gesetzt hat, wäre der Hinweis bloß Lärm.
+	if ( $ids ) {
+		update_option( 'bi_ampel_entfernt', array(
+			'zeit' => current_time( 'Y-m-d H:i:s' ),
+			'ids'  => array_slice( $ids, 0, 300 ),
+			'zahl' => count( $ids ),
+		), false );
+	}
+}
+
+/**
+ * Welche Seminare das Aufräumen freigegeben hat – einmal zeigen, dann
+ * weggeklickt. Die Liste ist zum Nachsehen da: Ein Seminar, das wirklich voll
+ * ist, braucht den Haken jetzt von Hand.
+ */
+add_action( 'admin_notices', function () {
+	if ( ! current_user_can( BI_CAP ) ) {
+		return;
+	}
+	$m = get_option( 'bi_ampel_entfernt' );
+	if ( ! is_array( $m ) || ! empty( $m['gesehen'] ) || empty( $m['ids'] ) ) {
+		return;
+	}
+	$links = array();
+	foreach ( (array) $m['ids'] as $id ) {
+		$titel = get_the_title( (int) $id );
+		if ( '' === $titel ) {
+			continue;
+		}
+		$nummer  = (string) get_post_meta( (int) $id, '_bi_seminarnummer', true );
+		$links[] = '<li><a href="' . esc_url( (string) get_edit_post_link( (int) $id ) ) . '">' . esc_html( $titel ) . '</a>'
+			. ( '' !== $nummer ? ' <code>' . esc_html( $nummer ) . '</code>' : '' ) . '</li>';
+	}
+	$url = wp_nonce_url( admin_url( 'admin-post.php?action=bi_ampel_entfernt_ok' ), 'bi_ampel_entfernt_ok' );
+	printf(
+		'<div class="notice notice-warning"><p><strong>Bildungsprogramm: Die Verfügbarkeits-Ampel ist entfernt.</strong><br>'
+		. '%d Seminar(e), die sie auf <em>ausgebucht</em> gesetzt hatte, sind wieder buchbar. Bitte prüfen: Wo ein Termin wirklich voll ist, den Haken <em>Ausgebucht</em> von Hand setzen.</p>'
+		. '<details><summary>Freigegebene Seminare anzeigen</summary><ul style="list-style:disc;margin-left:20px">%s</ul></details>'
+		. '<p><a href="%s" class="button">Verstanden</a></p></div>',
+		(int) $m['zahl'],
+		implode( '', $links ), // phpcs:ignore WordPress.Security.EscapeOutput -- oben einzeln escaped
+		esc_url( $url )
+	);
+} );
+
+add_action( 'admin_post_bi_ampel_entfernt_ok', function () {
+	if ( ! current_user_can( BI_CAP ) ) {
+		wp_die( 'Keine Berechtigung.' );
+	}
+	check_admin_referer( 'bi_ampel_entfernt_ok' );
+	$m = get_option( 'bi_ampel_entfernt' );
+	if ( is_array( $m ) ) {
+		$m['gesehen'] = 1;
+		update_option( 'bi_ampel_entfernt', $m, false );
+	}
+	wp_safe_redirect( wp_get_referer() ?: admin_url() );
+	exit;
+} );
+
 /** Module initialisieren (Hooks registrieren) */
 add_action( 'plugins_loaded', function () {
 	BI_Felder::init();
@@ -339,7 +475,6 @@ add_action( 'plugins_loaded', function () {
 	BI_Mailer::init();
 	BI_Tracking::init();
 	BI_Retention::init();
-	BI_Ampel::init();
 	BI_Filter::init();
 	BI_Suche::init();
 	BI_Kacheln::init();
@@ -347,6 +482,12 @@ add_action( 'plugins_loaded', function () {
 	BI_PDF::init();
 	BI_Settings::init();
 	BI_Admin::init();
+	// Nach den Kernmodulen: Die einmalige Übernahme liest die alten Regeln
+	// aus Einstellungen, Formularen und Benachrichtigungen.
+	// class_exists: siehe die Begründung beim Laden weiter oben.
+	if ( class_exists( 'BI_Regeln' ) ) {
+		BI_Regeln::init();
+	}
 	// Zuletzt: Der Einbettungsmodus legt sich über die Ausgabe der anderen
 	// Module (Template, Permalinks) und muss deren Hooks vorfinden.
 	// class_exists: siehe die Begründung beim Laden weiter oben.
@@ -368,6 +509,10 @@ add_action( 'plugins_loaded', function () {
 	if ( class_exists( 'BI_Verweise' ) ) {
 		BI_Verweise::init();
 	}
+	// class_exists: siehe die Begründung beim Laden weiter oben.
+	if ( class_exists( 'BI_Themenplan' ) ) {
+		BI_Themenplan::init();
+	}
 } );
 
 /** ---------- Aktivierung / Deaktivierung ---------- */
@@ -378,7 +523,6 @@ function bi_activate() {
 	BI_PLZ::create_table();
 	BI_Registration::create_table();
 	BI_Tracking::create_tables();
-	BI_Ampel::create_table();
 	BI_Suche::create_table();
 
 	// CPTs + Taxonomien registrieren, damit Rewrite-Regeln stimmen
@@ -394,11 +538,10 @@ function bi_activate() {
 	bi_migrate_bz_email();
 
 	// Cron-Jobs einplanen: wöchentliche Anmelde-Zusammenfassung, tägliches
-	// Aufräumen der Tracking-Ereignisse, Taktgeber der Verfügbarkeits-Ampel
+	// Aufräumen der Tracking-Ereignisse, Aufbewahrungsfrist der Anmeldungen
 	BI_Mailer::ensure_cron();
 	BI_Tracking::ensure_cron();
 	BI_Retention::ensure_cron();
-	BI_Ampel::ensure_cron();
 	// class_exists: siehe die Begründung beim Laden weiter oben.
 	if ( class_exists( 'BI_Sync' ) ) {
 		BI_Sync::ensure_cron();
@@ -414,7 +557,6 @@ function bi_deactivate() {
 	BI_Mailer::clear_cron();
 	BI_Tracking::clear_cron();
 	BI_Retention::clear_cron();
-	BI_Ampel::clear_cron();
 	// class_exists: siehe die Begründung beim Laden weiter oben.
 	if ( class_exists( 'BI_Cache' ) ) {
 		BI_Cache::cron_abmelden();

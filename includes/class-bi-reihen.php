@@ -1140,12 +1140,6 @@ class BI_Reihen {
 		$teile    = self::teile( $gruppen );
 		$komplett = BI_CPT::meta_bool( $reihe_id, '_bir_komplett' );
 
-		// Alle Ampeln in einem Zug nachschlagen statt je Zeile einzeln.
-		$flach = self::alle_termine( $gruppen );
-		BI_Ampel::vorladen( array_map( function ( $p ) {
-			return (string) get_post_meta( $p->ID, '_bi_seminarnummer', true );
-		}, array_values( $flach ) ) );
-
 		$html = '<div class="igm-seite igm-seite--reihe">';
 
 		/* ---- Kopf ---- */
@@ -1358,18 +1352,13 @@ class BI_Reihen {
 			// Durchgänge stehen weiter unten in ihrer Gruppe – dort ergibt nur
 			// die vollständige Abfolge einen Sinn.
 			if ( ! empty( $ohne_durchgang[ $nr ] ) ) {
-				$zeilen  = '';
-				$ampeln  = false;
+				$zeilen = '';
 				foreach ( $ohne_durchgang[ $nr ] as $t ) {
-					$ampel   = BI_Ampel::fuer_post( $t->ID );
-					$ampeln  = $ampeln || (bool) $ampel;
-					$zeilen .= BI_Detail::termin_zeile( $t->ID, $ampel );
+					$zeilen .= BI_Detail::termin_zeile( $t->ID );
 				}
-				// Wie auf der Detailseite: ohne eine einzige Verfügbarkeit
-				// entfällt die Spalte, statt leer mitzulaufen.
 				$html .= '<div class="igm-teil__termine">'
 					. '<h4 class="igm-teil__themen-titel">Termine</h4>'
-					. '<div class="igm-termine' . ( $ampeln ? '' : ' igm-termine--ohne-ampel' ) . '">'
+					. '<div class="igm-termine">'
 					. $zeilen . '</div></div>';
 			}
 			$html .= '</div></article>';

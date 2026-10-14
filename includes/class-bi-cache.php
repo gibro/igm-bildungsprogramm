@@ -100,7 +100,7 @@ class BI_Cache {
 		add_action( 'untrashed_post', array( __CLASS__, 'vormerken_post' ) );
 		add_action( 'set_object_terms', array( __CLASS__, 'vormerken_post' ) );
 
-		// Massenbearbeitung, CSV-Import und die Ampel schreiben Meta-Felder,
+		// Massenbearbeitung, CSV-Import und Abgleich schreiben Meta-Felder,
 		// ohne dass save_post noch einmal feuert. „Ausgebucht", „Freie Plätze"
 		// und das Startdatum stehen genau dort – und sie ändern die Seite.
 		add_action( 'added_post_meta', array( __CLASS__, 'vormerken_meta' ), 10, 2 );

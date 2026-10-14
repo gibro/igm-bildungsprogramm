@@ -602,8 +602,15 @@ class BI_Registration {
 		// in die serverseitige Prüfung aus handle_submit().
 		$maxa = ! empty( $f['max'] ) ? ' maxlength="' . esc_attr( (int) $f['max'] ) . '"' : '';
 
+		// Wenn-dann-Feld: anmeldung.js blendet es ein und aus; verborgen sind
+		// seine Eingaben gesperrt und werden weder geprüft noch abgeschickt.
+		$wenn = '';
+		if ( ! empty( $f['wenn'] ) ) {
+			$wenn = ' data-wenn-feld="' . esc_attr( $f['wenn']['feld'] ) . '" data-wenn-wert="' . esc_attr( $f['wenn']['wert'] ) . '"';
+		}
+
 		ob_start();
-		echo '<div class="' . esc_attr( $cls ) . '">';
+		echo '<div class="' . esc_attr( $cls ) . '"' . $wenn . '>'; // phpcs:ignore – $wenn ist escaped
 
 		if ( 'radio' === $f['type'] ) {
 			echo '<label class="bi-wiz__label">' . esc_html( $f['label'] ) . $star . '</label>';
@@ -1109,8 +1116,28 @@ class BI_Registration {
 
 		$data   = array();
 		$errors = false;
+		$felder = self::all_fields( $formular );
 
-		foreach ( self::all_fields( $formular ) as $key => $f ) {
+		// Wenn-dann-Felder: Welche waren für diese Antworten sichtbar? In
+		// Formularreihenfolge, damit eine Kette (C hängt an B, B an A) ihre
+		// Vorgänger schon entschieden vorfindet. Verborgene Felder sind keine
+		// Pflicht und werden leer gespeichert – auch wenn ein direkt
+		// abgesetztes POST etwas mitschickt.
+		$sichtbar = array();
+		$antwort  = array();
+		foreach ( $felder as $key => $f ) {
+			$sichtbar[ $key ] = BI_Formulare::wenn_erfuellt( $f['wenn'] ?? null, $antwort, $felder );
+			$antwort[ $key ]  = $sichtbar[ $key ] ? (string) bi_post( $key ) : '';
+			if ( 'checkbox' === $f['type'] ) {
+				$antwort[ $key ] = '1' === $antwort[ $key ] ? '1' : '';
+			}
+		}
+
+		foreach ( $felder as $key => $f ) {
+			if ( ! $sichtbar[ $key ] ) {
+				$data[ $key ] = '';
+				continue;
+			}
 			$raw = bi_post( $key );
 			if ( 'textarea' === $f['type'] ) {
 				$raw = sanitize_textarea_field( $raw );

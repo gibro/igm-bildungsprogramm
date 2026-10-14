@@ -35,6 +35,17 @@
  *  niemanden, an den die Bestätigung ginge, und in der Anmeldeliste stünde eine
  *  Zeile ohne Person.
  *
+ * ============================================================================
+ *  WENN-DANN-FELDER (seit 1.148.0)
+ * ============================================================================
+ *  Ein Feld kann im Formular eine Bedingung tragen: „nur zeigen, wenn
+ *  <Auswahlfeld> = <Wert>" (gespeichert als `wenn` => 'mitglied=nein').
+ *  Ist sie nicht erfüllt, ist das Feld unsichtbar, seine Pflicht entfällt,
+ *  und der Server speichert es leer – auch wenn ein direkt abgesetztes POST
+ *  einen Wert mitschickt. Bedingen können nur Auswahlfelder, Optionsfelder
+ *  und Kästchen DESSELBEN Formulars; fehlt das bedingende Feld, wird das
+ *  Feld immer gezeigt (lieber eine Frage zu viel als eine verlorene Angabe).
+ *
  *  Die betriebliche PLZ ist nicht erzwungen, aber gewarnt: An ihr hängt
  *  BI_PLZ::lookup() und damit die Benachrichtigung der Geschäftsstelle. Ein
  *  Formular ohne sie erzeugt Anmeldungen, die keine Geschäftsstelle je sieht –
@@ -87,6 +98,114 @@ class BI_Formulare {
 		add_action( 'admin_post_bi_formular_delete',    array( __CLASS__, 'handle_delete' ) );
 		add_action( 'admin_post_bi_formular_standard',  array( __CLASS__, 'handle_standard' ) );
 		add_action( 'admin_post_bi_formular_regeln',    array( __CLASS__, 'handle_regeln' ) );
+
+		self::einwilligung_nachruesten();
+	}
+
+	/** Merker: Einwilligungsfeld in bestehende Formulare eingefügt (einmalig). */
+	const OPTION_EINWILLIGUNG = 'bi_formulare_einwilligung';
+
+	/**
+	 * Einmalig (1.148.0): Das Kästchen „Einwilligung" in jedes gespeicherte
+	 * Formular einfügen, das nach der Mitgliedschaft fragt – direkt hinter
+	 * Mitgliedsnummer bzw. Mitglied, Pflicht, nur sichtbar bei „Mitglied =
+	 * nein". Danach gehört es der Redaktion: Wer es entfernt oder ändert,
+	 * bekommt es nicht zurück.
+	 */
+	private static function einwilligung_nachruesten() {
+		if ( get_option( self::OPTION_EINWILLIGUNG ) ) {
+			return;
+		}
+		$alle = get_option( self::OPTION, array() );
+		if ( is_array( $alle ) && $alle ) {
+			foreach ( $alle as $fk => $f ) {
+				$ziel_s = -1;
+				$ziel_i = -1;
+				$schon  = false;
+				foreach ( (array) ( $f['seiten'] ?? array() ) as $si => $seite ) {
+					foreach ( (array) ( $seite['felder'] ?? array() ) as $fi => $e ) {
+						$k = (string) ( $e['key'] ?? '' );
+						if ( 'einwilligung' === $k ) {
+							$schon = true;
+						}
+						if ( 'mitgliedsnummer' === $k || ( 'mitglied' === $k && $ziel_s < 0 ) ) {
+							$ziel_s = $si;
+							$ziel_i = $fi;
+						}
+					}
+				}
+				if ( $schon || $ziel_s < 0 ) {
+					continue;
+				}
+				array_splice( $alle[ $fk ]['seiten'][ $ziel_s ]['felder'], $ziel_i + 1, 0, array(
+					array( 'key' => 'einwilligung', 'req' => 1, 'col' => 12, 'wenn' => 'mitglied=nein' ),
+				) );
+			}
+			update_option( self::OPTION, $alle );
+		}
+		update_option( self::OPTION_EINWILLIGUNG, '1.148.0' );
+	}
+
+	/* ===================================================================
+	 *  Wenn-dann-Felder
+	 * =================================================================== */
+
+	/** 'mitglied=nein' → ['feld' => 'mitglied', 'wert' => 'nein'], sonst null. */
+	public static function wenn_lesen( $roh ) {
+		$roh = (string) $roh;
+		$pos = strpos( $roh, '=' );
+		if ( false === $pos || 0 === $pos ) {
+			return null;
+		}
+		$feld = sanitize_key( substr( $roh, 0, $pos ) );
+		return '' === $feld ? null : array( 'feld' => $feld, 'wert' => (string) substr( $roh, $pos + 1 ) );
+	}
+
+	/**
+	 * Mögliche Bedingungen für ein Formular: 'feld=wert' => „Beschriftung: Option".
+	 *
+	 * @param array $felder Felder des Formulars (Schlüssel => Definition).
+	 */
+	public static function wenn_optionen( $felder ) {
+		$out = array();
+		foreach ( $felder as $key => $def ) {
+			$label = (string) ( $def['label'] ?? $key );
+			if ( function_exists( 'mb_strlen' ) && mb_strlen( $label ) > 50 ) {
+				$label = mb_substr( $label, 0, 48 ) . ' …';
+			}
+			$typ = (string) ( $def['type'] ?? '' );
+			if ( 'checkbox' === $typ ) {
+				$out[ $key . '=1' ] = $label . ': angekreuzt';
+				continue;
+			}
+			if ( ! in_array( $typ, array( 'radio', 'select' ), true ) ) {
+				continue;
+			}
+			$opts  = (array) ( $def['options'] ?? array() );
+			$liste = BI_Anmeldefelder::ist_liste( $opts );
+			foreach ( $opts as $ok => $ol ) {
+				if ( '' === trim( (string) $ol ) ) {
+					continue;
+				}
+				$wert = $liste ? (string) $ol : (string) $ok;
+				$out[ $key . '=' . $wert ] = $label . ': ' . $ol;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Ist die Bedingung eines Feldes bei diesen Werten erfüllt?
+	 *
+	 * @param array $wenn   ['feld', 'wert'] oder null (= immer).
+	 * @param array $werte  Feldschlüssel => abgeschickter Wert.
+	 * @param array $felder Felder des Formulars – fehlt das bedingende Feld, gilt die Bedingung als erfüllt.
+	 */
+	public static function wenn_erfuellt( $wenn, $werte, $felder ) {
+		if ( ! is_array( $wenn ) || ! isset( $felder[ $wenn['feld'] ] ) ) {
+			return true;
+		}
+		return (string) ( $werte[ $wenn['feld'] ] ?? '' ) === (string) $wenn['wert'];
 	}
 
 	/* ===================================================================
@@ -130,6 +249,7 @@ class BI_Formulare {
 							array( 'key' => 'email',           'req' => 1, 'col' => 12 ),
 							array( 'key' => 'mitglied',        'req' => 0, 'col' => 12 ),
 							array( 'key' => 'mitgliedsnummer', 'req' => 0, 'col' => 6 ),
+							array( 'key' => 'einwilligung',    'req' => 1, 'col' => 12, 'wenn' => 'mitglied=nein' ),
 						),
 					),
 					array(
@@ -224,6 +344,13 @@ class BI_Formulare {
 			return $meta;
 		}
 
+		// Seit 1.147.0 aus dem gemeinsamen Regelwerk: die genaueste zutreffende
+		// Regel statt der ersten von oben (BI_Regeln::formular_detail).
+		if ( BI_Settings::regelwerk() ) {
+			$ziel = BI_Regeln::formular( (int) $post_id );
+			return ( '' !== $ziel && isset( $alle[ $ziel ] ) ) ? $ziel : self::standard_key();
+		}
+
 		foreach ( self::regeln() as $regel ) {
 			$ziel = (string) ( $regel['formular'] ?? '' );
 			if ( ! isset( $alle[ $ziel ] ) ) {
@@ -268,6 +395,10 @@ class BI_Formulare {
 				}
 				$def             = $bestand[ $key ];
 				$def['required'] = ! empty( $eintrag['req'] );
+				$wenn            = self::wenn_lesen( $eintrag['wenn'] ?? '' );
+				if ( $wenn && $wenn['feld'] !== $key ) {
+					$def['wenn'] = $wenn;
+				}
 				$col             = (int) ( $eintrag['col'] ?? 12 );
 				if ( ! isset( self::breiten()[ $col ] ) || 12 === $col ) {
 					$def['full'] = true;
@@ -376,6 +507,16 @@ class BI_Formulare {
 			$aus[] = 'Ohne das Feld <strong>Freistellung</strong> wird nicht erfasst, nach welcher Vorschrift '
 				. 'jemand teilnimmt. Der Platzhalter <code>{freistellung}</code> bleibt leer, und die '
 				. 'Beschlussvorlage nach § 37,6 hat keine Grundlage.';
+		}
+		foreach ( $felder as $key => $def ) {
+			if ( empty( $def['wenn'] ) ) {
+				continue;
+			}
+			if ( ! isset( $felder[ $def['wenn']['feld'] ] ) ) {
+				$aus[] = sprintf( 'Das Feld <strong>%s</strong> soll nur unter einer Bedingung erscheinen, aber das Feld <code>%s</code>, an dem sie hängt, steht nicht im Formular – es wird deshalb immer gezeigt.', esc_html( $def['label'] ), esc_html( $def['wenn']['feld'] ) );
+			} elseif ( ! isset( self::wenn_optionen( $felder )[ $def['wenn']['feld'] . '=' . $def['wenn']['wert'] ] ) ) {
+				$aus[] = sprintf( 'Die Bedingung von <strong>%s</strong> verlangt den Wert „%s", den das Feld <code>%s</code> nicht (mehr) anbietet – das Feld erscheint deshalb nie.', esc_html( $def['label'] ), esc_html( $def['wenn']['wert'] ), esc_html( $def['wenn']['feld'] ) );
+			}
 		}
 		foreach ( self::seiten( $formular_key ) as $i => $seite ) {
 			if ( ! $seite['fields'] ) {
@@ -498,11 +639,16 @@ class BI_Formulare {
 				}
 				$col            = (int) ( $eintrag['col'] ?? 12 );
 				$gesehen[ $fk ] = true;
-				$felder[]       = array(
+				$neu            = array(
 					'key' => $fk,
 					'req' => ! empty( $eintrag['req'] ) ? 1 : 0,
 					'col' => isset( $breiten[ $col ] ) ? $col : 12,
 				);
+				$wenn = self::wenn_lesen( sanitize_text_field( $eintrag['wenn'] ?? '' ) );
+				if ( $wenn && $wenn['feld'] !== $fk ) {
+					$neu['wenn'] = $wenn['feld'] . '=' . substr( $wenn['wert'], 0, 100 );
+				}
+				$felder[] = $neu;
 			}
 
 			$seiten[] = array(
@@ -630,6 +776,9 @@ class BI_Formulare {
 		}
 		if ( $weg ) {
 			update_option( self::OPTION_REGELN, $regeln );
+		}
+		if ( BI_Settings::regelwerk() ) {
+			$weg = BI_Regeln::ziel_entfernt( 'formular', $key );
 		}
 
 		// Seminare, die es von Hand zugewiesen hatten, fallen auf die Regeln
@@ -891,6 +1040,8 @@ class BI_Formulare {
 		// Auswahlliste „Feld hinzufügen" steht unter jeder Seite und würde die
 		// Frage sonst je Seite und je Feld des Bestands neu stellen.
 		$vorhanden = self::felder( $key );
+		// Bedingungen können nur an Auswahlfeldern dieses Formulars hängen.
+		$wenn_optionen = self::wenn_optionen( $vorhanden );
 		?>
 		<p><a href="<?php echo esc_url( $base ); ?>">&larr; Alle Formulare</a></p>
 
@@ -969,15 +1120,16 @@ class BI_Formulare {
 
 					<table class="widefat striped" style="margin-bottom:12px">
 						<thead><tr>
-							<th style="width:34%">Feld</th>
-							<th style="width:16%">Schlüssel</th>
-							<th style="width:14%">Breite</th>
-							<th style="width:12%">Pflicht</th>
-							<th style="width:24%">Reihenfolge</th>
+							<th style="width:26%">Feld</th>
+							<th style="width:12%">Schlüssel</th>
+							<th style="width:11%">Breite</th>
+							<th style="width:9%">Pflicht</th>
+							<th style="width:22%">Nur zeigen, wenn</th>
+							<th style="width:20%">Reihenfolge</th>
 						</tr></thead>
 						<tbody>
 						<?php if ( ! $feld_keys ) : ?>
-							<tr><td colspan="5" style="color:#996800">Diese Seite fragt nichts ab.</td></tr>
+							<tr><td colspan="6" style="color:#996800">Diese Seite fragt nichts ab.</td></tr>
 						<?php endif; ?>
 						<?php foreach ( $feld_keys as $fi => $fk ) :
 							$def = $seite['fields'][ $fk ];
@@ -1010,6 +1162,27 @@ class BI_Formulare {
 										              name="f[<?php echo (int) $si; ?>][<?php echo (int) $fi; ?>][req]"
 										              <?php checked( ! empty( $def['required'] ) ); ?>> Pflicht</label>
 									<?php endif; ?>
+								</td>
+								<td>
+									<?php
+									$wenn_jetzt = ! empty( $def['wenn'] ) ? $def['wenn']['feld'] . '=' . $def['wenn']['wert'] : '';
+									$wenn_opts  = $wenn_optionen;
+									unset( $wenn_opts[ $fk . '=1' ] );
+									foreach ( array_keys( $wenn_opts ) as $wk ) {
+										if ( 0 === strpos( $wk, $fk . '=' ) ) {
+											unset( $wenn_opts[ $wk ] ); // ein Feld bedingt sich nicht selbst
+										}
+									}
+									?>
+									<select name="f[<?php echo (int) $si; ?>][<?php echo (int) $fi; ?>][wenn]" style="max-width:100%">
+										<option value="">immer</option>
+										<?php if ( '' !== $wenn_jetzt && ! isset( $wenn_opts[ $wenn_jetzt ] ) ) : ?>
+											<option value="<?php echo esc_attr( $wenn_jetzt ); ?>" selected><?php echo esc_html( $wenn_jetzt ); ?> (ungültig)</option>
+										<?php endif; ?>
+										<?php foreach ( $wenn_opts as $wk => $wl ) : ?>
+											<option value="<?php echo esc_attr( $wk ); ?>" <?php selected( $wenn_jetzt, $wk ); ?>><?php echo esc_html( $wl ); ?></option>
+										<?php endforeach; ?>
+									</select>
 								</td>
 								<td>
 									<button class="button button-small" name="bi_do" value="feld_up:<?php echo (int) $si; ?>:<?php echo (int) $fi; ?>"
@@ -1051,12 +1224,34 @@ class BI_Formulare {
 				oder unteren Rand seiner Seite noch einen Schritt weiter geschoben wird, wandert auf die
 				Nachbarseite. Alle Schaltflächen speichern den ganzen Stand mit; verlieren kann man dabei nichts.
 			</p>
+			<p class="description" style="max-width:760px">
+				<strong>Nur zeigen, wenn:</strong> Das Feld erscheint erst, wenn ein Auswahlfeld oder Kästchen dieses
+				Formulars den gewählten Wert hat – z. B. die Einwilligung nur bei „Mitglied: Nein". Solange es
+				verborgen ist, ist es keine Pflicht und wird leer gespeichert. Ein gerade hinzugefügtes Auswahlfeld
+				steht nach dem nächsten Speichern zur Wahl.
+			</p>
 		</form>
 		<?php
 	}
 
 	/** Regeln: welches Seminar bekommt welches Formular? */
 	private static function render_zuordnung() {
+		if ( BI_Settings::regelwerk() ) {
+			$formulare = self::choices();
+			?>
+			<div class="card" style="max-width:100%;margin:0 0 20px">
+				<h2 style="margin-top:0">Welches Seminar bekommt welches Formular?</h2>
+				<ol style="margin:0 0 14px 22px;list-style:decimal">
+					<li>Das Feld <strong>„Anmeldeformular"</strong> in der Bearbeiten-Maske des Seminars – die Ausnahme von Hand.</li>
+					<li>Die <strong>Regeln</strong>; treffen mehrere zu, gewinnt die genauere (mit mehr Bedingungen).</li>
+					<li>Das <strong>Standardformular</strong>: <em><?php echo esc_html( $formulare[ self::standard_key() ] ?? self::standard_key() ); ?></em>.</li>
+				</ol>
+				<p>Die Regeln stehen seit Version 1.147.0 zusammen mit Anmeldeweg und Benachrichtigungen auf einer Seite:
+					<a class="button" href="<?php echo esc_url( BI_Regeln::page_url() . '#bi-rg-formular' ); ?>">Bildungsprogramm → Regeln</a></p>
+			</div>
+			<?php
+			return;
+		}
 		$regeln    = self::regeln();
 		$felder    = BI_Settings::rule_fields();
 		$formulare = self::choices();

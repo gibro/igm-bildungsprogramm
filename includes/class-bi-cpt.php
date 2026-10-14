@@ -1587,7 +1587,7 @@ class BI_CPT {
 	 *
 	 *  Ein Jahrgang bringt über tausend Seminare mit, und eine fehlende Angabe
 	 *  sieht man dem einzelnen Eintrag nicht an – die Seite ist nur still
-	 *  schlechter: ohne Seminarnummer keine Verfügbarkeits-Ampel, ohne
+	 *  schlechter: ohne Seminarnummer keine Zuordnung im Bildungszentrum, ohne
 	 *  Themenfeld kein Treffer im Filter, ohne Freistellung fällt eine ganze
 	 *  Ausbildungsreihe auf den Weg über die Geschäftsstelle.
 	 *
@@ -1641,7 +1641,7 @@ class BI_CPT {
 				'was'     => 'Seminarnummer fehlt',
 				'args'    => $meta( '_bi_seminarnummer' ),
 				'url'     => $link( array( 'bi_missing_nummer' => 1 ) ),
-				'wirkung' => 'Ohne Nummer gibt es keine Verfügbarkeits-Ampel, und dem Bildungszentrum fehlt in der Anmeldung die Zuordnung.',
+				'wirkung' => 'Ohne Nummer fehlt dem Bildungszentrum in der Anmeldung die Zuordnung, und Import wie Abgleich erkennen das Seminar nicht wieder.',
 				'batch'   => false,
 			),
 			array(

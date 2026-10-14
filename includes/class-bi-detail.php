@@ -15,9 +15,10 @@
  *                Zielgruppe) – je Piktogramm, Label, Wert.
  *  Hauptspalte   Beschreibung, „Themen des Seminars", „Weitere Termine zu
  *                diesem Seminar" als Zeilen (nicht als Tabelle).
- *  Sidebar       Box „Seminardetails" mit Verfügbarkeits-Ampel, Datenliste,
- *                Kostenaufstellung und Buchungsbereich; darunter die Box
- *                „Seminardetails als PDF" und der Kontakt.
+ *  Sidebar       Box „Seminardetails" mit Hinweis „Ausgebucht", Datenliste,
+ *                Kostenaufstellung und Buchungsbereich; darunter der Kontakt,
+ *                die Box „Themenplan" (nur wenn es einen gibt, BI_Themenplan)
+ *                und die Box „Seminardetails als PDF".
  *
  *  Die Gestaltung folgt dem Design-Handoff „Seminardetail" (IG Metall Design
  *  System): scharfe Ecken, Rot #E3051B für Aktionen und Überschriften, Meta
@@ -44,12 +45,6 @@
  *    direct      -> internes Anmeldeformular (wie Präsenz)
  *    gs          -> Geschäftsstellen-Variante (wie Präsenz)
  *    Zusätzlich: ist ein öffentlicher Online-Link gepflegt, erscheint „Direkt teilnehmen".
- *
- *  Verfügbarkeits-Ampel (BI_Ampel):
- *    In der Sidebar und in „Weitere Termine" steht der aus dem
- *    Seminarverwaltungssystem abgeglichene Zustand (Verfügbar / Fast ausgebucht /
- *    Warteliste möglich). Liegt nichts Belastbares vor, erscheint gar nichts –
- *    die Box bzw. der Punkt entfällt dann ersatzlos, statt eine Farbe zu raten.
  *
  *  Wird über den template_include-Filter geladen, bleibt aber im Theme-Rahmen
  *  (get_header()/get_footer() im Template).
@@ -326,27 +321,21 @@ class BI_Detail {
 	}
 
 	/**
-	 * Eine Terminzeile mit vier Spalten: Seminarort, Zeitraum, Verfügbarkeit,
-	 * Buchen-Button. Ohne Spaltenüberschriften – die Angaben sprechen für sich,
+	 * Eine Terminzeile mit drei Spalten: Seminarort, Zeitraum, Buchen-Button. Ohne Spaltenüberschriften – die Angaben sprechen für sich,
 	 * und über einer Handvoll Zeilen wäre eine Kopfzeile mehr Rahmen als Inhalt.
 	 *
 	 * Anklickbar ist der Zeitraum, nicht die ganze Zeile: Am Ende steht ein
 	 * Button, und ein Button in einem Link ist weder gültiges HTML noch
 	 * bedienbar – man träfe beim Klicken mal das eine, mal das andere.
-	 *
-	 * @param array|null $ampel Ergebnis von BI_Ampel::fuer_nummer().
 	 */
-	public static function termin_zeile( $post_id, $ampel = null ) {
+	public static function termin_zeile( $post_id ) {
 		$post_id = (int) $post_id;
 		$grund   = self::nicht_buchbar( $post_id );
 
-		// Nicht buchbare Termine bleiben in der Liste, treten aber zurück: keine
-		// Ampel, kein Button, gedämpfte Schrift. Sie beantworten weiter die Frage
-		// „gibt es das Seminar überhaupt und wann?" – nur eben ohne Weg zur
-		// Anmeldung. Ein roter Punkt daneben wäre doppelt gemoppelt, der Grund
-		// steht ja im Klartext dort, wo sonst der Button ist.
-		$verfuegbar = ( '' === $grund && is_array( $ampel ) ) ? BI_Ampel::badge( $ampel ) : '';
-
+		// Nicht buchbare Termine bleiben in der Liste, treten aber zurück: kein
+		// Button, gedämpfte Schrift. Sie beantworten weiter die Frage „gibt es
+		// das Seminar überhaupt und wann?" – nur eben ohne Weg zur Anmeldung.
+		// Der Grund steht im Klartext dort, wo sonst der Button ist.
 		$aktion = ( '' !== $grund )
 			? '<span class="igm-termin__aus">' . esc_html( $grund ) . '</span>'
 			: self::zeilen_button( $post_id );
@@ -357,7 +346,6 @@ class BI_Detail {
 			. '<span class="igm-termin__ort">' . esc_html( BI_CPT::ort_anzeige( $post_id ) ) . '</span>'
 			. '<a class="igm-termin__datum" href="' . esc_url( (string) get_permalink( $post_id ) ) . '">'
 			. esc_html( self::zeitraum( $post_id, true ) ) . '</a>'
-			. '<span class="igm-termin__ampel">' . $verfuegbar . '</span>'
 			. '<span class="igm-termin__aktion">' . $aktion . '</span>'
 			. '</div>';
 	}
@@ -368,9 +356,7 @@ class BI_Detail {
 	 * Die zwei Wege, auf denen eine Anmeldung ausfällt, tragen verschiedene
 	 * Gründe und werden deshalb auch verschieden benannt:
 	 *
-	 *   „Ausgebucht"      Der Termin ist voll (Haken am Seminar; der
-	 *                     Verfügbarkeits-Abgleich setzt ihn aus „Warteliste
-	 *                     möglich").
+	 *   „Ausgebucht"      Der Termin ist voll (Haken am Seminar).
 	 *   „Keine Anmeldung" Für dieses Seminar ist über die Website gar keine
 	 *                     Anmeldung vorgesehen (Variante 3 der Regel-Engine).
 	 *
@@ -548,6 +534,7 @@ class BI_Detail {
 		$weitere = self::weitere_termine( $post_id );
 		$kosten  = self::kosten_block( $post_id ) . self::mobil_beschluss( $post_id );
 		$pdf     = self::pdf_box( $post_id );
+		$plan    = class_exists( 'BI_Themenplan' ) ? BI_Themenplan::box( $post_id ) : '';
 		$kontakt = self::kontakt_box( $post_id );
 		$aktion  = self::mobil_aktion( $post_id );
 
@@ -585,7 +572,7 @@ class BI_Detail {
 		$html .= '<div class="igm-box igm-box--akzent">';
 		$html .= '<h2 class="igm-box__titel">Seminardetails</h2>';
 		$html .= '<div class="igm-box__teil igm-box__teil--info" data-bi-mobil="ueberblick">';
-		$html .= self::ampel_box( $post_id );
+		$html .= self::ausgebucht_box( $post_id );
 		// lang="de" damit die Silbentrennung des Browsers greift (hyphens: auto):
 		// „Schwerbehindertenvertretung" passt nie in die schmale Wertespalte und
 		// soll an einer Silbengrenze brechen, nicht dort, wo der Platz endet.
@@ -597,8 +584,10 @@ class BI_Detail {
 		$html .= '<div class="igm-box__teil igm-box__teil--buchen" id="igm-mobil-buchen" data-bi-mobil="buchen">'
 			. self::booking_block( $post_id ) . '</div>';
 		$html .= '</div>';
-		// Reihenfolge der Sidebar: Seminardetails, Ansprechpartner*in, PDF, Link.
+		// Reihenfolge der Sidebar: Seminardetails, Ansprechpartner*in, Themenplan,
+		// PDF, Link. Der Themenplan steht direkt über dem PDF – beides Downloads.
 		$html .= $kontakt;
+		$html .= $plan;
 		$html .= $pdf;
 		$html .= self::link_box( $post_id );
 		$html .= '</aside>';
@@ -809,23 +798,16 @@ class BI_Detail {
 	}
 
 	/**
-	 * Verfügbarkeits-Ampel als farbig hinterlegter Kasten über der Datenliste.
-	 * Ohne belastbare Angabe bleibt der Kasten weg – lieber keine Aussage als
-	 * eine überholte.
+	 * Roter Kasten „Ausgebucht" über der Datenliste, wenn der Haken am Seminar
+	 * steht. Sonst bleibt der Kasten weg.
 	 */
-	private static function ampel_box( $post_id ) {
-		if ( BI_CPT::meta_bool( $post_id, '_bi_ausgebucht' ) ) {
-			return '<div class="igm-ampelbox igm-ampelbox--red">'
-				. '<span class="igm-ampel"><span class="igm-ampel__punkt" aria-hidden="true"></span>'
-				. '<span class="igm-ampel__text"><span class="igm-visually-hidden">Verfügbarkeit: </span>Ausgebucht</span></span>'
-				. '</div>';
-		}
-		$ampel = BI_Ampel::fuer_nummer( get_post_meta( $post_id, '_bi_seminarnummer', true ) );
-		if ( ! $ampel ) {
+	private static function ausgebucht_box( $post_id ) {
+		if ( ! BI_CPT::meta_bool( $post_id, '_bi_ausgebucht' ) ) {
 			return '';
 		}
-		return '<div class="igm-ampelbox igm-ampelbox--' . esc_attr( $ampel['ampel'] ) . '">'
-			. BI_Ampel::badge( $ampel ) . BI_Ampel::stand_hinweis( $ampel )
+		return '<div class="igm-ausgebucht">'
+			. '<span class="igm-ausgebucht__punkt" aria-hidden="true"></span>'
+			. '<span class="igm-ausgebucht__text"><span class="igm-visually-hidden">Verfügbarkeit: </span>Ausgebucht</span>'
 			. '</div>';
 	}
 
@@ -1093,7 +1075,7 @@ class BI_Detail {
 
 		return '<div class="igm-box igm-box--klein igm-box--download" data-bi-mobil="kosten">'
 			. '<h2 class="igm-box__titel">Seminardetails als PDF</h2>'
-			. '<p class="igm-box__text">Alle Daten zu diesem Seminar auf einem Blatt – zum Ausdrucken und Weitergeben.</p>'
+			. '<p class="igm-box__text">Seminarzusammenfassung zum Ausdrucken und Weitergeben.</p>'
 			. '<a class="igm-btn igm-btn--sek igm-btn--download" href="' . esc_url( BI_PDF::download_url( $post_id ) ) . '" download>'
 			. BI_Icons::get( 'download', 20 )
 			. '<span>PDF herunterladen</span></a>'
@@ -1612,25 +1594,9 @@ class BI_Detail {
 			return '';
 		}
 
-		// Erst alle Seminarnummern einsammeln und in einer Abfrage nachschlagen,
-		// dann die Ampeln je Termin abholen.
-		$nummern = array();
-		foreach ( $q->posts as $p ) {
-			$nummern[ $p->ID ] = (string) get_post_meta( $p->ID, '_bi_seminarnummer', true );
-		}
-		BI_Ampel::vorladen( array_values( $nummern ) );
-
-		$ampeln = array();
-		foreach ( $nummern as $id => $nr ) {
-			$daten = BI_Ampel::fuer_nummer( $nr );
-			if ( $daten ) {
-				$ampeln[ $id ] = $daten;
-			}
-		}
-
 		$zeilen = '';
 		foreach ( $q->posts as $p ) {
-			$zeilen .= self::termin_zeile( $p->ID, isset( $ampeln[ $p->ID ] ) ? $ampeln[ $p->ID ] : null );
+			$zeilen .= self::termin_zeile( $p->ID );
 		}
 
 		$html = '<div class="igm-weitere-termine" data-bi-mobil="termine">';
@@ -1640,15 +1606,7 @@ class BI_Detail {
 				? 'Gleicher Inhalt, andere Woche'
 				: 'Gleicher Inhalt, andere Woche oder anderes Bildungszentrum'
 		);
-		// Liegt für keinen Termin eine Verfügbarkeit vor, fällt die Spalte weg –
-		// sonst stünde dort eine leere Spalte, die nur Platz kostet.
-		$klasse = 'igm-termine igm-abschnitt__inhalt' . ( $ampeln ? '' : ' igm-termine--ohne-ampel' );
-		$html  .= '<div class="' . $klasse . '">' . $zeilen . '</div>';
-		if ( $ampeln ) {
-			// Eine Ampel ohne Stand-Angabe wäre eine Behauptung ohne Datum.
-			$erste = reset( $ampeln );
-			$html .= '<p class="igm-termine__stand">Verfügbarkeit – Stand: ' . esc_html( $erste['stand'] ) . '</p>';
-		}
+		$html .= '<div class="igm-termine igm-abschnitt__inhalt">' . $zeilen . '</div>';
 		return $html . '</div>';
 	}
 

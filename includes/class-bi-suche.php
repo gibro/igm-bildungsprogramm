@@ -287,7 +287,7 @@ class BI_Suche {
 	 * irgendein Haken gesetzt ist – also praktisch jedes. Dasselbe gilt für
 	 * Datum, Uhrzeit, Zahl und Betrag: „12" träfe jeden Termin im Dezember,
 	 * jeden am 12., jede Uhrzeit ab 12 Uhr und jeden Preis mit einer 12 darin.
-	 * Für genau diese Felder gibt es den Chip „Zeitraum" und die Ampel; als
+	 * Für genau diese Felder gibt es den Chip „Zeitraum" und die Filter; als
 	 * Volltext wären sie kein Fund, sondern Rauschen.
 	 */
 	public static function keine_wortfelder() {

@@ -16,10 +16,6 @@
  *                             steht in den Seminardetails und in der Beschlussvorlage
  *   retention_days     int    Aufbewahrung der Anmeldungen in Tagen NACH SEMINARENDE (0 = aus)
  *   retention_mode     string delete | anonymize
- *   ampel_aktiv        bool   Verfügbarkeits-Ampel anzeigen und abgleichen
- *   ampel_intervall    int    Stunden zwischen zwei planmäßigen Abgleichen
- *   ampel_max_alter    int    Stunden, ab denen Ampeldaten nicht mehr angezeigt werden
- *   ampel_kontakt      string Kontaktangabe im User-Agent der Abrufe
  *   filter_facets      array  Parameternamen der Filter, die die Such-Filterleiste
  *                             anbietet (Auswahl aus BI_Filter::facets())
  *   filter_shortcuts   array  Eigene Chips der Filterleiste: je Eintrag
@@ -96,10 +92,6 @@ class BI_Settings {
 			'pdf_veranstalter'  => '',
 			'retention_days'    => 90,
 			'retention_mode'    => 'delete',
-			'ampel_aktiv'       => 1,
-			'ampel_intervall'   => 24,
-			'ampel_max_alter'   => 48,
-			'ampel_kontakt'     => '',
 			// Eine Regel ist von Anfang an da: Sie macht aus dem Haken „Anmeldung
 			// möglich" das, was alle darunter verstehen. Sichtbar und löschbar
 			// wie jede andere – anders als eine fest verdrahtete Sonderregel, die
@@ -151,7 +143,7 @@ class BI_Settings {
 	 * Punkte und Groß-/Kleinschreibung einebnet, aber kein „ä" in „ae"
 	 * verwandelt – wer „Praesenz" tippt, meint dasselbe.
 	 */
-	private static function form_names( $post_type ) {
+	public static function form_names( $post_type ) {
 		return ( BI_ONLINE === $post_type )
 			? array( 'Online', 'Online-Seminar' )
 			: array( 'Präsenz', 'Praesenz', 'Präsenz-Seminar' );
@@ -195,6 +187,22 @@ class BI_Settings {
 			'ort'           => BI_TAX_ORT,
 		);
 		return $map[ $field ] ?? '';
+	}
+
+	/**
+	 * Läuft das gemeinsame Regelwerk (BI_Regeln, seit 1.147.0)?
+	 *
+	 * Solange nicht – Datei fehlt nach einem Handdeploy, oder die alten Regeln
+	 * sind noch nicht übernommen –, rechnet diese Klasse mit ihrer eigenen
+	 * Liste weiter wie bis 1.146.0. Die alte Liste bleibt dafür gespeichert.
+	 */
+	public static function regelwerk() {
+		return class_exists( 'BI_Regeln' ) && BI_Regeln::aktiv();
+	}
+
+	/** Adresse der Regelseite (bzw. der alten Tabelle, solange das Regelwerk nicht läuft). */
+	public static function regeln_url() {
+		return self::regelwerk() ? BI_Regeln::page_url() : admin_url( 'admin.php?page=bi-einstellungen#bi-regeln' );
 	}
 
 	public static function rules() {
@@ -243,7 +251,7 @@ class BI_Settings {
 	 * über meta_bool() gedeutete: „nie gespeichert" ist etwas anderes als „nein"
 	 * und muss sich als „leer" auch getrennt ansprechen lassen.
 	 */
-	private static function flag_matches( $value, $raw ) {
+	public static function flag_matches( $value, $raw ) {
 		$v   = strtolower( trim( (string) $value ) );
 		$raw = (string) $raw;
 		if ( in_array( $v, array( 'leer', 'nicht gesetzt', 'none', 'empty', 'ohne' ), true ) ) {
@@ -417,6 +425,9 @@ class BI_Settings {
 	 * @return string '' | 'direct' | 'gs' | 'keine'
 	 */
 	public static function matched_variant( $post_id ) {
+		if ( self::regelwerk() ) {
+			return BI_Regeln::anmeldeweg( $post_id )['weg'];
+		}
 		$rule = self::matched_rule( $post_id );
 		if ( null === $rule ) {
 			return '';
@@ -442,10 +453,9 @@ class BI_Settings {
 	 * @return array|null
 	 */
 	public static function matched_rule( $post_id ) {
-		static $memo = array();
 		$post_id = (int) $post_id;
-		if ( array_key_exists( $post_id, $memo ) ) {
-			return $memo[ $post_id ];
+		if ( array_key_exists( $post_id, self::$treffer_merker ) ) {
+			return self::$treffer_merker[ $post_id ];
 		}
 		$treffer = null;
 		foreach ( self::rules() as $rule ) {
@@ -456,11 +466,29 @@ class BI_Settings {
 		}
 		// Der Merker bleibt klein: Trefferlisten fragen nicht mehr als eine
 		// Seite voll Seminare ab, Importe laufen über andere Wege.
-		if ( count( $memo ) > 500 ) {
-			$memo = array();
+		if ( count( self::$treffer_merker ) > 500 ) {
+			self::$treffer_merker = array();
 		}
-		$memo[ $post_id ] = $treffer;
+		self::$treffer_merker[ $post_id ] = $treffer;
 		return $treffer;
+	}
+
+	/**
+	 * Gemerkte Treffer aus matched_rule() je Beitrags-ID.
+	 *
+	 * @var array<int, array|null>
+	 */
+	private static $treffer_merker = array();
+
+	/**
+	 * Vergisst die gemerkten Treffer.
+	 *
+	 * Im Live-Betrieb nicht nötig – der Merker lebt nur einen Seitenaufruf.
+	 * Gebraucht von den Tests, die innerhalb eines Laufs die Regeln wechseln
+	 * und dieselben Seminare erneut abfragen.
+	 */
+	public static function vergiss_treffer() {
+		self::$treffer_merker = array();
 	}
 
 	/**
@@ -474,9 +502,13 @@ class BI_Settings {
 	 * @return array{label:string,hinweis:string}
 	 */
 	public static function keine_texte( $post_id = 0 ) {
-		$def   = self::defaults();
-		$regel = $post_id ? self::matched_rule( $post_id ) : null;
-		$frist = $regel && 'frist' === ( $regel['field'] ?? '' ) && 'keine' === ( $regel['variant'] ?? '' );
+		$def = self::defaults();
+		if ( self::regelwerk() ) {
+			$frist = $post_id && BI_Regeln::anmeldeweg( $post_id )['frist'];
+		} else {
+			$regel = $post_id ? self::matched_rule( $post_id ) : null;
+			$frist = $regel && 'frist' === ( $regel['field'] ?? '' ) && 'keine' === ( $regel['variant'] ?? '' );
+		}
 
 		$label   = trim( (string) self::get( $frist ? 'frist_label' : 'keine_label' ) );
 		$hinweis = trim( (string) self::get( $frist ? 'frist_hinweis' : 'keine_hinweis' ) );
@@ -706,7 +738,6 @@ class BI_Settings {
 			'onlineimport'   => 'Online-Seminar-Import',
 			'plzimport'      => 'PLZ-Import',
 			'verweise'       => 'Verweise',
-			'verfuegbarkeit' => 'Verfügbarkeits-Ampel',
 			'einbettung'     => 'Einbettung (iframe)',
 			'abgleich'       => 'Abgleich',
 			'datenschutz'    => 'Datenschutz',
@@ -764,11 +795,6 @@ class BI_Settings {
 				echo '</div>';
 				return;
 			}
-			if ( 'verfuegbarkeit' === $tab ) {
-				BI_Ampel::render_section();
-				echo '</div>';
-				return;
-			}
 			if ( 'einbettung' === $tab ) {
 				self::render_embed_section( $s );
 				echo '</div>';
@@ -798,11 +824,9 @@ class BI_Settings {
 			}
 			?>
 
-			<p>Hier legst du die drei <strong>Anmeldevarianten</strong> fest. Ohne Regel entscheidet das Feld
-			   <em>„Anmeldung möglich"</em> am Seminar: <strong>ja</strong> → Direktanmeldung (Formular),
-			   <strong>nein</strong> → nur über die Geschäftsstelle. Die dritte Variante
-			   <em>„Keine Anmeldung möglich"</em> lässt sich nur über eine <a href="#bi-regeln">Regel</a>
-			   setzen – sie ist im Ja/Nein-Feld nicht unterzubringen.</p>
+			<p>Hier stehen Ziele und Texte der drei <strong>Anmeldewege</strong>. <strong>Welcher</strong> Weg für
+			   welches Seminar gilt, legen die <a href="<?php echo esc_url( self::regeln_url() ); ?>">Regeln</a> fest.
+			   Trifft keine zu, gilt die Direktanmeldung.</p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="bi_save_settings">
@@ -880,8 +904,8 @@ class BI_Settings {
 				   dann der <strong>Störer</strong> auf der Detailseite: das runde Element des
 				   Design-Systems, kurz und plakativ, darunter der erklärende Satz.</p>
 				<p class="description" style="margin:-8px 0 12px">Diese Variante greift <strong>nur über eine
-				   Regel</strong> weiter unten – das Feld „Anmeldung möglich" am Seminar kennt nur ja/nein
-				   und kann „gar nicht" von „über die Geschäftsstelle" nicht unterscheiden.</p>
+				   <a href="<?php echo esc_url( self::regeln_url() ); ?>">Regel</a></strong> – das Feld „Anmeldung möglich"
+				   am Seminar kennt nur ja/nein und kann „gar nicht" von „über die Geschäftsstelle" nicht unterscheiden.</p>
 				<table class="form-table">
 					<tr>
 						<th><label for="keine_label">Text im Störer</label></th>
@@ -923,7 +947,7 @@ class BI_Settings {
 				</table>
 
 				<h2 class="title">Ausbildungsreihen: Wann darf am Stück gebucht werden?</h2>
-				<p><strong>Zuerst gelten die Regeln weiter unten.</strong> Sie werden auch auf die Reihe
+				<p><strong>Zuerst gelten die <a href="<?php echo esc_url( self::regeln_url() ); ?>">Regeln</a>.</strong> Sie werden auch auf die Reihe
 				   selbst angewendet – verglichen wird dann ihr eigenes Feld <em>Freistellung</em>. Eine
 				   Aussage wie „§ 37,6 BetrVG → Direktanmeldung" gilt der Sache nach und damit für die
 				   Abfolge genauso wie für das einzelne Seminar. Trifft eine Regel zu, entscheidet
@@ -956,157 +980,164 @@ class BI_Settings {
 					</tr>
 				</table>
 
-				<h2 class="title" id="bi-regeln">Regeln: Welche Variante gilt für welches Seminar?</h2>
-				<p><strong>Alle drei Anmeldewege kommen aus dieser Liste.</strong> Sie wird
-				   <strong>von oben nach unten</strong> geprüft – die <strong>erste zutreffende</strong> Regel bestimmt
-				   den Weg. Trifft keine Regel zu, gilt der Normalfall <strong>Direktanmeldung</strong>.</p>
-				<p>Dieselben Regeln gelten für <strong>Ausbildungsreihen</strong>, verglichen wird dort das
-				   Freistellungsfeld der Reihe. Der Unterschied steckt nur im Normalfall: Trifft auf eine
-				   Reihe keine Regel zu, wird sie <em>nicht</em> still direkt buchbar, sondern es
-				   entscheiden wie bisher die Freistellungen ihrer Termine (siehe oben).</p>
-				<p>Die Haken am Seminar (<em>Anmeldung möglich</em>, <em>Ausgebucht</em>,
-				   <em>Auf der Website anzeigen</em>) sind Angaben zum Seminar, keine Anmeldewege. Sie stehen hier
-				   als Feld zur Verfügung und <em>können</em> den Weg damit beeinflussen – genau wie Freistellung,
-				   Themenfeld, Zielgruppe oder Bildungszentrum.</p>
-				<p class="description">
-					Werte: bei Taxonomien ein <em>Teiltext</em> – z. B. <code>Bildungsurlaub</code> oder <code>37,6</code>
-					(„enthält"-Vergleich; Punkt/Komma/Groß-Klein egal). Bei den Haken: <code>ja</code>, <code>nein</code>
-					oder <code>leer</code> (nie gespeichert – etwas anderes als <code>nein</code>).
-					Bei der <a href="#bi-frist">Anmeldefrist</a>: die Zahl der Tage vor Seminarbeginn, z. B. <code>14</code>.
-				</p>
-				<p class="description">
-					<strong>Die Fristregel gehört nach oben.</strong> Steht darüber eine Regel, die dasselbe Seminar
-					trifft (etwa <code>Freistellung</code> · <code>37,6</code> · <em>Direktanmeldung</em>), entscheidet
-					jene zuerst, und die Frist kommt nie zum Zug. Soll die Frist nur für einen Teil gelten, lässt sich
-					das über die Reihenfolge lösen: die Ausnahme darüber, die Frist darunter. Online-Seminare mit
-					externer Anmeldeseite (Teams-Webinar mit Anmeldelink) laufen an den Regeln vorbei – dort
-					endet die Anmeldung auf der Seite des Anbieters.
-				</p>
+				<?php if ( self::regelwerk() ) : ?>
+					<h2 class="title" id="bi-regeln">Regeln</h2>
+					<p>Welcher Anmeldeweg für welches Seminar gilt, steht seit Version 1.147.0 zusammen mit der
+					   Formular-Zuordnung und den Bedingungen der Benachrichtigungen auf einer eigenen Seite:
+					   <a class="button" href="<?php echo esc_url( BI_Regeln::page_url() ); ?>">Bildungsprogramm → Regeln</a></p>
+				<?php else : ?>
+					<h2 class="title" id="bi-regeln">Regeln: Welche Variante gilt für welches Seminar?</h2>
+					<p><strong>Alle drei Anmeldewege kommen aus dieser Liste.</strong> Sie wird
+					   <strong>von oben nach unten</strong> geprüft – die <strong>erste zutreffende</strong> Regel bestimmt
+					   den Weg. Trifft keine Regel zu, gilt der Normalfall <strong>Direktanmeldung</strong>.</p>
+					<p>Dieselben Regeln gelten für <strong>Ausbildungsreihen</strong>, verglichen wird dort das
+					   Freistellungsfeld der Reihe. Der Unterschied steckt nur im Normalfall: Trifft auf eine
+					   Reihe keine Regel zu, wird sie <em>nicht</em> still direkt buchbar, sondern es
+					   entscheiden wie bisher die Freistellungen ihrer Termine (siehe oben).</p>
+					<p>Die Haken am Seminar (<em>Anmeldung möglich</em>, <em>Ausgebucht</em>,
+					   <em>Auf der Website anzeigen</em>) sind Angaben zum Seminar, keine Anmeldewege. Sie stehen hier
+					   als Feld zur Verfügung und <em>können</em> den Weg damit beeinflussen – genau wie Freistellung,
+					   Themenfeld, Zielgruppe oder Bildungszentrum.</p>
+					<p class="description">
+						Werte: bei Taxonomien ein <em>Teiltext</em> – z. B. <code>Bildungsurlaub</code> oder <code>37,6</code>
+						(„enthält"-Vergleich; Punkt/Komma/Groß-Klein egal). Bei den Haken: <code>ja</code>, <code>nein</code>
+						oder <code>leer</code> (nie gespeichert – etwas anderes als <code>nein</code>).
+						Bei der <a href="#bi-frist">Anmeldefrist</a>: die Zahl der Tage vor Seminarbeginn, z. B. <code>14</code>.
+					</p>
+					<p class="description">
+						<strong>Die Fristregel gehört nach oben.</strong> Steht darüber eine Regel, die dasselbe Seminar
+						trifft (etwa <code>Freistellung</code> · <code>37,6</code> · <em>Direktanmeldung</em>), entscheidet
+						jene zuerst, und die Frist kommt nie zum Zug. Soll die Frist nur für einen Teil gelten, lässt sich
+						das über die Reihenfolge lösen: die Ausnahme darüber, die Frist darunter. Online-Seminare mit
+						externer Anmeldeseite (Teams-Webinar mit Anmeldelink) laufen an den Regeln vorbei – dort
+						endet die Anmeldung auf der Seite des Anbieters.
+					</p>
 
-				<?php
-				// Sicherheitsnetz: Ohne eine Regel auf „Anmeldung möglich" wirkt der
-				// leere Haken nicht mehr – die betroffenen Seminare wären buchbar.
-				// Bei einer frischen Installation steht die Regel in den Vorgaben;
-				// wer sie löscht, soll wenigstens sehen, was das bedeutet.
-				$hat_flag_regel = false;
-				foreach ( self::rules() as $r ) {
-					if ( 'flag' === ( $r['field'] ?? '' ) ) {
-						$hat_flag_regel = true;
-						break;
+					<?php
+					// Sicherheitsnetz: Ohne eine Regel auf „Anmeldung möglich" wirkt der
+					// leere Haken nicht mehr – die betroffenen Seminare wären buchbar.
+					// Bei einer frischen Installation steht die Regel in den Vorgaben;
+					// wer sie löscht, soll wenigstens sehen, was das bedeutet.
+					$hat_flag_regel = false;
+					foreach ( self::rules() as $r ) {
+						if ( 'flag' === ( $r['field'] ?? '' ) ) {
+							$hat_flag_regel = true;
+							break;
+						}
 					}
-				}
-				$ohne_anmeldung = $hat_flag_regel ? 0 : (int) count( get_posts( array(
-					'post_type'   => bi_seminar_post_types(),
-					'post_status' => array( 'publish', 'draft', 'pending', 'future', 'private' ),
-					'fields'      => 'ids',
-					'numberposts' => 200,
-					'meta_query'  => array( array( 'key' => '_bi_anmeldung_moeglich', 'value' => '0' ) ),
-				) ) );
-				?>
-				<?php if ( $ohne_anmeldung ) : ?>
-					<div class="notice notice-warning inline" style="margin:0 0 12px;max-width:1080px">
-						<p><strong><?php echo esc_html( number_format_i18n( $ohne_anmeldung ) ); ?><?php echo 200 === $ohne_anmeldung ? '+' : ''; ?>
-						   Seminare haben den Haken „Anmeldung möglich" <em>nicht</em> gesetzt</strong> – und keine Regel
-						   bezieht sich auf diesen Haken. Damit gilt für sie der Normalfall: Sie sind
-						   <strong>direkt buchbar</strong>.</p>
-						<p>Ist das nicht gewollt, lege unten eine Regel an:
-						   <code>Haken „Anmeldung möglich"</code> · <code>nein</code> · <code>Keine Anmeldung möglich</code>.</p>
-					</div>
-				<?php endif; ?>
-
-				<?php $stats = self::rule_stats(); ?>
-				<table class="widefat striped" style="max-width:1080px;margin-bottom:8px">
-					<thead><tr>
-						<th style="width:76px">Reihen&shy;folge</th>
-						<th style="width:230px">Wenn Feld</th>
-						<th>enthält / ist</th>
-						<th style="width:260px">dann Variante</th>
-						<th style="width:90px">Löschen</th>
-					</tr></thead>
-					<tbody>
-						<?php
-						$rules    = self::rules();
-						$rules[]  = array( 'field' => '', 'value' => '', 'variant' => 'direct' ); // Leerzeile zum Anlegen
-						$last_idx = count( $rules ) - 1;
-						foreach ( $rules as $i => $rule ) :
-							$is_new = ( $i === $last_idx );
-							$st     = $is_new ? null : ( $stats[ $i ] ?? null );
-							?>
-							<tr>
-								<td>
-									<?php if ( ! $is_new ) : ?>
-										<span style="color:#646970"><?php echo (int) $i + 1; ?>.</span>
-										<button type="submit" class="button button-small" name="rule_move" value="up-<?php echo (int) $i; ?>"
-										        title="nach oben" aria-label="Regel <?php echo (int) $i + 1; ?> nach oben schieben"
-										        <?php disabled( 0 === $i ); ?>>&#9650;</button>
-										<button type="submit" class="button button-small" name="rule_move" value="down-<?php echo (int) $i; ?>"
-										        title="nach unten" aria-label="Regel <?php echo (int) $i + 1; ?> nach unten schieben"
-										        <?php disabled( $i >= $last_idx - 1 ); ?>>&#9660;</button>
-									<?php endif; ?>
-								</td>
-								<td>
-									<select name="rule[<?php echo $i; ?>][field]">
-										<option value=""><?php echo $is_new ? '— neue Regel —' : '—'; ?></option>
-										<?php foreach ( self::rule_fields() as $val => $lbl ) : ?>
-											<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $rule['field'] ?? '', $val ); ?>><?php echo esc_html( $lbl ); ?></option>
-										<?php endforeach; ?>
-									</select>
-								</td>
-								<td>
-									<input type="text" class="regular-text" name="rule[<?php echo $i; ?>][value]" value="<?php echo esc_attr( $rule['value'] ?? '' ); ?>" placeholder="z. B. Bildungsurlaub / 37,6 / ja / 14">
-									<?php
-									if ( $st ) :
-										// Rot nur, wenn die Regel wirkungslos ist. Dass eine Ausnahme
-										// weiter oben der allgemeinen Regel darunter Seminare wegnimmt,
-										// ist der Zweck der Reihenfolge und keine Warnung wert – die
-										// Zahl dazu steht trotzdem da.
-										$stumpf = ( 0 === $st['gewinnt'] );
-										?>
-										<p class="description" style="margin:4px 0 0<?php echo $stumpf ? ';color:#b32d2e' : ''; ?>">
-											<?php if ( 0 === $st['trifft'] ) : ?>
-												<strong>Trifft auf kein Seminar zu</strong> – Wert prüfen.
-											<?php elseif ( $stumpf ) : ?>
-												<strong>Greift nie:</strong> Bei allen <?php echo esc_html( number_format_i18n( $st['trifft'] ) ); ?>
-												zutreffenden Seminaren entscheidet Regel <?php echo (int) $st['verdeckt_von'] + 1; ?> zuerst.
-												Zum Wirken muss diese Regel darüber stehen.
-											<?php else : ?>
-												Entscheidet <?php echo esc_html( number_format_i18n( $st['gewinnt'] ) ); ?>
-												von <?php echo esc_html( number_format_i18n( $st['trifft'] ) ); ?> zutreffenden Seminaren.
-												<?php if ( $st['verdeckt'] ) : ?>
-													Bei <?php echo esc_html( number_format_i18n( $st['verdeckt'] ) ); ?>
-													entscheidet Regel <?php echo (int) $st['verdeckt_von'] + 1; ?> zuerst.
-												<?php endif; ?>
-											<?php endif; ?>
-										</p>
-									<?php endif; ?>
-								</td>
-								<td>
-									<select name="rule[<?php echo $i; ?>][variant]">
-										<?php foreach ( self::rule_variants() as $val => $lbl ) : ?>
-											<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $rule['variant'] ?? 'direct', $val ); ?>><?php echo esc_html( $lbl ); ?></option>
-										<?php endforeach; ?>
-									</select>
-								</td>
-								<td><?php if ( ! $is_new ) : ?><label><input type="checkbox" name="rule[<?php echo $i; ?>][delete]" value="1"> löschen</label><?php endif; ?></td>
-							</tr>
-						<?php endforeach; ?>
-					</tbody>
-				</table>
-
-				<p class="description" style="max-width:1080px">
-					<?php if ( $stats['meta']['seminare'] ) : ?>
-						Die Angaben unter den Werten sind an <strong><?php echo esc_html( number_format_i18n( $stats['meta']['seminare'] ) ); ?></strong>
-						Seminaren gemessen<?php echo $stats['meta']['gekappt'] ? ' (mehr wurden nicht geprüft)' : ''; ?> –
-						ein Stand von jetzt, kein fester Wert. Dass eine Regel einer anderen Seminare wegnimmt, ist normal:
-						Die Ausnahme gehört nach oben, das Allgemeine nach unten. Zu prüfen ist nur, was <strong>rot</strong>
-						steht – eine Regel, die nie zum Zug kommt. Die Pfeile links verschieben sie.
-						<br><strong>Gezählt werden nur Seminare</strong>, keine Ausbildungsreihen: Die Reihen sind zu
-						wenige, um an ihnen etwas zu erkennen, und eine Regel, die nur auf sie zutrifft, stünde hier
-						sonst als „trifft nie zu" – rot, obwohl sie tut, was sie soll.
-					<?php else : ?>
-						Es gibt noch keine Seminare, an denen sich die Regeln messen ließen.
+					$ohne_anmeldung = $hat_flag_regel ? 0 : (int) count( get_posts( array(
+						'post_type'   => bi_seminar_post_types(),
+						'post_status' => array( 'publish', 'draft', 'pending', 'future', 'private' ),
+						'fields'      => 'ids',
+						'numberposts' => 200,
+						'meta_query'  => array( array( 'key' => '_bi_anmeldung_moeglich', 'value' => '0' ) ),
+					) ) );
+					?>
+					<?php if ( $ohne_anmeldung ) : ?>
+						<div class="notice notice-warning inline" style="margin:0 0 12px;max-width:1080px">
+							<p><strong><?php echo esc_html( number_format_i18n( $ohne_anmeldung ) ); ?><?php echo 200 === $ohne_anmeldung ? '+' : ''; ?>
+							   Seminare haben den Haken „Anmeldung möglich" <em>nicht</em> gesetzt</strong> – und keine Regel
+							   bezieht sich auf diesen Haken. Damit gilt für sie der Normalfall: Sie sind
+							   <strong>direkt buchbar</strong>.</p>
+							<p>Ist das nicht gewollt, lege unten eine Regel an:
+							   <code>Haken „Anmeldung möglich"</code> · <code>nein</code> · <code>Keine Anmeldung möglich</code>.</p>
+						</div>
 					<?php endif; ?>
-				</p>
+
+					<?php $stats = self::rule_stats(); ?>
+					<table class="widefat striped" style="max-width:1080px;margin-bottom:8px">
+						<thead><tr>
+							<th style="width:76px">Reihen&shy;folge</th>
+							<th style="width:230px">Wenn Feld</th>
+							<th>enthält / ist</th>
+							<th style="width:260px">dann Variante</th>
+							<th style="width:90px">Löschen</th>
+						</tr></thead>
+						<tbody>
+							<?php
+							$rules    = self::rules();
+							$rules[]  = array( 'field' => '', 'value' => '', 'variant' => 'direct' ); // Leerzeile zum Anlegen
+							$last_idx = count( $rules ) - 1;
+							foreach ( $rules as $i => $rule ) :
+								$is_new = ( $i === $last_idx );
+								$st     = $is_new ? null : ( $stats[ $i ] ?? null );
+								?>
+								<tr>
+									<td>
+										<?php if ( ! $is_new ) : ?>
+											<span style="color:#646970"><?php echo (int) $i + 1; ?>.</span>
+											<button type="submit" class="button button-small" name="rule_move" value="up-<?php echo (int) $i; ?>"
+											        title="nach oben" aria-label="Regel <?php echo (int) $i + 1; ?> nach oben schieben"
+											        <?php disabled( 0 === $i ); ?>>&#9650;</button>
+											<button type="submit" class="button button-small" name="rule_move" value="down-<?php echo (int) $i; ?>"
+											        title="nach unten" aria-label="Regel <?php echo (int) $i + 1; ?> nach unten schieben"
+											        <?php disabled( $i >= $last_idx - 1 ); ?>>&#9660;</button>
+										<?php endif; ?>
+									</td>
+									<td>
+										<select name="rule[<?php echo $i; ?>][field]">
+											<option value=""><?php echo $is_new ? '— neue Regel —' : '—'; ?></option>
+											<?php foreach ( self::rule_fields() as $val => $lbl ) : ?>
+												<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $rule['field'] ?? '', $val ); ?>><?php echo esc_html( $lbl ); ?></option>
+											<?php endforeach; ?>
+										</select>
+									</td>
+									<td>
+										<input type="text" class="regular-text" name="rule[<?php echo $i; ?>][value]" value="<?php echo esc_attr( $rule['value'] ?? '' ); ?>" placeholder="z. B. Bildungsurlaub / 37,6 / ja / 14">
+										<?php
+										if ( $st ) :
+											// Rot nur, wenn die Regel wirkungslos ist. Dass eine Ausnahme
+											// weiter oben der allgemeinen Regel darunter Seminare wegnimmt,
+											// ist der Zweck der Reihenfolge und keine Warnung wert – die
+											// Zahl dazu steht trotzdem da.
+											$stumpf = ( 0 === $st['gewinnt'] );
+											?>
+											<p class="description" style="margin:4px 0 0<?php echo $stumpf ? ';color:#b32d2e' : ''; ?>">
+												<?php if ( 0 === $st['trifft'] ) : ?>
+													<strong>Trifft auf kein Seminar zu</strong> – Wert prüfen.
+												<?php elseif ( $stumpf ) : ?>
+													<strong>Greift nie:</strong> Bei allen <?php echo esc_html( number_format_i18n( $st['trifft'] ) ); ?>
+													zutreffenden Seminaren entscheidet Regel <?php echo (int) $st['verdeckt_von'] + 1; ?> zuerst.
+													Zum Wirken muss diese Regel darüber stehen.
+												<?php else : ?>
+													Entscheidet <?php echo esc_html( number_format_i18n( $st['gewinnt'] ) ); ?>
+													von <?php echo esc_html( number_format_i18n( $st['trifft'] ) ); ?> zutreffenden Seminaren.
+													<?php if ( $st['verdeckt'] ) : ?>
+														Bei <?php echo esc_html( number_format_i18n( $st['verdeckt'] ) ); ?>
+														entscheidet Regel <?php echo (int) $st['verdeckt_von'] + 1; ?> zuerst.
+													<?php endif; ?>
+												<?php endif; ?>
+											</p>
+										<?php endif; ?>
+									</td>
+									<td>
+										<select name="rule[<?php echo $i; ?>][variant]">
+											<?php foreach ( self::rule_variants() as $val => $lbl ) : ?>
+												<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $rule['variant'] ?? 'direct', $val ); ?>><?php echo esc_html( $lbl ); ?></option>
+											<?php endforeach; ?>
+										</select>
+									</td>
+									<td><?php if ( ! $is_new ) : ?><label><input type="checkbox" name="rule[<?php echo $i; ?>][delete]" value="1"> löschen</label><?php endif; ?></td>
+								</tr>
+							<?php endforeach; ?>
+						</tbody>
+					</table>
+
+					<p class="description" style="max-width:1080px">
+						<?php if ( $stats['meta']['seminare'] ) : ?>
+							Die Angaben unter den Werten sind an <strong><?php echo esc_html( number_format_i18n( $stats['meta']['seminare'] ) ); ?></strong>
+							Seminaren gemessen<?php echo $stats['meta']['gekappt'] ? ' (mehr wurden nicht geprüft)' : ''; ?> –
+							ein Stand von jetzt, kein fester Wert. Dass eine Regel einer anderen Seminare wegnimmt, ist normal:
+							Die Ausnahme gehört nach oben, das Allgemeine nach unten. Zu prüfen ist nur, was <strong>rot</strong>
+							steht – eine Regel, die nie zum Zug kommt. Die Pfeile links verschieben sie.
+							<br><strong>Gezählt werden nur Seminare</strong>, keine Ausbildungsreihen: Die Reihen sind zu
+							wenige, um an ihnen etwas zu erkennen, und eine Regel, die nur auf sie zutrifft, stünde hier
+							sonst als „trifft nie zu" – rot, obwohl sie tut, was sie soll.
+						<?php else : ?>
+							Es gibt noch keine Seminare, an denen sich die Regeln messen ließen.
+						<?php endif; ?>
+					</p>
+				<?php endif; ?>
 
 				<?php submit_button( 'Einstellungen speichern' ); ?>
 			</form>
@@ -1838,12 +1869,6 @@ class BI_Settings {
 		$msg    = 'Einstellungen gespeichert.';
 		$anchor = '';
 
-		// Wird die Ampel in diesem Speichern abgeschaltet, sind die Haken
-		// „Ausgebucht", die sie gesetzt hat, danach herrenlos: Ohne Abgleich
-		// nimmt sie niemand mehr zurück. Sie werden deshalb freigegeben – aber
-		// erst, nachdem die Einstellung wirklich gespeichert ist.
-		$ampel_abgeschaltet = false;
-
 		if ( 'suche' === $tab ) {
 			// Nur bekannte Facettennamen übernehmen und in der Reihenfolge von
 			// facets() ablegen: Was aus dem Formular kommt, bestimmt das Ob,
@@ -1920,19 +1945,6 @@ class BI_Settings {
 		} elseif ( 'pdf' === $tab ) {
 			$out['pdf_logo_id']      = intval( $_POST['pdf_logo_id'] ?? 0 );
 			$out['pdf_veranstalter'] = sanitize_textarea_field( wp_unslash( $_POST['pdf_veranstalter'] ?? '' ) );
-		} elseif ( 'verfuegbarkeit' === $tab ) {
-			$ampel_vorher           = ! empty( $out['ampel_aktiv'] );
-			$out['ampel_aktiv']     = empty( $_POST['ampel_aktiv'] ) ? 0 : 1;
-			$ampel_abgeschaltet     = ( $ampel_vorher && ! $out['ampel_aktiv'] );
-			$out['ampel_intervall'] = min( 168, max( 1, intval( bi_post( 'ampel_intervall' ) ) ) );
-			// Die Anzeigefrist muss über dem Abstand der Läufe liegen, sonst fällt die
-			// Ampel zwischen zwei Abgleichen regelmäßig aus. Zu kleine Eingaben werden
-			// deshalb stillschweigend auf den doppelten Abstand angehoben.
-			$out['ampel_max_alter'] = min( 720, max( 1, intval( bi_post( 'ampel_max_alter' ) ) ) );
-			if ( $out['ampel_max_alter'] <= $out['ampel_intervall'] ) {
-				$out['ampel_max_alter'] = min( 720, $out['ampel_intervall'] * 2 );
-			}
-			$out['ampel_kontakt']   = sanitize_text_field( bi_post( 'ampel_kontakt' ) );
 		} elseif ( 'einbettung' === $tab ) {
 			// Zeilenweise durch dieselbe Prüfung schicken, die auch beim
 			// Ausliefern gilt. Was hier stehen bleibt, wirkt also genau so –
@@ -1992,6 +2004,14 @@ class BI_Settings {
 				}
 			}
 
+			// Läuft das Regelwerk, steht hier keine Regeltabelle mehr im Formular –
+			// die gespeicherte alte Liste bleibt dann unangetastet (Rückweg).
+			if ( self::regelwerk() ) {
+				update_option( self::OPTION, $out );
+				wp_safe_redirect( add_query_arg( array( 'page' => 'bi-einstellungen', 'bi_msg' => rawurlencode( $msg ) ), admin_url( 'admin.php' ) ) );
+				exit;
+			}
+
 			// Regeln einsammeln (Reihenfolge bleibt erhalten = Prüfreihenfolge).
 			// Schlüssel bleibt die Zeilennummer aus dem Formular, damit ein Pfeil
 			// auch dann die gemeinte Regel trifft, wenn im selben Durchgang eine
@@ -2039,13 +2059,6 @@ class BI_Settings {
 		}
 
 		update_option( self::OPTION, $out );
-
-		if ( $ampel_abgeschaltet && class_exists( 'BI_Ampel' ) ) {
-			$frei = BI_Ampel::ausgebucht_freigeben();
-			$msg .= $frei
-				? sprintf( ' Die Ampel ist abgeschaltet; %s Seminar(e), die sie auf ausgebucht gesetzt hatte, sind wieder freigegeben.', number_format_i18n( $frei ) )
-				: ' Die Ampel ist abgeschaltet; kein Seminar stand wegen der Ampel auf ausgebucht.';
-		}
 
 		$args = array( 'page' => 'bi-einstellungen', 'bi_msg' => rawurlencode( $msg ) );
 		if ( 'allgemein' !== $tab ) {

@@ -305,23 +305,23 @@
 .igm-termin__ort { font-size: 15px; min-width: 0; }
 .igm-termin__zusatz { font-size: 13px; color: var(--bi-grau); line-height: 1.2; }
 
-/* ---- Zeile mit Buchung: Seminarort · Zeitraum · Verfügbarkeit · Button ----
+/* ---- Zeile mit Buchung: Seminarort · Zeitraum · Button ----
    Getrennt werden die Spalten durch Weißraum (20px) und durch die gemeinsame
    Oberkante, nicht durch Striche – so hält es das Design-System durchgehend.
    Beides zusammen ist nötig: Weißraum allein reichte nicht, sobald der Ortsname
    umbrach. */
 /* Der Zeitraum bekommt `auto` und bleibt damit einzeilig – er ist der Anker,
-   an dem man die Zeilen vergleicht. Ort, Verfügbarkeit und Button haben eine
-   Obergrenze und brechen darin um; der Ort nimmt den Rest. So bleibt der
+   an dem man die Zeilen vergleicht. Der Button hat eine Obergrenze und bricht
+   darin um; der Ort nimmt den Rest. So bleibt der
    Abstand zwischen den Spalten erhalten, statt dass eine Spalte die andere
    erdrückt. */
 .igm-termin--link {
-	grid-template-columns: minmax(0, 1fr) auto minmax(0, 124px) minmax(0, 140px);
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 140px);
 	column-gap: 20px; row-gap: 8px;
 	/* OBEN statt mittig ausrichten. „Bildungszentrum Sprockhövel" braucht zwei
 	   Zeilen; mittig gesetzt rutschte das Datum dann GENAU zwischen die beiden
 	   Ortszeilen, und die Spalten lasen sich als ein Textblock. Oben bündig
-	   beginnen alle vier Angaben auf derselben Höhe – daran erkennt das Auge
+	   beginnen alle Angaben auf derselben Höhe – daran erkennt das Auge
 	   die Spalte, ganz ohne Trennlinie. */
 	align-items: start;
 }
@@ -330,39 +330,27 @@
 .igm-termin--link .igm-termin__aktion { margin-top: -4px; }
 .igm-termin--link .igm-termin__aus { margin-top: 1px; }
 
-/* Ohne eine einzige abgeglichene Verfügbarkeit entfällt die Spalte. */
-.igm-termine--ohne-ampel .igm-termin--link {
-	grid-template-columns: minmax(0, 1fr) auto minmax(0, 140px);
-}
-.igm-termine--ohne-ampel .igm-termin__ampel { display: none; }
-
-/* Zu eng für vier Spalten: Der Ortsname zerbräche in Einzelwörter, und die
-   Zeile wäre höher als drei gestapelte Angaben. Ab hier also Karte statt
-   Tabelle – Zeitraum und Ort links, Verfügbarkeit und Aktion rechts daneben.
+/* Zu eng für drei Spalten: Der Ortsname zerbräche in Einzelwörter, und die
+   Zeile wäre höher als die gestapelten Angaben. Ab hier also Karte statt
+   Tabelle – Zeitraum und Ort links, die Aktion rechts daneben.
    Die Schwelle ist die Breite, ab der 1fr dem Ort noch rund 150px lässt. */
 @container bi-termine (max-width: 620px) {
-	.igm-termin--link,
-	.igm-termine--ohne-ampel .igm-termin--link {
+	.igm-termin--link {
 		grid-template-columns: minmax(0, 1fr) auto;
 		column-gap: 16px; row-gap: 4px;
 	}
 	.igm-termin--link .igm-termin__datum { grid-column: 1; }
 	.igm-termin--link .igm-termin__ort   { grid-column: 1; }
-	/* Verfügbarkeit und Aktion stehen rechts, über beide Textzeilen hinweg. */
-	.igm-termin--link .igm-termin__ampel {
-		grid-column: 2; grid-row: 1; justify-self: end; max-width: none;
-	}
-	.igm-termine--ohne-ampel .igm-termin__ampel { display: none; }
+	/* Die Aktion steht rechts, über beide Textzeilen hinweg. */
 	.igm-termin--link .igm-termin__aktion {
-		grid-column: 2; grid-row: 2; justify-self: end; margin-top: 2px;
+		grid-column: 2; grid-row: 1 / span 2; justify-self: end; align-self: center; margin-top: 2px;
 	}
-	.igm-termine--ohne-ampel .igm-termin--link .igm-termin__aktion { grid-row: 1 / span 2; align-self: center; }
 }
 
 a.igm-termin__datum { color: var(--bi-anthrazit); text-decoration: none; }
 a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 
-/* Nicht buchbarer Termin: ausgegraut, ohne Ampel, ohne Button. Er bleibt in der
+/* Nicht buchbarer Termin: ausgegraut, ohne Button. Er bleibt in der
    Liste – er beantwortet weiter „gibt es das Seminar und wann?" –, tritt aber
    hinter die buchbaren zurück. Den grauen Grund legt `.igm-termin--aus` weiter
    unten fest (dieselbe Marke nutzt die Reihenseite für ihre Wahlzeilen); hier
@@ -377,11 +365,6 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 	display: inline-block; font-size: 14px; line-height: 1.2; color: var(--bi-grau);
 	font-weight: 700; text-align: right;
 }
-/* „Warteliste möglich" füllt die Spalte auf den Pixel genau aus. Ein längeres
-   Label aus der Quelle soll umbrechen statt in den Button zu laufen. */
-.igm-termin__ampel { min-width: 0; }
-.igm-termin__ampel .igm-ampel { max-width: 100%; }
-.igm-termin__ampel .igm-ampel__text { min-width: 0; }
 .igm-termin__aktion { justify-self: end; min-width: 0; }
 /* Der Button steht hier neben anderen Angaben, nicht allein in einer Sidebar:
    kleiner, und sein Text darf umbrechen. „Zur Geschäftsstellensuche" braucht
@@ -445,7 +428,6 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 
 .igm-termine__hinweis { margin: 0 0 10px; font-size: 14px; color: var(--bi-grau); }
 .igm-termine__leer { font-size: 15px; color: var(--bi-grau); }
-.igm-termine__stand { margin: 10px 0 0; font-size: 13px; color: var(--bi-grau); }
 
 /* ---------------- Sidebar-Boxen ---------------- */
 
@@ -459,25 +441,12 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 .igm-box--klein .igm-box__titel { font-size: 16px; margin-bottom: 12px; }
 .igm-box__text { margin: 0 0 14px; font-size: 15px; color: var(--bi-grau); }
 
-/* Verfügbarkeits-Ampel oben in der Box */
-.igm-ampelbox { padding: 12px 14px; margin-bottom: 18px; background: var(--bi-grau-tint); }
-.igm-ampelbox--green  { background: var(--bi-gruen-tint); }
-.igm-ampelbox--orange { background: var(--bi-gelb-tint); }
-.igm-ampelbox--red    { background: var(--bi-rot-tint); }
-.igm-ampelbox .igm-ampel { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 16px; }
-.igm-ampelbox .igm-ampel__punkt { width: 12px; height: 12px; border-radius: 0; flex: 0 0 auto; background: var(--bi-grau); }
-.igm-ampelbox.igm-ampelbox--green  .igm-ampel__punkt { background: var(--bi-gruen); }
-.igm-ampelbox.igm-ampelbox--orange .igm-ampel__punkt { background: var(--bi-gelb); }
-.igm-ampelbox.igm-ampelbox--red    .igm-ampel__punkt { background: var(--bi-rot); }
-.igm-ampelbox .igm-ampel__stand { display: block; font-size: 13px; font-weight: 400; color: var(--bi-grau); margin-top: 3px; }
-
-/* Ampel außerhalb der Box (Terminzeilen) */
-.igm-ampel { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; line-height: 1.3; color: var(--bi-anthrazit); }
-.igm-ampel__punkt { flex: 0 0 auto; width: 10px; height: 10px; background: var(--bi-grau); }
-.igm-ampel--green  .igm-ampel__punkt { background: var(--bi-gruen); }
-.igm-ampel--orange .igm-ampel__punkt { background: var(--bi-gelb); }
-.igm-ampel--red    .igm-ampel__punkt { background: var(--bi-rot); }
-.igm-ampel__stand { color: var(--bi-grau); font-size: 12px; }
+/* Hinweis „Ausgebucht" oben in der Box (Haken am Seminar) */
+.igm-ausgebucht {
+	display: flex; align-items: center; gap: 9px; padding: 12px 14px; margin-bottom: 18px;
+	background: var(--bi-rot-tint); font-weight: 700; font-size: 16px; line-height: 1.3; color: var(--bi-anthrazit);
+}
+.igm-ausgebucht__punkt { width: 12px; height: 12px; flex: 0 0 auto; background: var(--bi-rot); }
 
 /* Definitionsliste */
 .igm-daten { margin: 0; display: flex; flex-direction: column; }
@@ -973,20 +942,15 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 	   @container (vor Chrome 105 / Safari 16) bekäme sonst bei 375px vier
 	   Spalten nebeneinander. Auf dem Handy ist das Fenster so breit wie die
 	   Liste, deshalb führt der Umweg über das Fenster hier zum selben Ergebnis. */
-	.igm-termin--link,
-	.igm-termine--ohne-ampel .igm-termin--link {
+	.igm-termin--link {
 		grid-template-columns: minmax(0, 1fr) auto;
 		column-gap: 16px; row-gap: 4px;
 	}
 	.igm-termin--link .igm-termin__datum { grid-column: 1; }
 	.igm-termin--link .igm-termin__ort   { grid-column: 1; }
-	.igm-termin--link .igm-termin__ampel {
-		grid-column: 2; grid-row: 1; justify-self: end; max-width: none;
-	}
 	.igm-termin--link .igm-termin__aktion {
-		grid-column: 2; grid-row: 2; justify-self: end; margin-top: 2px;
+		grid-column: 2; grid-row: 1 / span 2; justify-self: end; align-self: center; margin-top: 2px;
 	}
-	.igm-termine--ohne-ampel .igm-termin--link .igm-termin__aktion { grid-row: 1 / span 2; align-self: center; }
 
 	.igm-termin--wahl {
 		grid-template-columns: 16px minmax(0, 1fr);
@@ -1206,7 +1170,7 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 	.igm-seite .igm-box__teil--info {
 		border-top: 4px solid var(--bi-rot); background: var(--bi-grau-tint); padding: 14px;
 	}
-	.igm-seite .igm-box__teil--info .igm-ampelbox { margin: 0 0 14px; padding: 10px 12px; }
+	.igm-seite .igm-box__teil--info .igm-ausgebucht { margin: 0 0 14px; padding: 10px 12px; }
 	.igm-seite .igm-daten__zeile { display: block; padding: 0; border: 0; margin: 0 0 12px; }
 	.igm-seite .igm-daten__zeile:last-child { margin-bottom: 0; }
 	.igm-seite .igm-daten dt {
@@ -1254,8 +1218,7 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 	/* Terminzeile: Ort fett, Datum grau darunter, rechts der Weg als Text –
 	   kein Rahmen, nur die Haarlinie darunter (Entwurf). */
 	.igm-seite .igm-termine { gap: 0; }
-	.igm-seite .igm-termin--link,
-	.igm-seite .igm-termine--ohne-ampel .igm-termin--link {
+	.igm-seite .igm-termin--link {
 		border: 0; border-bottom: 1px solid var(--bi-lichtgrau); padding: 12px 0;
 		grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px; align-items: center;
 	}
@@ -1265,11 +1228,8 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 	.igm-seite .igm-termin--link .igm-termin__datum {
 		grid-column: 1; grid-row: 2; font-size: 13.5px; font-weight: 400; color: var(--bi-grau);
 	}
-	.igm-seite .igm-termin--link .igm-termin__ampel { grid-column: 1; grid-row: 3; justify-self: start; }
-	.igm-seite .igm-termin--link .igm-termin__ampel:empty { display: none; }
-	.igm-seite .igm-termin--link .igm-termin__aktion,
-	.igm-seite .igm-termine--ohne-ampel .igm-termin--link .igm-termin__aktion {
-		grid-column: 2; grid-row: 1 / span 3; justify-self: end; align-self: center;
+	.igm-seite .igm-termin--link .igm-termin__aktion {
+		grid-column: 2; grid-row: 1 / span 2; justify-self: end; align-self: center;
 		margin: 0; max-width: 112px; text-align: right;
 	}
 	.igm-seite .igm-termin__aktion .igm-btn-buchen {
@@ -1287,7 +1247,6 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 	/* Ausgebucht: nur die Schrift tritt zurück, keine graue Fläche – in einer
 	   Liste ohne Rahmen wäre sie ein Fremdkörper (Entwurf). */
 	.igm-seite .igm-termin--link.igm-termin--aus { background: none; }
-	.igm-seite .igm-termine__stand { font-size: 12.5px; }
 
 	/* ---------------- Inhalte der Reihe (Akkordeon) ---------------- */
 

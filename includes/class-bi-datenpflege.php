@@ -725,13 +725,6 @@ class BI_Datenpflege {
 				update_post_meta( $post_id, $key, self::sanitize_meta( (string) $meta[ $key ], $cfg ) );
 			}
 
-			// Wie beim CSV-Import: Der Haken „Ausgebucht" aus dem Paket ist eine
-			// Aussage über den Stand, keine Korrektur an der Ampel – ihre Notiz
-			// wird deshalb vergessen (siehe BI_Ampel::hand_zuruecksetzen).
-			if ( array_key_exists( '_bi_ausgebucht', $meta ) && class_exists( 'BI_Ampel' ) ) {
-				BI_Ampel::hand_zuruecksetzen( $post_id );
-			}
-
 			// Begriffe setzen – GENAU die aus dem Paket, auch wenn es keine sind.
 			//
 			// Die leere Liste löscht die Zuordnung. Das ist der Unterschied
@@ -811,13 +804,6 @@ class BI_Datenpflege {
 		if ( $bilder_geholt ) {
 			$meldung .= sprintf( ' %d Beitragsbilder übernommen.', $bilder_geholt );
 		}
-		if ( $created || $updated ) {
-			$hinweis = BI_Ampel::nach_import();
-			if ( $hinweis ) {
-				$meldung .= ' ' . $hinweis;
-			}
-		}
-
 		self::redirect( array(), $meldung );
 	}
 
@@ -2429,29 +2415,37 @@ class BI_Datenpflege {
 		$notice = isset( $_GET['bi_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['bi_msg'] ) ) : '';
 		$tab    = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'auswahl';
 		$tabs   = array(
-			'auswahl'   => 'Auswahl & Export',
-			'begriffe'  => 'Begriffe',
+			'auswahl'    => 'Auswahl & Export',
+			'teilimport' => 'Teil-Import',
+			'begriffe'   => 'Begriffe',
 			'felder'    => 'Felder',
 			'reihen'    => 'Ausbildungsreihen',
 			'dubletten' => 'Doppelte Nummern',
 		);
+		if ( class_exists( 'BI_Themenplan' ) ) {
+			$tabs[ BI_Themenplan::TAB ] = 'Themenpläne';
+		}
 		if ( ! isset( $tabs[ $tab ] ) ) {
 			$tab = 'auswahl';
 		}
 		$base = admin_url( 'admin.php?page=' . self::PAGE );
 
-		if ( in_array( $tab, array( 'felder', 'reihen', 'begriffe', 'dubletten' ), true ) ) {
+		if ( in_array( $tab, array( 'teilimport', 'felder', 'reihen', 'begriffe', 'dubletten', 'themenplaene' ), true ) ) {
 			echo '<div class="wrap"><h1>Datenpflege</h1>';
 			if ( $notice ) {
 				echo '<div class="notice notice-info"><p>' . esc_html( $notice ) . '</p></div>';
 			}
 			self::render_tabs( $tabs, $tab, $base );
-			if ( 'felder' === $tab ) {
+			if ( 'teilimport' === $tab ) {
+				BI_Import::render_teilimport_page();
+			} elseif ( 'felder' === $tab ) {
 				BI_Felder::render_section();
 			} elseif ( 'begriffe' === $tab ) {
 				self::render_begriffe_section();
 			} elseif ( 'dubletten' === $tab ) {
 				self::render_dubletten_section();
+			} elseif ( 'themenplaene' === $tab ) {
+				BI_Themenplan::render_section();
 			} else {
 				self::render_reihen_section();
 			}
@@ -2649,6 +2643,9 @@ class BI_Datenpflege {
 						<p>Eine Zeile je Eintrag, Semikolon als Trennzeichen. Die Kopfzeile entspricht den Feldnamen des
 						   Seminar-Imports – in der Zielinstallation ist die Spaltenzuordnung deshalb schon ausgefüllt.
 						   Mehrfachwerte stehen mit <code>|</code> getrennt in einer Zelle.</p>
+						<p class="description">Geänderte Spalten zurückspielen, ohne den Rest anzufassen:
+						   <a href="<?php echo esc_url( BI_Import::teil_url() ); ?>">Teil-Import</a> – nicht benötigte
+						   Spalten vorher einfach löschen.</p>
 						<?php submit_button( 'CSV herunterladen', 'primary', 'submit', false, $treffer ? array() : array( 'disabled' => 'disabled' ) ); ?>
 						<?php if ( 'beide' === $f['pt'] ) : ?>
 							<p class="description" style="color:#b32d2e">Bitte oben eine einzelne Seminarform wählen.</p>

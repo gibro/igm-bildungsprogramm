@@ -26,12 +26,53 @@
       });
     }
 
+    // Wenn-dann-Felder: [data-wenn-feld] erscheint nur, wenn das genannte
+    // Feld den Wert aus [data-wenn-wert] hat. Verborgene Eingaben werden
+    // gesperrt (disabled) – so prüft sie niemand und der Browser schickt sie
+    // nicht ab. Der Server entscheidet dasselbe noch einmal selbst.
+    var bedingte = Array.prototype.slice.call(form.querySelectorAll('[data-wenn-feld]'));
+
+    function aktuellerWert(name) {
+      var ctrls = form.querySelectorAll('[name="' + name + '"]');
+      if (!ctrls.length) return null; // Feld steht nicht im Formular -> Bedingung gilt als erfüllt
+      var wert = '';
+      Array.prototype.forEach.call(ctrls, function (c) {
+        if (c.disabled) return;
+        if (c.type === 'radio' || c.type === 'checkbox') {
+          if (c.checked) wert = c.value;
+        } else {
+          wert = c.value;
+        }
+      });
+      return wert;
+    }
+
+    function wennAnwenden() {
+      if (!bedingte.length) return;
+      // Mehrere Durchläufe, damit Ketten (C hängt an B, B an A) zur Ruhe kommen.
+      for (var runde = 0; runde < 5; runde++) {
+        var geaendert = false;
+        bedingte.forEach(function (fld) {
+          var ist = aktuellerWert(fld.getAttribute('data-wenn-feld'));
+          var zeigen = (ist === null) || (ist === fld.getAttribute('data-wenn-wert'));
+          if (fld.hidden !== !zeigen) geaendert = true;
+          fld.hidden = !zeigen;
+          Array.prototype.forEach.call(fld.querySelectorAll('input, select, textarea'), function (el) {
+            el.disabled = !zeigen;
+            if (!zeigen) mark(el, false);
+          });
+        });
+        if (!geaendert) break;
+      }
+    }
+
     // Live-Zusammenfassung der Eingaben (Schritte 1–3) für Schritt 4
     function reviewItems() {
       var out = [];
       steps.forEach(function (sec, idx) {
         if (idx === total - 1) return; // Abschluss-Schritt selbst überspringen
         Array.prototype.forEach.call(sec.querySelectorAll('.bi-wiz__field'), function (fld) {
+          if (fld.hidden) return; // verborgenes Wenn-dann-Feld
           var labelEl = fld.querySelector('.bi-wiz__label');
           var label = labelEl ? labelEl.textContent.replace('*', '').trim() : '';
           var value = '';
@@ -93,6 +134,7 @@
     }
 
     function fieldInvalid(el) {
+      if (el.disabled) return false; // verborgenes Wenn-dann-Feld
       var req = !!el.getAttribute('data-req');
       if (el.type === 'checkbox') return req && !el.checked;
       var val = (el.value || '').trim();
@@ -157,11 +199,13 @@
       renderReview();
     });
     form.addEventListener('change', function (e) {
+      wennAnwenden();
       var el = e.target;
       if (el.classList && el.classList.contains('bi-invalid')) mark(el, fieldInvalid(el));
       renderReview();
     });
 
+    wennAnwenden();
     render();
   }
 

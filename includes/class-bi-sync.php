@@ -43,8 +43,8 @@
  * die Ereignisse machen ihn nur schnell.
  *
  * ── Woran ein Seminar wiedererkannt wird ─────────────────────────────────
- * An der SEMINARNUMMER, wie überall in diesem Plugin (CSV-Import, JSON-Paket,
- * Verfügbarkeits-Ampel). Post-IDs taugen nicht: Sie sind in jeder Installation
+ * An der SEMINARNUMMER, wie überall in diesem Plugin (CSV-Import, JSON-Paket).
+ * Post-IDs taugen nicht: Sie sind in jeder Installation
  * andere.
  *
  * Der Schlüssel ist aber nicht die Nummer allein, sondern QUELLE + BEITRAGSTYP +
@@ -342,9 +342,8 @@ class BI_Sync {
 
 		if ( self::ist_quelle() ) {
 			// Änderungsmarke setzen. Ohne sie bliebe eine Änderung unsichtbar, die
-			// nur Meta-Felder betrifft – etwa der Haken „Ausgebucht", den die
-			// Verfügbarkeits-Ampel programmgesteuert setzt: post_modified rührt
-			// sie nicht an.
+			// nur Meta-Felder betrifft – etwa der Haken „Ausgebucht", wenn er
+			// programmgesteuert gesetzt wird: post_modified rührt sie nicht an.
 			foreach ( bi_seminar_post_types() as $pt ) {
 				add_action( 'save_post_' . $pt, array( __CLASS__, 'markieren' ), 99 );
 			}
@@ -443,8 +442,7 @@ class BI_Sync {
 	 * Meta-Änderung an einem Seminar.
 	 *
 	 * Die eigene Marke ist ausgenommen – sonst riefe sich das Setzen der Marke
-	 * selbst wieder auf. Ebenso die Notizfelder der Ampel: Sie halten fest, WIE
-	 * ein Wert zustande kam, nicht den Wert selbst.
+	 * selbst wieder auf.
 	 */
 	public static function markieren_meta( $meta_id, $post_id, $meta_key ) {
 		if ( self::META_GEAENDERT === $meta_key ) {
@@ -588,6 +586,13 @@ class BI_Sync {
 	public static function route_bestand( $request ) {
 		global $wpdb;
 		$s = self::all();
+
+		// Per FTP abgelegte oder entfernte Themenpläne ändern kein Seminar und
+		// setzen deshalb keine Änderungsmarke. Der Vergleich mit dem letzten
+		// Verzeichnisstand holt das hier nach, bevor die Marken gelesen werden.
+		if ( class_exists( 'BI_Themenplan' ) ) {
+			BI_Themenplan::abgleichen();
+		}
 
 		// EINE Abfrage für den ganzen Bestand. Der Weg über get_posts() und
 		// get_post_meta() je Eintrag wären bei tausend Seminaren zweitausend
@@ -738,6 +743,9 @@ class BI_Sync {
 				'meta'      => $meta,
 				'terms'     => BI_Datenpflege::paket_terms( $post_id, BI_CPT::taxonomies( $pt ), $terms_used ),
 				'bild'      => (string) get_the_post_thumbnail_url( $post_id, 'full' ),
+				// Themenplan: Die Datei bleibt in der Quelle, die Zentrale
+				// bekommt nur ihre Adresse. Leer heißt „keiner (mehr)".
+				'themenplan' => class_exists( 'BI_Themenplan' ) ? BI_Themenplan::url_lokal( $post_id ) : '',
 				'sync'      => array(
 					'schluessel'  => self::schluessel_fuer( $post_id ),
 					'stand'       => self::stand_von( $post_id ),
@@ -1472,9 +1480,6 @@ class BI_Sync {
 			if ( class_exists( 'BI_Cache' ) ) {
 				BI_Cache::leeren( true );
 			}
-			if ( class_exists( 'BI_Ampel' ) ) {
-				BI_Ampel::nach_import();
-			}
 		}
 		return 'fertig';
 	}
@@ -1582,13 +1587,6 @@ class BI_Sync {
 			update_post_meta( $post_id, $key, BI_Datenpflege::sanitize_meta( (string) $meta[ $key ], $cfg ) );
 		}
 
-		// Der Haken „Ausgebucht" kommt aus der Quelle und ist damit eine Aussage
-		// über den Stand, keine Handkorrektur an der hiesigen Ampel – ihre Notiz
-		// wird deshalb vergessen (wie beim CSV- und Paket-Import).
-		if ( array_key_exists( '_bi_ausgebucht', $meta ) && class_exists( 'BI_Ampel' ) ) {
-			BI_Ampel::hand_zuruecksetzen( $post_id );
-		}
-
 		// Begriffe: genau die aus dem Paket, auch wenn es keine sind.
 		// Mit Weiche, siehe self::$schreibt: Der Stempel steht noch nicht.
 		$terms = isset( $eintrag['terms'] ) && is_array( $eintrag['terms'] ) ? $eintrag['terms'] : array();
@@ -1626,6 +1624,12 @@ class BI_Sync {
 		// Mediathek nicht mit Kopien füllen.
 		if ( self::get( 'bilder' ) && ! empty( $eintrag['bild'] ) && ! has_post_thumbnail( $post_id ) ) {
 			BI_Datenpflege::bild_holen( (string) $eintrag['bild'], $post_id );
+		}
+
+		// Themenplan der Quelle verlinken. Ältere Quellen ohne diesen Schlüssel
+		// lassen den bisherigen Stand unangetastet, statt ihn zu löschen.
+		if ( array_key_exists( 'themenplan', $eintrag ) && class_exists( 'BI_Themenplan' ) ) {
+			BI_Themenplan::fremd_speichern( $post_id, (string) $eintrag['themenplan'] );
 		}
 
 		return $ergebnis;
