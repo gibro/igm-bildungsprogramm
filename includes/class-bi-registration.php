@@ -261,10 +261,21 @@ class BI_Registration {
 			}
 		}
 
-		// Bei Online-Seminaren steht in der Ortszeile „Online" (plus Veranstalter*in).
-		$ortname = ( is_array( $ort ) && $ort ) ? $ort[0] : '';
+		// Seminarort und zuständiges Bildungszentrum sind zweierlei: Ein Seminar
+		// des Bildungszentrums Sprockhövel kann im Hotel in Wuppertal stattfinden.
+		// „ort" ist deshalb der tatsächliche Veranstaltungsort (BI_CPT::ort_anzeige,
+		// dieselbe Regel wie auf der Detailseite), „zentrum" das Bildungszentrum –
+		// nur gesetzt, wenn es vom Ort abweicht und nicht der Sammelbegriff „Andere" ist.
+		$zentrum = ( is_array( $ort ) && $ort ) ? trim( (string) $ort[0] ) : '';
 		if ( bi_is_online( $id ) ) {
-			$ortname = $ortname ? 'Online · ' . $ortname : 'Online';
+			// Bei Online-Seminaren steht in der Ortszeile „Online" (plus Veranstalter*in).
+			$ortname = $zentrum ? 'Online · ' . $zentrum : 'Online';
+			$zentrum = '';
+		} else {
+			$ortname = BI_CPT::ort_anzeige( $id );
+			if ( $zentrum === $ortname || BI_CPT::ANDERE === $zentrum ) {
+				$zentrum = '';
+			}
 		}
 
 		return array(
@@ -272,6 +283,7 @@ class BI_Registration {
 			'nummer'          => get_post_meta( $id, '_bi_seminarnummer', true ),
 			'termin'          => $termin,
 			'ort'             => $ortname,
+			'zentrum'         => $zentrum,
 			'ansprechpartner' => get_post_meta( $id, '_bi_ansprechpartner', true ),
 		);
 	}
@@ -318,7 +330,7 @@ class BI_Registration {
 		$anzahl = count( $liste );
 		return array(
 			'titel'  => get_the_title( $reihe_id ),
-			'gruppe' => $durchgang ? 'Reihe ' . (int) $durchgang : 'ohne feste Gruppe',
+			'gruppe' => $durchgang ? BI_Reihen::gruppe_label( $reihe_id, $durchgang ) : 'ohne feste Gruppe',
 			'umfang' => sprintf( _n( '%d Teil', '%d Teile', $anzahl, 'bi-seminarsuche' ), $anzahl ),
 			'liste'  => $liste,
 		);
@@ -506,7 +518,8 @@ class BI_Registration {
 					<?php else : ?>
 					<div class="bi-wiz__info">
 						<?php if ( $info['termin'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Termin</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['termin'] ); ?></span></div><?php endif; ?>
-						<?php if ( $info['ort'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Ort</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['ort'] ); ?></span></div><?php endif; ?>
+						<?php if ( $info['ort'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Seminarort</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['ort'] ); ?></span></div><?php endif; ?>
+						<?php if ( $info['zentrum'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Zuständiges Bildungszentrum</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['zentrum'] ); ?></span></div><?php endif; ?>
 						<div class="bi-wiz__info-cols">
 							<?php if ( $info['nummer'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Seminarnummer</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['nummer'] ); ?></span></div><?php endif; ?>
 							<?php if ( $info['ansprechpartner'] ) : ?><div class="bi-wiz__info-row"><span class="bi-wiz__info-label">Ansprechpartner*in</span><span class="bi-wiz__info-val"><?php echo esc_html( $info['ansprechpartner'] ); ?></span></div><?php endif; ?>
@@ -728,10 +741,11 @@ class BI_Registration {
 	/** Übersichtskarte in Schritt 4 */
 	private static function summary_card( $info ) {
 		$rows = array(
-			'Seminar' => $info['title'],
-			'Nummer'  => $info['nummer'],
-			'Termin'  => $info['termin'],
-			'Ort'     => $info['ort'],
+			'Seminar'         => $info['title'],
+			'Nummer'          => $info['nummer'],
+			'Termin'          => $info['termin'],
+			'Seminarort'      => $info['ort'],
+			'Bildungszentrum' => $info['zentrum'] ?? '',
 		);
 		ob_start();
 		echo '<div class="bi-wiz__summary"><div class="bi-wiz__summary-title">Deine Anmeldung im Überblick</div><div class="bi-wiz__summary-list">';
@@ -1551,7 +1565,7 @@ class BI_Registration {
 					$rt    = get_the_title( (int) $r['reihe_id'] );
 					$reihe = '<br><span style="display:inline-block;margin-top:3px;padding:1px 6px;background:#f0f0f1;border-left:3px solid #e2001a;font-size:11px;color:#3c3c3c">'
 						. esc_html( trim( 'Reihe: ' . $rt
-							. ( ! empty( $r['durchgang'] ) ? ' · Gruppe ' . (int) $r['durchgang'] : '' )
+							. ( ! empty( $r['durchgang'] ) ? ' · ' . BI_Reihen::gruppe_label( (int) $r['reihe_id'], $r['durchgang'], null, 'Gruppe ' ) : '' )
 							. ( ! empty( $r['teil'] ) ? ' · Teil ' . (int) $r['teil'] : '' ) ) )
 						. '</span>';
 				}
@@ -1635,7 +1649,7 @@ class BI_Registration {
 			}
 			echo '<tr><th>Ausbildungsreihe</th><td>'
 				. esc_html( get_the_title( (int) $r['reihe_id'] ) )
-				. ( ! empty( $r['durchgang'] ) ? ' <span style="color:#666">(Gruppe ' . (int) $r['durchgang'] . ')</span>' : '' )
+				. ( ! empty( $r['durchgang'] ) ? ' <span style="color:#666">(' . esc_html( BI_Reihen::gruppe_label( (int) $r['reihe_id'], $r['durchgang'], null, 'Gruppe ' ) ) . ')</span>' : '' )
 				. '<ul style="margin:8px 0 0">' . $zeilen . '</ul>'
 				. '<p class="description" style="margin:6px 0 0">Diese Teile wurden in einem Zug angemeldet. '
 				. 'Jeder Teil ist eine eigene Anmeldung und wird vom jeweiligen Bildungszentrum bestätigt.</p>'
@@ -1757,7 +1771,7 @@ class BI_Registration {
 				$sem['nummer'],
 				$sem['termin'],
 				! empty( $r['reihe_id'] ) ? get_the_title( (int) $r['reihe_id'] ) : '',
-				! empty( $r['durchgang'] ) ? 'Reihe ' . (int) $r['durchgang'] : '',
+				! empty( $r['durchgang'] ) ? BI_Reihen::gruppe_label( (int) $r['reihe_id'], $r['durchgang'] ) : '',
 				! empty( $r['teil'] ) ? (int) $r['teil'] : '',
 				$gs ? $gs['geschaeftsstelle'] : '',
 				$gs ? $gs['email'] : '',

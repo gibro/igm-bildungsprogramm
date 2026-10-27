@@ -84,8 +84,13 @@
    nicht vorhanden. Der Abschnitt „Mobil (bis 640px)" am Ende dieser Datei
    holt sie herein. Das Piktogramm vor den Labels der Reihen-Angaben gehört
    dazu – es steht immer im Markup, weil sich ein Inline-SVG nicht per CSS
-   nachreichen lässt. */
-.igm-mobil-nur { display: none; }
+   nachreichen lässt.
+   MIT .igm-seite DAVOR: Allein stand die Klasse gleich stark wie `.igm-btn`
+   (display: block) weiter unten und verlor gegen sie – der Knopf „Inhalte der
+   Reihe ansehen" erschien deshalb auch am Schreibtisch. Die Mobil-Regel
+   `.igm-seite--reihe .igm-mobil-nur` ist gleich stark und steht später, sie
+   holt die Bausteine bis 640px weiter herein. */
+.igm-seite .igm-mobil-nur { display: none; }
 .igm-daten dt .igm-icon { display: none; }
 
 /* ---------------- Kopfbereich ---------------- */
@@ -759,6 +764,16 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 }
 .igm-gruppe__zeitraum { font-size: 15px; color: var(--bi-grau); flex: 1; }
 
+/* Gruppe nur zur Ordnung: Terminzeilen statt Zeitstrahl */
+.igm-gruppe__liste { padding: 0 22px 18px; }
+.igm-gruppe__teil {
+	font-family: var(--bi-head); font-weight: 900; font-size: 15px;
+	margin: 14px 0 8px; color: var(--bi-anthrazit);
+}
+.igm-gruppe__liste > .igm-gruppe__teil:first-child { margin-top: 0; }
+.igm-gruppe__teil a { color: inherit; text-decoration: none; }
+.igm-gruppe__teil a:hover { color: var(--bi-rot); text-decoration: underline; }
+
 .igm-gruppe__orte {
 	display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
 	padding: 0 22px 16px; border-bottom: 1px solid var(--bi-lichtgrau);
@@ -1278,6 +1293,7 @@ a.igm-termin__datum:hover { color: var(--bi-rot); text-decoration: underline; }
 
 	.igm-seite .igm-gruppe__kopf { padding: 14px 16px 12px; }
 	.igm-seite .igm-gruppe__name { font-size: 20px; }
+	.igm-seite .igm-gruppe__liste { padding: 0 16px 14px; }
 	.igm-seite .igm-gruppe__orte { padding: 0 16px 14px; }
 	.igm-seite .igm-gruppe__plan { padding: 18px 12px 0; }
 	.igm-seite .igm-gruppe__fuss { padding: 16px; }

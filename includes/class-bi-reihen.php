@@ -70,6 +70,9 @@ class BI_Reihen {
 	const META_TEIL      = '_bi_teil';
 	const META_DURCHGANG = '_bi_durchgang';
 
+	/** Namen der festen Gruppen, eine Zeile je Gruppe (Feld an der Reihe) */
+	const META_GRUPPEN = '_bir_gruppen';
+
 	public static function init() {
 		add_action( 'init', array( __CLASS__, 'register' ) );
 		add_action( 'add_meta_boxes', array( __CLASS__, 'add_meta_boxes' ) );
@@ -122,12 +125,25 @@ class BI_Reihen {
 			'_bir_freistellung'    => array( 'label' => 'Freistellung', 'type' => 'textarea', 'gruppe' => 'reihe' ),
 			'_bir_leitung'         => array( 'label' => 'Seminarleitung', 'type' => 'textarea', 'gruppe' => 'reihe' ),
 			'_bir_info'            => array( 'label' => 'Weitere Informationen', 'type' => 'html', 'gruppe' => 'reihe' ),
+			'_bir_gruppen'         => array(
+				'label'  => 'Namen der festen Gruppen',
+				'type'   => 'textarea',
+				'gruppe' => 'reihe',
+				'hint'   => 'Eine Zeile je Gruppe, ohne Nummer davor: Die erste Zeile benennt Reihe 1, die zweite Reihe 2 und so weiter. Der Name ersetzt auf der Website „Reihe 1", „Reihe 2" … Soll eine Gruppe keinen Namen bekommen (dann bleibt es bei „Reihe 2"), steht in ihrer Zeile nur ein Strich (-).',
+			),
 			'_bir_komplett'        => array(
-				'label'   => 'Nur komplett buchbar',
+				'label'   => 'Nur komplett buchbar – alle Teile gehören zusammen',
 				'type'    => 'bool',
 				'default' => false,
 				'gruppe'  => 'reihe',
-				'hint'    => 'Setzt den Hinweis „Reihe nur komplett buchbar" auf die Seite.',
+				'hint'    => 'Wer sich anmeldet, bucht immer alle Teile der Reihe auf einmal. Einzelne Termine lassen sich nicht buchen – auch nicht auf ihrer eigenen Seite, dort steht stattdessen der Weg zur Reihe. Die Reihenseite trägt den Hinweis „Reihe nur komplett buchbar".',
+			),
+			'_bir_gruppen_einzeln' => array(
+				'label'   => 'Gruppen nur zur Ordnung – jeder Termin einzeln buchbar',
+				'type'    => 'bool',
+				'default' => false,
+				'gruppe'  => 'reihe',
+				'hint'    => 'Das Gegenteil von „Nur komplett buchbar". Betrifft nur Reihen mit festen Gruppen: Ohne diesen Haken bucht man auf der Reihenseite eine ganze Gruppe auf einmal. Mit Haken sortieren die Gruppen (z. B. „Sommergruppe") die Termine nur übersichtlich, und jeder Termin hat seinen eigenen Anmelde-Button. Sind beide Haken gesetzt, gilt „Nur komplett buchbar".',
 			),
 			// Derselbe Schlüssel wie beim Seminar, damit BI_CPT::visible_clause()
 			// auch für Reihen greift – eine zweite Bedeutung von „anzeigen" hätte
@@ -806,24 +822,36 @@ class BI_Reihen {
 
 		foreach ( $gruppen as $d => $nach_teil ) {
 			if ( (int) $d > 0 ) {
-				printf( '<h3 style="margin:18px 0 4px">Reihe %d (feste Gruppe)</h3>', (int) $d );
+				// Hier bleibt die Nummer stehen: Sie ist das, was im Feld
+				// „Reihe 2 - Teil 1 | …" am Seminar steht.
+				$gname = self::gruppe_label( $reihe_id, $d );
+				printf(
+					'<h3 style="margin:18px 0 4px">Reihe %d%s (feste Gruppe)</h3>',
+					(int) $d,
+					'Reihe ' . (int) $d === $gname ? '' : esc_html( ' – ' . $gname )
+				);
 			} elseif ( count( $gruppen ) > 1 ) {
 				echo '<h3 style="margin:18px 0 4px">Ohne feste Gruppe</h3>';
 			}
 			foreach ( $nach_teil as $nr => $termine ) {
+				// Den Titel nur in die Überschrift, wenn alle Termine des Teils
+				// dasselbe Seminar sind. Sonst stünde dort der erste von mehreren
+				// – jede Zeile nennt ihren Titel ohnehin selbst.
+				$titel = count( self::nach_titel( $termine ) ) === 1 ? ': ' . get_the_title( $termine[0] ) : '';
 				printf(
-					'<h4 style="margin:14px 0 6px">Teil %d: %s <span style="font-weight:400;color:#646970">(%d Termine)</span></h4>',
+					'<h4 style="margin:14px 0 6px">Teil %d%s <span style="font-weight:400;color:#646970">(%d Termine)</span></h4>',
 					(int) $nr,
-					esc_html( get_the_title( $termine[0] ) ),
+					esc_html( $titel ),
 					count( $termine )
 				);
 				echo '<table class="widefat striped"><tbody>';
 				foreach ( $termine as $t ) {
 					printf(
-						'<tr><td style="width:110px">%s</td><td style="width:130px">%s</td><td>%s</td>'
+						'<tr><td>%s</td><td style="width:110px">%s</td><td style="width:130px">%s</td><td>%s</td>'
 						. '<td style="width:170px"><a href="%s">bearbeiten</a>'
 						. ' · <button type="button" class="button-link bi-reihe-los" data-termin="%d"'
 						. ' style="color:#b32d2e">Zuordnung lösen</button></td></tr>',
+						esc_html( get_the_title( $t ) ),
 						esc_html( self::datum( $t->ID ) ),
 						esc_html( get_post_meta( $t->ID, '_bi_seminarnummer', true ) ?: '—' ),
 						esc_html( self::ort( $t->ID ) ),
@@ -985,6 +1013,90 @@ class BI_Reihen {
 		return $links . ' | ' . trim( (string) $titel );
 	}
 
+	/**
+	 * Namen der festen Gruppen aus dem Feld an der Reihe.
+	 *
+	 * Zeile N benennt Durchgang N – die Zuordnung der Termine bleibt bei der
+	 * Nummer, der Name ist reine Beschriftung. Eine Nummer vor dem Namen gibt
+	 * es bewusst nicht: „2027 kompakt" soll ein Name bleiben dürfen.
+	 *
+	 * WARUM DER STRICH: WordPress kürzt das Feld beim Speichern vorn und
+	 * hinten. Eine leere erste Zeile („Gruppe 1 ohne Namen") ginge dabei
+	 * verloren, und alle Namen rutschten eine Gruppe nach oben. Ein Strich
+	 * hält die Zeile fest.
+	 *
+	 * @return array [ durchgang => name ]
+	 */
+	public static function gruppen_namen( $roh ) {
+		$namen = array();
+		foreach ( preg_split( '/\r\n|\r|\n/', (string) $roh ) as $i => $zeile ) {
+			$zeile = trim( $zeile );
+			if ( '' === $zeile || preg_match( '/^[-\x{2013}\x{2014}]+$/u', $zeile ) ) {
+				continue;
+			}
+			$namen[ $i + 1 ] = $zeile;
+		}
+		return $namen;
+	}
+
+	/**
+	 * Beschriftung einer festen Gruppe: ihr Name, wenn die Reihe einen dafür
+	 * hat („Herbstgruppe Berlin"), sonst wie bisher „Reihe 2". Der Name
+	 * ersetzt die Nummer – „Reihe 2 – Herbstgruppe" wäre doppelt gemoppelt.
+	 * Leer für Durchgang 0.
+	 *
+	 * Eine Stelle für Reihenseite, Backend, Anmeldungen, CSV und Mails – sonst
+	 * stünde derselbe Termin an jeder Stelle anders da.
+	 *
+	 * @param string|null $roh Feldinhalt, falls schon gelesen (und für Tests).
+	 * @param string      $praefix Ersatz ohne Namen. Die Anmeldeliste im Backend
+	 *                             sagte immer „Gruppe 2" – dabei bleibt es.
+	 */
+	public static function gruppe_label( $reihe_id, $durchgang, $roh = null, $praefix = 'Reihe ' ) {
+		$durchgang = (int) $durchgang;
+		if ( $durchgang < 1 ) {
+			return '';
+		}
+		if ( null === $roh ) {
+			$roh = $reihe_id ? get_post_meta( (int) $reihe_id, self::META_GRUPPEN, true ) : '';
+		}
+		$namen = self::gruppen_namen( $roh );
+		return $namen[ $durchgang ] ?? $praefix . $durchgang;
+	}
+
+	/**
+	 * Sind die festen Gruppen dieser Reihe nur Gliederung (Termine einzeln
+	 * buchbar) statt Buchungseinheit?
+	 *
+	 * „Nur komplett buchbar" geht vor: Beide Haken zugleich widersprechen sich,
+	 * und im Zweifel ist die strengere Aussage die richtige – sonst nähme die
+	 * Seite Einzelbuchungen an, die das Bildungszentrum gar nicht will.
+	 */
+	/**
+	 * Termine nach Seminartitel bündeln, Reihenfolge des ersten Auftretens.
+	 *
+	 * WARUM: Eine Gruppe „nur zur Ordnung" ist oft eine Sammlung VERSCHIEDENER
+	 * Seminare, die alle als „Teil 1" hängen („Impulse", „Workshops" …). Der
+	 * Titel des ersten Termins steht dann nicht für die übrigen – jeder
+	 * Termin bringt seinen eigenen mit. Gleiche Titel (dasselbe Seminar an
+	 * mehreren Daten) bleiben zusammen.
+	 *
+	 * @param WP_Post[] $termine
+	 * @return array [ titel => WP_Post[] ]
+	 */
+	public static function nach_titel( $termine ) {
+		$nach = array();
+		foreach ( $termine as $t ) {
+			$nach[ get_the_title( $t ) ][] = $t;
+		}
+		return $nach;
+	}
+
+	public static function gruppen_einzeln( $reihe_id ) {
+		return BI_CPT::meta_bool( $reihe_id, '_bir_gruppen_einzeln' )
+			&& ! BI_CPT::meta_bool( $reihe_id, '_bir_komplett' );
+	}
+
 	/** Box-Innenleben als String (für die AJAX-Antwort). */
 	private static function box_html( $reihe_id ) {
 		ob_start();
@@ -1139,6 +1251,7 @@ class BI_Reihen {
 		$gruppen  = self::termine( $reihe_id );
 		$teile    = self::teile( $gruppen );
 		$komplett = BI_CPT::meta_bool( $reihe_id, '_bir_komplett' );
+		$einzeln  = self::gruppen_einzeln( $reihe_id );
 
 		$html = '<div class="igm-seite igm-seite--reihe">';
 
@@ -1147,7 +1260,9 @@ class BI_Reihen {
 		if ( $komplett ) {
 			$badges .= BI_Detail::badge( 'Reihe nur komplett buchbar', 'rot-voll' );
 		}
-		$aufbau = sprintf( _n( '%d Teil', '%d Teile', count( $teile ), 'bi-seminarsuche' ), count( $teile ) );
+		$aufbau = $einzeln
+			? self::seminar_anzahl( $gruppen )
+			: sprintf( _n( '%d Teil', '%d Teile', count( $teile ), 'bi-seminarsuche' ), count( $teile ) );
 		$anzahl_gruppen = count( array_filter( array_keys( $gruppen ) ) );
 		if ( $anzahl_gruppen ) {
 			$aufbau .= ' · ' . sprintf( _n( '%d Gruppe', '%d Gruppen', $anzahl_gruppen, 'bi-seminarsuche' ), $anzahl_gruppen );
@@ -1156,7 +1271,7 @@ class BI_Reihen {
 			$badges .= BI_Detail::badge( esc_html( $aufbau ) );
 		}
 
-		$kennzahlen = self::kennzahlen( $gruppen, $teile, $komplett );
+		$kennzahlen = self::kennzahlen( $gruppen, $teile, $komplett, $einzeln );
 
 		$html .= BI_Detail::hero( array(
 			'brotkrumen' => BI_Detail::zurueck_link(),
@@ -1171,11 +1286,20 @@ class BI_Reihen {
 		// Die Marken (data-bi-mobil) sitzen an den Bausteinen unten. Ein Tab
 		// erscheint nur, wenn sein Baustein etwas zeigt: „Termine" gibt es nur
 		// mit festen Gruppen, „Die 5 Teile" nur mit Teilen.
+		// Gruppen nur zur Ordnung: Die Teile-Übersicht nähme für jeden Teil den
+		// Titel seines ERSTEN Termins – bei einer Gruppe aus verschiedenen
+		// Seminaren stünde dort ein beliebiges davon. Sie zeigt dann nur die
+		// Termine ohne Gruppe; alles andere steht mit eigenem Titel in den
+		// Gruppen.
+		$inhalte = $einzeln ? self::teile( isset( $gruppen[0] ) ? array( $gruppen[0] ) : array() ) : $teile;
+
 		$tabs = array( 'ueberblick' => 'Überblick' );
 		if ( $teile ) {
-			$tabs['teile'] = 1 === count( $teile )
-				? 'Inhalt'
-				: sprintf( 'Die %d Teile', count( $teile ) );
+			if ( $inhalte ) {
+				$tabs['teile'] = 1 === count( $inhalte )
+					? 'Inhalt'
+					: sprintf( 'Die %d Teile', count( $inhalte ) );
+			}
 			if ( self::hat_durchgaenge( $gruppen ) ) {
 				$tabs['gruppen'] = 'Termine';
 			}
@@ -1197,10 +1321,12 @@ class BI_Reihen {
 		if ( $teile ) {
 			// Nur mobil: Vom Überblick weiter zu den Inhalten – der Tab dafür
 			// ist nach drei Absätzen Einleitung aus dem Blick.
-			$html .= '<button type="button" class="igm-btn igm-btn--rahmen igm-mobil-nur igm-mobil-js" data-bi-tab-ziel="teile" data-bi-mobil="ueberblick">'
-				. 'Inhalte der Reihe ansehen</button>';
-			$html .= self::inhalte_block( $teile, isset( $gruppen[0] ) ? $gruppen[0] : array() );
-			$html .= self::gruppen_block( $reihe_id, $gruppen, $teile, $komplett );
+			if ( $inhalte ) {
+				$html .= '<button type="button" class="igm-btn igm-btn--rahmen igm-mobil-nur igm-mobil-js" data-bi-tab-ziel="teile" data-bi-mobil="ueberblick">'
+					. 'Inhalte der Reihe ansehen</button>';
+				$html .= self::inhalte_block( $inhalte, isset( $gruppen[0] ) ? $gruppen[0] : array() );
+			}
+			$html .= self::gruppen_block( $reihe_id, $gruppen, $teile, $komplett, $einzeln );
 		} else {
 			$html .= '<p class="igm-termine__leer" data-bi-mobil="ueberblick">Für diese Reihe sind derzeit keine Termine ausgeschrieben.</p>';
 		}
@@ -1253,14 +1379,18 @@ class BI_Reihen {
 	}
 
 	/** Die vier Angaben des Kennzahlenbands einer Reihe. */
-	private static function kennzahlen( $gruppen, $teile, $komplett ) {
+	private static function kennzahlen( $gruppen, $teile, $komplett, $einzeln = false ) {
 		$flach = self::alle_termine( $gruppen );
 
 		// Aufbau: „4 Teile, je 3 Tage" – die Dauer nur nennen, wenn sie bei allen
 		// Teilen gleich ist. Eine gemittelte Dauer wäre eine Zahl ohne Aussage.
-		$aufbau = sprintf( _n( '%d Teil', '%d Teile', count( $teile ), 'bi-seminarsuche' ), count( $teile ) );
+		$aufbau = $einzeln
+			? self::seminar_anzahl( $gruppen )
+			: sprintf( _n( '%d Teil', '%d Teile', count( $teile ), 'bi-seminarsuche' ), count( $teile ) );
 		$tage   = array();
-		foreach ( $teile as $p ) {
+		// Dauer aus allen verschiedenen Seminaren, nicht nur je einem pro Teil.
+		$muster = $einzeln ? array_map( function ( $l ) { return $l[0]; }, self::nach_titel( $flach ) ) : $teile;
+		foreach ( $muster as $p ) {
 			$tage[] = self::dauer_tage( $p->ID );
 		}
 		$tage = array_unique( array_filter( $tage ) );
@@ -1270,7 +1400,9 @@ class BI_Reihen {
 		}
 
 		$anzahl_gruppen = count( array_filter( array_keys( $gruppen ) ) );
-		if ( $anzahl_gruppen ) {
+		if ( $anzahl_gruppen && $einzeln ) {
+			$buchung = 'Termine einzeln buchbar';
+		} elseif ( $anzahl_gruppen ) {
 			$buchung = $komplett ? 'Als feste Gruppe, nur komplett' : 'Als feste Gruppe';
 		} else {
 			$buchung = $komplett ? 'Nur komplett buchbar' : 'Teile einzeln buchbar';
@@ -1376,22 +1508,26 @@ class BI_Reihen {
 	 * noch kein Termin ausgeschrieben ist – sonst sähe eine halb geplante Gruppe
 	 * aus wie eine kürzere Reihe.
 	 */
-	private static function gruppen_block( $reihe_id, $gruppen, $teile, $komplett = false ) {
+	private static function gruppen_block( $reihe_id, $gruppen, $teile, $komplett = false, $einzeln = false ) {
 		if ( ! self::hat_durchgaenge( $gruppen ) ) {
 			return '';
 		}
 
-		$html = '<div data-bi-mobil="gruppen">' . BI_Detail::abschnitt(
-			'Termine der festen Gruppen',
-			'Jede Gruppe durchläuft die Teile gemeinsam. Du buchst eine Gruppe, nicht einen einzelnen Termin.'
-		);
+		$html = '<div data-bi-mobil="gruppen">' . ( $einzeln
+			? BI_Detail::abschnitt( 'Termine nach Gruppen', 'Jeder Termin ist einzeln buchbar.' )
+			: BI_Detail::abschnitt(
+				'Termine der festen Gruppen',
+				'Jede Gruppe durchläuft die Teile gemeinsam. Du buchst eine Gruppe, nicht einen einzelnen Termin.'
+			) );
 		$html .= '<div class="igm-gruppen igm-abschnitt__inhalt">';
 
 		foreach ( $gruppen as $d => $nach_teil ) {
 			if ( (int) $d < 1 ) {
 				continue;
 			}
-			$html .= self::gruppe( $reihe_id, (int) $d, $nach_teil, $teile, $komplett );
+			$html .= $einzeln
+				? self::gruppe_ordnung( $reihe_id, (int) $d, $nach_teil, $teile )
+				: self::gruppe( $reihe_id, (int) $d, $nach_teil, $teile, $komplett );
 		}
 
 		return $html . '</div></div>';
@@ -1408,7 +1544,7 @@ class BI_Reihen {
 	 * am Stück zu haben ist, gleich vier davon.
 	 */
 	private static function gruppe( $reihe_id, $durchgang, $nach_teil, $teile, $komplett = false ) {
-		$name  = 'Reihe ' . $durchgang;
+		$name  = self::gruppe_label( $reihe_id, $durchgang );
 		$feld  = 'bi-r' . (int) $reihe_id . '-g' . $durchgang . '-t';
 		$letzte = count( $teile );
 
@@ -1569,6 +1705,54 @@ class BI_Reihen {
 		if ( ! $sammel ) {
 			$html .= self::gs_anfrage( $reihe_id, $durchgang, $name, $gs_id );
 		}
+
+		return $html . '</section>';
+	}
+
+	/** „5 Seminare" – verschiedene Titel über alle Termine der Reihe. */
+	private static function seminar_anzahl( $gruppen ) {
+		$n = count( self::nach_titel( self::alle_termine( $gruppen ) ) );
+		return sprintf( _n( '%d Seminar', '%d Seminare', $n, 'bi-seminarsuche' ), $n );
+	}
+
+	/**
+	 * Eine Gruppe, die nur gliedert (Haken „Gruppen nur zur Ordnung").
+	 *
+	 * Gleicher Rahmen wie gruppe(), aber ohne Zeitstrahl, Auswahl und
+	 * Gruppen-Button: Jeder Termin steht als gewöhnliche Terminzeile mit
+	 * eigenem Anmeldeweg da – genau wie die Termine ohne Gruppe beim Teil.
+	 * Die Klasse igm-gruppe--ordnung hält reihe.js heraus; die Auswahllogik
+	 * fände hier nichts zu tun.
+	 */
+	private static function gruppe_ordnung( $reihe_id, $durchgang, $nach_teil, $teile ) {
+		$html  = '<section class="igm-gruppe igm-gruppe--ordnung">';
+		$html .= '<div class="igm-gruppe__kopf">';
+		$html .= '<h3 class="igm-gruppe__name">' . esc_html( self::gruppe_label( $reihe_id, $durchgang ) ) . '</h3>';
+		$zeitraum = self::gruppen_zeitraum( $nach_teil );
+		if ( '' !== $zeitraum ) {
+			$html .= '<span class="igm-gruppe__zeitraum">' . esc_html( $zeitraum ) . '</span>';
+		}
+		$html .= '</div>';
+
+		$html .= '<div class="igm-gruppe__liste">';
+		foreach ( $nach_teil as $nr => $termine ) {
+			// Jedes Seminar mit seinem EIGENEN Titel (siehe nach_titel()).
+			foreach ( self::nach_titel( $termine ) as $titel => $gleiche ) {
+				// Die Teilnummer nur nennen, wenn es mehrere Teile gibt – „Teil 1"
+				// über dem einzigen Teil wäre eine Gliederung ohne Gegenstück.
+				$kopf = '<a href="' . esc_url( (string) get_permalink( $gleiche[0] ) ) . '">' . esc_html( $titel ) . '</a>';
+				if ( count( $teile ) > 1 ) {
+					$kopf = 'Teil ' . (int) $nr . ': ' . $kopf;
+				}
+				$html .= '<h4 class="igm-gruppe__teil">' . $kopf . '</h4>';
+				$html .= '<div class="igm-termine">';
+				foreach ( $gleiche as $t ) {
+					$html .= BI_Detail::termin_zeile( $t->ID );
+				}
+				$html .= '</div>';
+			}
+		}
+		$html .= '</div>';
 
 		return $html . '</section>';
 	}

@@ -1224,9 +1224,12 @@ class BI_Suche {
 	 * ab – ODER, NICHT, jede Schachtelung – und er findet auch mitten im Wort
 	 * („rat" -> „Betriebsrat"), was im Deutschen kein Sonderfall ist.
 	 *
+	 * @param array  $knoten Ein Baum aus ausdruck().
+	 * @param string $spalte Die durchsuchte Spalte – der Index, oder für die
+	 *                       Rangfolge der Seminartitel (siehe titel_rang).
 	 * @return string SQL-Ausdruck oder '' .
 	 */
-	public static function like_bedingung( $knoten ) {
+	public static function like_bedingung( $knoten, $spalte = 'bi_si.inhalt' ) {
 		global $wpdb;
 		if ( ! is_array( $knoten ) || ! isset( $knoten['typ'] ) ) {
 			return '';
@@ -1237,17 +1240,17 @@ class BI_Suche {
 			if ( '' === $wert ) {
 				return '';
 			}
-			return $wpdb->prepare( 'bi_si.inhalt LIKE %s', '%' . $wpdb->esc_like( $wert ) . '%' );
+			return $wpdb->prepare( $spalte . ' LIKE %s', '%' . $wpdb->esc_like( $wert ) . '%' ); // phpcs:ignore WordPress.DB.PreparedSQL
 		}
 
 		if ( 'nicht' === $knoten['typ'] ) {
-			$kind = self::like_bedingung( $knoten['kind'] );
+			$kind = self::like_bedingung( $knoten['kind'], $spalte );
 			return ( '' === $kind ) ? '' : 'NOT (' . $kind . ')';
 		}
 
 		$teile = array();
 		foreach ( (array) $knoten['kinder'] as $kind ) {
-			$teil = self::like_bedingung( $kind );
+			$teil = self::like_bedingung( $kind, $spalte );
 			if ( '' !== $teil ) {
 				$teile[] = $teil;
 			}
@@ -1300,6 +1303,73 @@ class BI_Suche {
 		}
 		return "EXISTS ( SELECT 1 FROM {$tab} AS bi_si WHERE bi_si.post_id = {$wpdb->posts}.ID" // phpcs:ignore WordPress.DB.PreparedSQL
 			. ' AND ' . $bedingung . ' )';
+	}
+
+	/* ===================================================================
+	 *  Rangfolge: Titeltreffer zuerst (seit 1.152.0)
+	 * =================================================================== */
+
+	/**
+	 * Rang eines Treffers als SQL-Ausdruck: 0, 1 oder 2 – kleiner steht oben.
+	 *
+	 *   0  Die ganze Anfrage passt auf den TITEL („arbeitsrecht grundlagen"
+	 *      -> „Grundlagen des Arbeitsrechts").
+	 *   1  Wenigstens ein gesuchtes Wort steht im Titel, der Rest anderswo.
+	 *   2  Gefunden nur in Beschreibung, Themen, Feldern, Begriffen.
+	 *
+	 * WOZU: Wer „Betriebsrat" sucht, will die Seminare FÜR Betriebsräte sehen,
+	 * nicht zuerst die vierzig, in deren Zielgruppenliste das Wort auch steht.
+	 * Gefiltert wird dadurch nichts – die Treffermenge bestimmt weiter der
+	 * Index; hier wird nur umgestellt. Innerhalb jeder Stufe bleibt es beim
+	 * Startdatum, der nächste Termin oben (siehe BI_Filter::titel_zuerst).
+	 *
+	 * IMMER PER LIKE, auch wenn die Treffer per MATCH kamen: Es geht um eine
+	 * Spalte je Zeile der ohnehin schon gefundenen Treffer, nicht um den ganzen
+	 * Bestand – und LIKE findet auch mitten im Wort („rat" -> „Betriebsrat").
+	 *
+	 * Stufe 1 zählt nur die GESUCHTEN Wörter, nicht die ausgeschlossenen: Bei
+	 * „arbeitsrecht NICHT online" hebt ein „Online" im Titel nichts nach oben.
+	 *
+	 * @return string SQL-Ausdruck oder '' , wenn die Anfrage keinen Begriff hat.
+	 */
+	public static function titel_rang( $knoten ) {
+		global $wpdb;
+		if ( ! is_array( $knoten ) || ! isset( $knoten['typ'] ) ) {
+			return '';
+		}
+		$spalte = "{$wpdb->posts}.post_title";
+		$ganz   = self::like_bedingung( $knoten, $spalte );
+		if ( '' === $ganz ) {
+			return '';
+		}
+
+		// Bei nur einem gesuchten Begriff fiele Stufe 1 mit Stufe 0 zusammen.
+		$begriffe = self::gesuchte_begriffe( $knoten );
+		$einzeln  = array();
+		foreach ( count( $begriffe ) > 1 ? $begriffe : array() as $begriff ) {
+			$teil = self::like_bedingung( $begriff, $spalte );
+			if ( '' !== $teil ) {
+				$einzeln[] = $teil;
+			}
+		}
+		$teil_klausel = $einzeln ? ' WHEN ' . implode( ' OR ', $einzeln ) . ' THEN 1' : '';
+
+		return '( CASE WHEN ' . $ganz . ' THEN 0' . $teil_klausel . ' ELSE 2 END )';
+	}
+
+	/** Alle Wörter und Wortfolgen eines Baums, die NICHT unter einem Ausschluss stehen. */
+	private static function gesuchte_begriffe( $knoten ) {
+		if ( ! is_array( $knoten ) || ! isset( $knoten['typ'] ) || 'nicht' === $knoten['typ'] ) {
+			return array();
+		}
+		if ( 'wort' === $knoten['typ'] || 'phrase' === $knoten['typ'] ) {
+			return array( $knoten );
+		}
+		$out = array();
+		foreach ( (array) $knoten['kinder'] as $kind ) {
+			$out = array_merge( $out, self::gesuchte_begriffe( $kind ) );
+		}
+		return $out;
 	}
 
 	/* ===================================================================

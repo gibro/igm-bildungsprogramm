@@ -1406,7 +1406,7 @@ class BI_Mailer {
 		// dieselbe Vorlage für beides taugt; {termine} trägt dann die eine Zeile.
 		$rid = (int) ( $submission['reihe_id'] ?? 0 );
 		$ctx['{reihe_titel}']  = $rid ? get_the_title( $rid ) : '';
-		$ctx['{reihe_gruppe}'] = ( $rid && ! empty( $submission['durchgang'] ) ) ? 'Reihe ' . (int) $submission['durchgang'] : '';
+		$ctx['{reihe_gruppe}'] = ( $rid && ! empty( $submission['durchgang'] ) ) ? BI_Reihen::gruppe_label( $rid, $submission['durchgang'] ) : '';
 		$ctx['{reihe_teile}']  = '';
 		$ctx['{teil}']         = ! empty( $submission['teil'] ) ? (string) (int) $submission['teil'] : '';
 		$ctx['{termine}']      = self::terminliste( array( $submission ) );

@@ -389,6 +389,15 @@ class BI_Embed {
 	 *
 	 * Wird als Filter auf sechs Hooks gelegt und muss deshalb jede Eingabe
 	 * unverändert zurückgeben können, die kein passender Link ist.
+	 *
+	 * Angehängt wird als Text, NICHT über add_query_arg(). Das zerlegt die
+	 * Adresse und baut sie neu zusammen – und kodiert dabei um: Aus „%20“
+	 * wird „+“. Auf dem Hook wp_redirect gab das eine Endlosschleife.
+	 * WordPress leitet /page/2/?q=BR+kompakt auf …?q=BR%20kompakt um,
+	 * add_query_arg() machte daraus wieder „+“, also dieselbe Adresse wie
+	 * vorher, und der Browser brach nach zwanzig Runden ab („zu oft
+	 * umgeleitet“). Betroffen war jedes Blättern mit einem Suchbegriff aus
+	 * mehr als einem Wort.
 	 */
 	public static function url( $url ) {
 		if ( ! is_string( $url ) || '' === $url ) {
@@ -397,7 +406,23 @@ class BI_Embed {
 		if ( ! self::eigene_adresse( $url ) ) {
 			return $url;
 		}
-		return add_query_arg( self::PARAM, '1', $url );
+
+		// Sprungmarke abtrennen – der Parameter gehört davor.
+		$marke = '';
+		$pos   = strpos( $url, '#' );
+		if ( false !== $pos ) {
+			$marke = substr( $url, $pos );
+			$url   = substr( $url, 0, $pos );
+		}
+
+		// Schon dabei? Dann nichts anfassen – sonst stünde er doppelt da.
+		$query = (string) wp_parse_url( $url, PHP_URL_QUERY );
+		if ( preg_match( '~(^|&)' . self::PARAM . '=~', $query ) ) {
+			return $url . $marke;
+		}
+
+		$trenner = ( false === strpos( $url, '?' ) ) ? '?' : ( '' === $query ? '' : '&' );
+		return $url . $trenner . self::PARAM . '=1' . $marke;
 	}
 
 	/**

@@ -352,7 +352,10 @@
 		liste( document, '.igm-teil__kopf' ).forEach( function ( kopf, i ) {
 			initAkkordeon( kopf, i );
 		} );
-		liste( document, '.igm-gruppe' ).forEach( initGruppe );
+		// Gruppen „nur zur Ordnung“ haben keine Auswahl – nichts zu initialisieren.
+		liste( document, '.igm-gruppe' ).filter( function ( g ) {
+			return ! g.classList.contains( 'igm-gruppe--ordnung' );
+		} ).forEach( initGruppe );
 	}
 
 	if ( 'loading' === document.readyState ) {

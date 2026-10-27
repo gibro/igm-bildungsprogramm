@@ -385,6 +385,24 @@ verglichen — schon zwei Wörter in der falschen Reihenfolge fanden nichts.
 
 Seit 1.126.0 lässt sich das UND überschreiben — siehe den nächsten Abschnitt.
 
+#### Titeltreffer zuerst (seit 1.152.0)
+
+Bei einer Volltextsuche stehen die Seminare oben, deren **Titel** passt – erst
+danach die, bei denen das Wort nur in Beschreibung, Themen oder Begriffen
+vorkommt. Drei Stufen:
+
+| Stufe | Wann |
+|---|---|
+| 1 | Die ganze Anfrage passt auf den Titel |
+| 2 | Wenigstens ein gesuchtes Wort steht im Titel |
+| 3 | Gefunden nur außerhalb des Titels |
+
+**Innerhalb jeder Stufe bleibt es beim Datum**, der nächste Termin oben. Die
+Treffermenge ändert sich nicht, nur die Reihenfolge; ohne Suchtext ist alles wie
+vorher. Ausgeschlossene Wörter (`NICHT online`) heben nichts nach oben. Gilt für
+Ergebnisliste und Seminar-Vorschläge im Suchfeld (`BI_Suche::titel_rang()`,
+`BI_Filter::titel_zuerst()`, Test `tests/test-suche-titelrang.php`).
+
 #### Boolesche Operatoren (seit 1.126.0)
 
 Das UND bleibt die Vorgabe — wer nichts weiter tut, sucht wie vorher. Wer mehr
@@ -806,6 +824,15 @@ gepflegt, greift die kanonische Gesamtliste. Serverseitig wird geprüft, dass
 der gesendete Wert zu den Seminardaten passt.
 Pro Seminar steuern Einstellungen und Regeln, ob die Direktanmeldung oder der
 Verweis auf die Geschäftsstelle angeboten wird.
+
+**Seminarort und Bildungszentrum getrennt (seit 1.153.0).** Die Seminarinfos
+links und die Übersicht in Schritt 4 zeigen als **Seminarort** denselben Ort
+wie die Detailseite (`BI_CPT::ort_anzeige()`: `_bi_seminarort`, sonst das
+Bildungszentrum). Weicht das zuständige Bildungszentrum davon ab – Seminar des
+Bildungszentrums Sprockhövel im Hotel in Wuppertal –, steht es als eigene
+Zeile **„Zuständiges Bildungszentrum"** darunter. Bis 1.152.x stand unter „Ort"
+nur das Bildungszentrum, auch wenn das Seminar woanders stattfand. Online-Seminare
+bleiben bei „Online · Veranstalter*in"; „Andere" wird nie als Zentrum gezeigt.
 
 ### Geschäftsstellen-Anfrage direkt auf der Detailseite (GS-Variante)
 
@@ -1843,6 +1870,68 @@ Zwei Grenzen:
 
 Hängt ein Termin bereits an einer **anderen** Reihe, steht das rot in der
 Trefferzeile: Zuordnen zöge ihn dort weg.
+
+### Namen der festen Gruppen (seit 1.149.0)
+
+Eine feste Gruppe ist eine Nummer – `Reihe 2 - Teil 1 | …` am Seminar – und hieß
+bis 1.148.0 überall nur „Reihe 2". Im Feld **„Namen der festen Gruppen"** an der
+Reihe bekommt sie einen Namen, der die Nummer in der Anzeige ersetzt:
+
+```
+Frühjahrsgruppe Sprockhövel
+-
+Herbstgruppe Berlin
+```
+
+Zeile 1 benennt Reihe 1, Zeile 2 Reihe 2 und so weiter, **ohne Nummer davor**.
+Angezeigt wird dann nur „Herbstgruppe Berlin", nicht „Reihe 3 – …". Eine Gruppe
+ohne Namen behält „Reihe 2" und bekommt in ihrer Zeile nur einen Strich: WordPress kürzt das Feld beim
+Speichern vorn und hinten, eine leere erste Zeile ginge verloren und alle Namen
+rutschten eine Gruppe nach oben.
+
+Der Name ist reine Beschriftung, die Zuordnung bleibt bei der Nummer. Importe,
+bestehende Termine und Anmeldungen bleiben unberührt. `BI_Reihen::gruppe_label()`
+liefert die Beschriftung an alle Stellen: Überschrift der Gruppe auf der
+Reihenseite, Box im Backend, Anfrage an die Geschäftsstelle, Anmeldeliste und
+-ansicht, CSV-Export, der Mail-Platzhalter `{reihe_gruppe}` und der Button
+(„Herbstgruppe Berlin buchen").
+
+Gelesen wird der Name immer **aktuell**: Wer eine Gruppe umbenennt, sieht den
+neuen Namen auch bei älteren Anmeldungen. Geprüft in `tests/test-reihen.php`.
+
+#### Gruppen nur zur Ordnung – Termine einzeln buchbar (seit 1.150.0)
+
+Normalerweise ist eine feste Gruppe eine **Buchungseinheit**: Zeitstrahl,
+Auswahl je Teil, ein Button für die ganze Gruppe. Mit dem Haken **„Gruppen nur
+zur Ordnung – jeder Termin einzeln buchbar"** an der Reihe gliedern die Gruppen nur:
+Der Abschnitt heißt dann „Termine nach Gruppen", jede Gruppe zeigt Name und
+Zeitraum und darunter ihre Termine als gewöhnliche Terminzeilen mit eigenem
+Anmeldeweg (`BI_Reihen::gruppe_ordnung()`). Bei mehreren Teilen steht „Teil 2:
+<Titel>" über den Terminen des Teils. Im Kennzahlenband steht „Termine einzeln
+buchbar".
+
+„Nur komplett buchbar" geht vor (`BI_Reihen::gruppen_einzeln()`): Sind beide
+Haken gesetzt, bleibt es bei der Gruppenbuchung. Die Seminar-Detailseiten
+ändern sich nicht – dort war ein Gruppentermin schon immer einzeln buchbar,
+solange die Reihe nicht „nur komplett" ist. `reihe.js` überspringt solche
+Gruppen (Klasse `igm-gruppe--ordnung`).
+
+**Verschiedene Seminare in einer Gruppe (seit 1.151.0).** Oft ist eine solche
+Gruppe eine Sammlung unterschiedlicher Seminare, die alle als „Teil 1" hängen –
+etwa „Impulse", „Workshops", „Werkstätten". Deshalb gilt in diesem Modus:
+
+- In der Gruppe steht jedes Seminar mit **seinem eigenen Titel** (verlinkt),
+  darunter seine Termine. Gleiche Titel werden gebündelt
+  (`BI_Reihen::nach_titel()`).
+- „Inhalte der Reihe" zeigt nur noch Termine **ohne** Gruppe. Vorher stand dort
+  je Teil der Titel des ersten Termins – bei verschiedenen Seminaren ein
+  beliebiges davon. Gibt es keine Termine ohne Gruppe, entfallen Abschnitt und
+  mobiler Tab.
+- Kopf und Kennzahlenband zählen „5 Seminare" statt „1 Teil".
+
+In der Box „Zugeordnete Teile und Termine" trägt jede Zeile den Titel ihres
+Seminars; die Überschrift „Teil 1: <Titel>" nennt ihn nur noch, wenn alle
+Termine des Teils dasselbe Seminar sind.
 
 ### Prüfliste
 

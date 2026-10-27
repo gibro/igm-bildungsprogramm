@@ -188,17 +188,58 @@
 
     // „init“ ist der Anlass, auf den der Rahmen wartet: Er beendet damit
     // seine Wartezeit. Jede spätere Meldung läuft über melden().
-    if (ersteMal) resizerMelden('init');
+    if (ersteMal) {
+      resizerMelden('init');
+      if (navigiert()) resizerNachOben();
+    }
   });
+
+  /*
+   * Nach oben – in der Sprache von iframe-resizer.
+   *
+   * Magnolia hört nicht auf „bi-embed:oben“. Wer dort unter einer langen
+   * Trefferliste auf „2“ klickt, bekam zwar Seite 2 in den Rahmen, die
+   * Fremdseite blieb aber ganz unten stehen: zu sehen war das Ende der
+   * neuen Seite, der Wechsel wirkte wie ein Klick ins Leere.
+   *
+   * „scrollToOffset“ heißt: Fenster an den Anfang des Rahmens plus den
+   * mitgeschickten Versatz. Zeile und Spalte stehen dabei auf den Plätzen
+   * von Höhe und Breite. Der Versatz von −240 lässt Platz für den festen
+   * Kopfbereich (auf igmetall.de 215 Pixel), der beim Hochscrollen wieder einfährt.
+   *
+   * Gesendet wird erst nach dem Handschlag (init), weil der Rahmen die
+   * Kennung des neuen Dokuments vorher nicht kennt und die Meldung verwürfe.
+   */
+  function resizerNachOben() {
+    if (!resizerKennung) return;
+    try {
+      window.parent.postMessage(RESIZER + resizerKennung + ':-240:0:scrollToOffset', '*');
+    } catch (e) { /* siehe melden() */ }
+  }
 
   /* ---- 2) Nach oben melden -------------------------------- */
 
-  // Beim ersten Aufschlag NICHT scrollen: Die Fremdseite steht dann noch
-  // am Anfang, und ein Sprung dorthin wäre ein Ruck ohne Anlass. Erst
-  // eine Navigation im Rahmen ist ein Grund. Erkennbar an der History-
-  // Länge – ein frisch geladener Rahmen hat genau einen Eintrag.
+  /**
+   * Kam diese Seite durch einen Klick IM Rahmen zustande?
+   *
+   * Beim ersten Aufschlag NICHT scrollen: Die Fremdseite steht dann noch
+   * am Anfang, und ein Sprung dorthin wäre ein Ruck ohne Anlass.
+   *
+   * Erkennbar am Referrer: Kommt er von dieser Website, hat jemand im
+   * Rahmen geklickt; beim ersten Aufschlag steht dort die Fremdseite.
+   * Die History-Länge taugt dafür nicht – sie zählt die Einträge des
+   * ganzen Fensters mit, und wer die Fremdseite über zwei Klicks erreicht
+   * hat, bekäme schon beim ersten Laden einen Sprung.
+   */
+  function navigiert() {
+    if (!document.referrer) return false;
+    var r = document.createElement('a');
+    r.href = document.referrer;
+    return r.host.toLowerCase() === EIGEN;
+  }
+
   window.addEventListener('load', function () {
-    if (window.history.length <= 1) return;
+    if (!navigiert()) return;
     try {
       window.parent.postMessage({ typ: 'bi-embed:oben' }, '*');
     } catch (e) { /* siehe oben */ }

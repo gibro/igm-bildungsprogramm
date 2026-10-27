@@ -782,6 +782,7 @@ class BI_Filter {
 		add_shortcode( 'bi_suchmaske', array( __CLASS__, 'shortcode_maske' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'register_assets' ) );
 		add_filter( 'posts_where', array( __CLASS__, 'title_where' ), 10, 2 );
+		add_filter( 'posts_orderby', array( __CLASS__, 'titel_zuerst' ), 10, 2 );
 
 		// Live-Zähler + Facetten für die eigenständige Suchmaske (lesend, daher auch für Gäste)
 		add_action( 'wp_ajax_bi_filter_refresh', array( __CLASS__, 'ajax_refresh' ) );
@@ -1130,6 +1131,35 @@ class BI_Filter {
 			$bedingung = '(' . $bedingung . ' OR ' . $nummer . ')';
 		}
 		return $where . ' AND ' . $bedingung . ' ';
+	}
+
+	/**
+	 * Bei einer Volltextsuche stehen Titeltreffer oben – dann erst das Datum.
+	 *
+	 * Die Rangstufe (BI_Suche::titel_rang) kommt VOR die bisherige Sortierung,
+	 * sie ersetzt sie nicht: Innerhalb jeder Stufe bleibt es beim Startdatum,
+	 * der nächste Termin zuerst. Ohne Suchtext ändert sich nichts.
+	 *
+	 * Gilt für Ergebnisliste, Seitenblättern und die Seminar-Vorschläge im
+	 * Suchfeld; die Zählabfragen (orderby 'none') bleiben unberührt, dort wäre
+	 * eine Sortierung nur Arbeit ohne Ergebnis.
+	 *
+	 * Folgt dem Suchtext, wie er gerade gesetzt ist – nach einer
+	 * Tippfehler-Korrektur also dem korrigierten.
+	 */
+	public static function titel_zuerst( $orderby, $query ) {
+		if ( ! self::$title_query || ! $query->get( 'bi_title_search' ) || 'none' === $query->get( 'orderby' ) ) {
+			return $orderby;
+		}
+		$knoten = BI_Suche::ausdruck( self::$title_query );
+		if ( ! $knoten ) {
+			return $orderby;
+		}
+		$rang = BI_Suche::titel_rang( $knoten );
+		if ( '' === $rang ) {
+			return $orderby;
+		}
+		return $rang . ' ASC' . ( '' !== trim( (string) $orderby ) ? ', ' . $orderby : '' );
 	}
 
 	/**
@@ -1495,9 +1525,14 @@ class BI_Filter {
 					<?php endwhile; ?>
 				</div>
 				<?php
+				// Die Adresse geht roh hinein, NICHT durch esc_url(): paginate_links()
+				// zerlegt sie selbst und maskiert erst die fertigen Links. Vorab
+				// maskiert wurde aus „&“ ein „&#038;“, dessen „#“ als Sprungmarke
+				// galt – bei zwei und mehr Parametern standen sie dann doppelt im
+				// Link (…&q=x#038;q=x).
 				$big = 999999999;
 				echo '<div class="bi-pagination">' . paginate_links( array(
-					'base'    => str_replace( $big, '%#%', esc_url( get_pagenum_link( $big ) ) ),
+					'base'    => str_replace( $big, '%#%', get_pagenum_link( $big, false ) ),
 					'format'  => '?paged=%#%',
 					'current' => $paged,
 					'total'   => $q->max_num_pages,
