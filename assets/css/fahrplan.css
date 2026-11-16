@@ -1,6 +1,7 @@
 /* Bildungsfahrplan – die Bildungswege aus dem Heft als Bahnlinie */
 
 .bil {
+	container: bil / inline-size;
 	--bil-gelb: #f2a900;
 	--bil-gruen: #6ab023;
 	--bil-blau: #0f9bd7;
@@ -133,6 +134,7 @@
 	color: #fff;
 	background: var(--bil-k, var(--bil-gruen));
 }
+.bil-frage__weiche { background: var(--bil-text); }
 .bil-frage__zaehler { font-size: 14px; color: var(--bil-leise); }
 .bil-frage__text { font-size: 19px; line-height: 1.45; margin: 0 0 16px; max-width: 760px; }
 .bil-frage__knoepfe { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -154,6 +156,9 @@
  * Aufklappen wächst nur nach unten – nichts springt. */
 .bil-strecke {
 	--bil-gleis: var(--bil-rot);
+	--bil-einzug: 64px;   /* Platz links für Gleis und Punkte */
+	--bil-gleis-x: 22px;  /* linke Kante des Gleises, vom Rand der Strecke */
+	--bil-gleis-b: 8px;   /* Gleisbreite */
 	list-style: none;
 	position: relative;
 	margin: 0 0 28px;
@@ -314,6 +319,285 @@
 .bil-kasten.is-kann .bil-kasten__marke::before { content: "✓ "; }
 .bil-kasten.is-klaeren .bil-kasten__marke { background: #fff4d6; }
 
+/* ---------- Weiche: der Weg teilt sich ----------
+ * Breit: Die Äste laufen nebeneinander, wie im Netzplan. Damit keiner wie
+ * die Hauptstrecke aussieht, läuft die Linie des ganzen Weges in der Mitte
+ * über den Ästen (--bil-gabel) und gabelt sich an der Weiche nach links und
+ * rechts; danach laufen die Äste in der Mitte wieder zusammen.
+ * Spalte i liegt --bil-k Spaltenbreiten (plus Abstand) neben der Mitte.
+ * Schmal (Container unter 700 px, mit drei Ästen unter 980 px): Linie
+ * links wie sonst, Richtungsschilder an der Weiche, ein Ast sichtbar. */
+.bil-strecke--gabel {
+	--bil-gabel-n: 2;
+	--bil-spalt: 24px;
+	--bil-kurve: 34px;
+	/* Abstand der Mitte vom linken Rand: ungerade = Gleis der mittleren Spalte */
+	--bil-gabel: calc((var(--bil-gabel-n) - 1) / (2 * var(--bil-gabel-n)) * (100% + var(--bil-einzug) + var(--bil-spalt)));
+	max-width: 1000px;
+}
+/* gerade: genau zwischen dem gespiegelten linken und dem rechten Gleis */
+.bil-strecke--gerade { --bil-gabel: calc(50% + var(--bil-einzug) / 2 - var(--bil-gleis-b) / 2 - var(--bil-gleis-x)); }
+/* Abstand Gleis → Mitte: --bil-k Spalten plus Rest */
+.bil-ast { --bil-d: calc(var(--bil-k, 0) * (100% + var(--bil-spalt)) + var(--bil-rest, 0px)); }
+.bil-strecke--gerade .bil-ast { --bil-rest: calc(var(--bil-spalt) / 2 + var(--bil-gleis-x) + var(--bil-gleis-b) / 2); }
+.bil-strecke--ungerade .bil-ast--links { --bil-rest: calc(var(--bil-spalt) + 2 * var(--bil-gleis-x) + var(--bil-gleis-b)); }
+.bil-strecke--gabel3 { max-width: 1180px; }
+.bil-strecke--gabel4 { max-width: 1280px; }
+.bil-strecke > .bil-halt > .bil-halt__stellen { max-width: 756px; }
+.bil-strecke--gabel > .bil-halt { margin-left: var(--bil-gabel); }
+
+.bil-weiche {
+	--bil-mitte: 30px;
+	position: relative;
+	margin: 0 0 30px;
+	padding: 0;
+}
+.bil-weiche:last-child { margin-bottom: 0; }
+
+.bil-weiche__kopf {
+	position: relative;
+	min-height: 60px;
+	margin-left: var(--bil-gabel, 0px);
+	padding: 17px 0 14px;
+}
+.bil-weiche__punkt { border-radius: 8px; transform: rotate(45deg) scale(.9); }
+/* Gleis vom Weichenpunkt bis zur Gabel */
+.bil-weiche__kopf::after {
+	content: "";
+	position: absolute;
+	left: calc(var(--bil-gleis-x) - var(--bil-einzug));
+	top: var(--bil-mitte);
+	bottom: 0;
+	width: var(--bil-gleis-b);
+	background: var(--bil-gleis);
+}
+.bil-weiche__titel { margin: 0; font-size: 16px; line-height: 1.4; }
+.bil-weiche__wort {
+	display: inline-block;
+	margin-right: 6px;
+	padding: 1px 7px;
+	border-radius: 3px;
+	background: var(--bil-gleis);
+	color: #fff;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+	vertical-align: 1px;
+}
+.bil-weiche__schilder { display: none; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+.bil-richtung {
+	font: inherit;
+	font-size: 15px;
+	font-weight: 700;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 14px;
+	border: 2px solid var(--bil-text);
+	border-radius: 6px;
+	background: #fff;
+	color: var(--bil-text);
+	cursor: pointer;
+}
+.bil-richtung[aria-pressed="true"] { background: var(--bil-text); color: #fff; }
+.bil-richtung:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
+.bil-richtung__pfeil { font-weight: 400; }
+
+.bil-aeste {
+	display: grid;
+	grid-template-columns: repeat(var(--bil-gabel-n, 2), minmax(0, 1fr));
+	column-gap: var(--bil-spalt, 24px);
+	margin-left: calc(-1 * var(--bil-einzug));
+}
+.bil-ast { position: relative; display: flex; flex-direction: column; min-width: 0; transition: opacity .2s; }
+.bil-ast__strecke { list-style: none; margin: 0; padding: 0 0 0 var(--bil-einzug); }
+
+/* Zieltafel „Richtung …“ wie am Bahnsteig */
+.bil-ast__schild {
+	position: relative;
+	margin: 0;
+	padding: calc(var(--bil-kurve, 34px) + 6px) 0 4px var(--bil-einzug);
+}
+.bil-ast__tafel {
+	display: inline-block;
+	padding: 5px 12px 6px;
+	border-radius: 4px;
+	background: var(--bil-text);
+	color: #fde68a;
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1.3;
+}
+.bil-ast__richtung {
+	display: block;
+	color: #fff;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: .06em;
+	text-transform: uppercase;
+	opacity: .8;
+}
+/* Gleis an der Tafel vorbei bis zum ersten Halt */
+.bil-ast__schild::after {
+	content: "";
+	position: absolute;
+	left: var(--bil-gleis-x);
+	top: 0;
+	bottom: calc(-1 * var(--bil-mitte));
+	width: var(--bil-gleis-b);
+	background: var(--bil-gleis);
+}
+.bil-ast--links > .bil-ast__schild::after,
+.bil-ast--rechts > .bil-ast__schild::after { top: calc(var(--bil-kurve) - 1px); }
+
+/* Gabel: von der Mitte waagrecht zur Seite, dann im Bogen nach unten */
+.bil-ast--links > .bil-ast__schild::before,
+.bil-ast--rechts > .bil-ast__schild::before,
+.bil-ast--links > .bil-ast__zurueck::before,
+.bil-ast--rechts > .bil-ast__zurueck::before {
+	content: "";
+	position: absolute;
+	width: calc(var(--bil-d) + var(--bil-gleis-b));
+	height: var(--bil-kurve);
+	border: 0 solid var(--bil-gleis);
+}
+.bil-ast--links > .bil-ast__schild::before {
+	top: 0;
+	left: calc(100% - var(--bil-gleis-x) - var(--bil-gleis-b));
+	border-top-width: var(--bil-gleis-b);
+	border-left-width: var(--bil-gleis-b);
+	border-top-left-radius: var(--bil-kurve);
+}
+.bil-ast--rechts > .bil-ast__schild::before {
+	top: 0;
+	left: calc(var(--bil-gleis-x) - var(--bil-d));
+	border-top-width: var(--bil-gleis-b);
+	border-right-width: var(--bil-gleis-b);
+	border-top-right-radius: var(--bil-kurve);
+}
+
+/* Zusammenlaufen: jeder Ast fährt bis unten und biegt in die Mitte zurück */
+.bil-weiche--zusammen .bil-ast::before {
+	content: "";
+	position: absolute;
+	left: var(--bil-gleis-x);
+	top: 0;
+	bottom: 0;
+	width: var(--bil-gleis-b);
+	background: var(--bil-gleis);
+}
+.bil-weiche--zusammen .bil-ast--links::before,
+.bil-weiche--zusammen .bil-ast--rechts::before { top: var(--bil-kurve); bottom: var(--bil-kurve); }
+.bil-ast__zurueck { position: relative; margin-top: auto; height: calc(var(--bil-kurve) + 10px); }
+.bil-ast--links > .bil-ast__zurueck::before {
+	bottom: 0;
+	left: calc(100% - var(--bil-gleis-x) - var(--bil-gleis-b));
+	border-bottom-width: var(--bil-gleis-b);
+	border-left-width: var(--bil-gleis-b);
+	border-bottom-left-radius: var(--bil-kurve);
+}
+.bil-ast--rechts > .bil-ast__zurueck::before {
+	bottom: 0;
+	left: calc(var(--bil-gleis-x) - var(--bil-d));
+	border-bottom-width: var(--bil-gleis-b);
+	border-right-width: var(--bil-gleis-b);
+	border-bottom-right-radius: var(--bil-kurve);
+}
+.bil-weiche--zusammen .bil-ast__strecke > .bil-halt:last-child::after { content: ""; bottom: 0; }
+.bil-weiche__zusammen {
+	position: relative;
+	margin: 0 0 0 var(--bil-gabel, 0px);
+	padding: 10px 0 0;
+	font-size: 15px;
+	color: var(--bil-leise);
+}
+.bil-weiche__zusammen::after {
+	content: "";
+	position: absolute;
+	left: calc(var(--bil-gleis-x) - var(--bil-einzug));
+	top: 0;
+	bottom: calc(-30px - var(--bil-mitte));
+	width: var(--bil-gleis-b);
+	background: var(--bil-gleis);
+}
+.bil-weiche:last-child .bil-weiche__zusammen::after { bottom: 0; }
+
+/* Einstiegshilfe: Weiche gerade gefragt, Richtung gewählt */
+.bil-weiche.is-aktiv .bil-weiche__kopf { box-shadow: inset 0 0 0 3px #1d4ed8; border-radius: 8px; padding-left: 12px; padding-right: 12px; }
+.bil-ast.is-gewaehlt .bil-ast__tafel { background: var(--bil-gleis); color: #fff; }
+.bil-ast.is-gewaehlt .bil-ast__richtung { color: #fff; }
+.bil-ast.is-leise { opacity: .45; }
+.bil-ast.is-leise:hover,
+.bil-ast.is-leise:focus-within { opacity: 1; }
+
+/* Breit: Äste links der Mitte gespiegelt – Gleis an der rechten Kante,
+ * Kasten links davon. So treffen sich beide Gleise in der Mitte. */
+@container bil (min-width: 700px) {
+	.bil-strecke--gabel2 .bil-ast--links .bil-ast__strecke { padding: 0 var(--bil-einzug) 0 0; }
+	.bil-strecke--gabel2 .bil-ast--links .bil-halt::after { left: auto; right: -42px; }
+	.bil-strecke--gabel2 .bil-ast--links .bil-halt__punkt { left: auto; right: -54px; }
+	.bil-strecke--gabel2 .bil-ast--links .bil-kasten::before { left: auto; right: -42px; }
+	.bil-strecke--gabel2 .bil-ast--links .bil-ast__schild { padding-left: 0; padding-right: var(--bil-einzug); text-align: right; }
+	.bil-strecke--gabel2 .bil-ast--links .bil-ast__schild::after,
+	.bil-strecke--gabel2 .bil-weiche--zusammen .bil-ast--links::before { left: auto; right: var(--bil-gleis-x); }
+}
+@container bil (min-width: 980px) {
+	.bil-strecke--gabel3 .bil-ast--links .bil-ast__strecke { padding: 0 var(--bil-einzug) 0 0; }
+	.bil-strecke--gabel3 .bil-ast--links .bil-halt::after { left: auto; right: -42px; }
+	.bil-strecke--gabel3 .bil-ast--links .bil-halt__punkt { left: auto; right: -54px; }
+	.bil-strecke--gabel3 .bil-ast--links .bil-kasten::before { left: auto; right: -42px; }
+	.bil-strecke--gabel3 .bil-ast--links .bil-ast__schild { padding-left: 0; padding-right: var(--bil-einzug); text-align: right; }
+	.bil-strecke--gabel3 .bil-ast--links .bil-ast__schild::after,
+	.bil-strecke--gabel3 .bil-weiche--zusammen .bil-ast--links::before { left: auto; right: var(--bil-gleis-x); }
+	.bil-strecke--gabel4 .bil-ast--links .bil-ast__strecke { padding: 0 var(--bil-einzug) 0 0; }
+	.bil-strecke--gabel4 .bil-ast--links .bil-halt::after { left: auto; right: -42px; }
+	.bil-strecke--gabel4 .bil-ast--links .bil-halt__punkt { left: auto; right: -54px; }
+	.bil-strecke--gabel4 .bil-ast--links .bil-kasten::before { left: auto; right: -42px; }
+	.bil-strecke--gabel4 .bil-ast--links .bil-ast__schild { padding-left: 0; padding-right: var(--bil-einzug); text-align: right; }
+	.bil-strecke--gabel4 .bil-ast--links .bil-ast__schild::after,
+	.bil-strecke--gabel4 .bil-weiche--zusammen .bil-ast--links::before { left: auto; right: var(--bil-gleis-x); }
+}
+
+/* Schmal: Linie links, Richtungsschilder schalten zwischen den Ästen */
+@container bil (max-width: 699px) {
+	.bil-strecke--gabel { --bil-gabel: 0px; }
+	.bil-weiche[data-bil-umschalter] .bil-weiche__schilder { display: flex; }
+	.bil-weiche[data-bil-umschalter] .bil-ast:not(.is-sichtbar) { display: none; }
+	.bil-weiche[data-bil-umschalter] .bil-ast.is-leise { opacity: 1; }
+	.bil-aeste { display: block; }
+	.bil-ast > .bil-ast__schild::before,
+	.bil-ast > .bil-ast__zurueck::before { content: none !important; }
+	.bil-ast > .bil-ast__schild::after { top: 0 !important; }
+	.bil-weiche--zusammen .bil-ast::before { top: 0 !important; bottom: 0 !important; }
+	.bil-ast__schild { padding-top: 6px; }
+	.bil-ast__zurueck { height: 14px; }
+}
+@container bil (max-width: 979px) {
+	.bil-strecke--gabel3,
+	.bil-strecke--gabel4 { --bil-gabel: 0px; }
+	.bil-strecke--gabel3 .bil-weiche[data-bil-umschalter] .bil-weiche__schilder,
+	.bil-strecke--gabel4 .bil-weiche[data-bil-umschalter] .bil-weiche__schilder { display: flex; }
+	.bil-strecke--gabel3 .bil-weiche[data-bil-umschalter] .bil-ast:not(.is-sichtbar),
+	.bil-strecke--gabel4 .bil-weiche[data-bil-umschalter] .bil-ast:not(.is-sichtbar) { display: none; }
+	.bil-strecke--gabel3 .bil-ast.is-leise,
+	.bil-strecke--gabel4 .bil-ast.is-leise { opacity: 1; }
+	.bil-strecke--gabel3 .bil-aeste,
+	.bil-strecke--gabel4 .bil-aeste { display: block; }
+	.bil-strecke--gabel3 .bil-ast > .bil-ast__schild::before,
+	.bil-strecke--gabel3 .bil-ast > .bil-ast__zurueck::before,
+	.bil-strecke--gabel4 .bil-ast > .bil-ast__schild::before,
+	.bil-strecke--gabel4 .bil-ast > .bil-ast__zurueck::before { content: none !important; }
+	.bil-strecke--gabel3 .bil-ast > .bil-ast__schild::after,
+	.bil-strecke--gabel4 .bil-ast > .bil-ast__schild::after { top: 0 !important; }
+	.bil-strecke--gabel3 .bil-weiche--zusammen .bil-ast::before,
+	.bil-strecke--gabel4 .bil-weiche--zusammen .bil-ast::before { top: 0 !important; bottom: 0 !important; }
+	.bil-strecke--gabel3 .bil-ast__schild,
+	.bil-strecke--gabel4 .bil-ast__schild { padding-top: 6px; }
+	.bil-strecke--gabel3 .bil-ast__zurueck,
+	.bil-strecke--gabel4 .bil-ast__zurueck { height: 14px; }
+}
+
 /* ---------- Legende ---------- */
 .bil-legende {
 	list-style: none;
@@ -349,7 +633,8 @@
 	.bil-frage__text { font-size: 17px; }
 	.bil-knopf--ja,
 	.bil-knopf--nein { flex: 1 1 140px; }
-	.bil-strecke { padding-left: 44px; }
+	.bil-strecke { padding-left: 44px; --bil-einzug: 44px; --bil-gleis-x: 12px; --bil-gleis-b: 6px; }
+	.bil-ast__strecke { padding-left: 44px; }
 	.bil-halt::after { left: -32px; width: 6px; }
 	.bil-halt__punkt { left: -42px; top: calc(var(--bil-mitte) - 13px); width: 26px; height: 26px; border-width: 6px; }
 	.bil-kasten::before { left: -36px; width: 28px; }
@@ -362,7 +647,9 @@
 
 @media print {
 	.bil-wahl,
-	.bil-einstieg { display: none !important; }
+	.bil-einstieg,
+	.bil-weiche__schilder { display: none !important; }
+	.bil-ast { display: flex !important; opacity: 1 !important; }
 	.bil-weg[hidden] { display: block !important; }
 	.bil-kasten { box-shadow: none; }
 	.bil-halt::after,

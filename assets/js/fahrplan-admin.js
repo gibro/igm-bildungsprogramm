@@ -7,6 +7,7 @@
  *    Punkte, Voraussetzungen. Ein neuer Halt aus der Suche wird damit gleich
  *    vorbelegt; sonst kommen die Vorschläge zum Anklicken.
  *  - Live-Vorschau mit Probelauf der Fragen (auch ungespeichert).
+ *  - Feld „Ast“ für Weichen, mit den schon vergebenen Namen zur Auswahl.
  *
  * Die Eingabefelder tragen keine name-Attribute. Beim Speichern sammelt dieses
  * Skript alle Halte in EIN verstecktes JSON-Feld (bil_haltestellen_json), damit
@@ -61,6 +62,7 @@
 				art: wert( k, 'art' ),
 				regional: wert( k, 'regional' ),
 				pflicht: wert( k, 'pflicht' ),
+				ast: wert( k, 'ast' ),
 				punkte: wert( k, 'punkte' ),
 				titel: wert( k, 'titel' ),
 				fragen: wert( k, 'fragen' )
@@ -349,10 +351,31 @@
 		}
 	} );
 
+	// Ast-Namen zur Auswahl anbieten, damit „Betriebspolitik“ nicht zweimal verschieden geschrieben wird.
+	function aesteListe() {
+		var dl = document.getElementById( 'bil-aeste-liste' );
+		if ( ! dl ) {
+			return;
+		}
+		var namen = [];
+		liste.querySelectorAll( '[data-f="ast"]' ).forEach( function ( e ) {
+			var v = e.value.trim();
+			if ( v && namen.indexOf( v ) < 0 ) {
+				namen.push( v );
+			}
+		} );
+		dl.innerHTML = namen.map( function ( n ) {
+			return '<option value="' + esc( n ) + '"></option>';
+		} ).join( '' );
+	}
+
 	// Rahmenfarbe folgt der Art.
 	liste.addEventListener( 'change', function ( e ) {
 		if ( e.target.matches( '[data-f="art"]' ) ) {
 			setzeArt( e.target.closest( '.bil-kasten-form' ), e.target.value );
+		}
+		if ( e.target.matches( '[data-f="ast"]' ) ) {
+			aesteListe();
 		}
 	} );
 

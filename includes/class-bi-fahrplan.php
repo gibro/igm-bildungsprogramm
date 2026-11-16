@@ -49,8 +49,30 @@
  *               Geschäftsstelle klären“ – nie eine Freigabe.
  *      fragen   bis zu drei Ja/Nein-Fragen. Fehlen sie, baut ersatzfragen()
  *               sie aus den Punkten – das Modul braucht keine KI.
+ *      ast      Name des Astes nach einer Weiche („Betriebspolitik“), leer =
+ *               Hauptstrecke. Siehe WEICHEN unten.
  *
  *  referent und optional werden nicht abgefragt.
+ *
+ * ============================================================================
+ *  WEICHEN (seit 1.156.0)
+ * ============================================================================
+ *  Ein Weg darf sich teilen. Halte mit Ast-Namen bilden eine Weiche: Alle
+ *  aufeinanderfolgenden Stufen, in denen mindestens ein Halt einen Ast hat,
+ *  gehören zu einer Weiche. Gleicher Name = gleicher Ast (Groß/klein egal).
+ *  Danach geht es entweder auf der Hauptstrecke weiter (die Äste laufen
+ *  wieder zusammen) oder die Äste enden jeweils an ihrem eigenen Endhalt.
+ *
+ *  Ansicht: Auf breiten Bildschirmen laufen die Äste nebeneinander, wie im
+ *  Netzplan. Die Linie läuft dann auf dem ganzen Weg in der Mitte über den
+ *  Ästen und gabelt sich nach links und rechts – zwei gleichwertige
+ *  Richtungen, keine Abzweigung von einer Hauptstrecke. Schmal gibt es an der Weiche Richtungsschilder; gezeigt wird
+ *  ein Ast, die anderen per Klick. Die Einstiegshilfe fragt an der Weiche
+ *  „In welche Richtung willst du?“ und danach nur den gewählten Ast.
+ *
+ *  Ein Halt ohne Ast mitten in einer Weiche fährt auf dem ersten Ast mit
+ *  (Hinweis in der Prüfliste). Eine „Weiche“ mit nur einem Ast ist keine –
+ *  die Halte laufen dann auf der Hauptstrecke.
  *
  * ============================================================================
  *  NUR AUF DER ZENTRALE
@@ -91,6 +113,9 @@ class BI_Fahrplan {
 
 	const MAX_STUFE  = 12;
 	const MAX_FRAGEN = 3;
+
+	/** Mehr Äste je Weiche werden nebeneinander zu schmal (nur Hinweis). */
+	const MAX_AESTE = 3;
 
 	public static function init() {
 		// Den Shortcode gibt es überall, damit er auf einer Quelle nicht als
@@ -241,6 +266,7 @@ class BI_Fahrplan {
 			'regional' => ! empty( $k['regional'] ),
 			'pflicht'  => ! empty( $k['pflicht'] ),
 			'fragen'   => array_slice( self::liste( $fragen ), 0, self::MAX_FRAGEN ),
+			'ast'      => mb_substr( self::zeile( $k['ast'] ?? '' ), 0, 40 ),
 		);
 	}
 
@@ -293,6 +319,129 @@ class BI_Fahrplan {
 			$out[ $k['stufe'] ][] = $k;
 		}
 		ksort( $out );
+		return $out;
+	}
+
+	/**
+	 * Die Strecke in Abschnitte teilen: Hauptstrecke und Weichen.
+	 *
+	 * @return array [
+	 *   [ 'typ' => 'stamm', 'kaesten' => [ … ] ],
+	 *   [ 'typ' => 'weiche', 'nr' => 1, 'aeste' => [ Name => [ kästen ], … ], 'ohne_ast' => [ ids ] ],
+	 * ] – Kästen je Abschnitt/Ast nach Stufe, innen in gepflegter Reihenfolge.
+	 */
+	public static function abschnitte( $kaesten ) {
+		// 1. Stufen zu Läufen zusammenfassen: mit Ast / ohne Ast.
+		$laeufe = array();
+		foreach ( self::spalten( $kaesten ) as $liste ) {
+			$typ = 'stamm';
+			foreach ( $liste as $k ) {
+				if ( '' !== $k['ast'] ) {
+					$typ = 'weiche';
+				}
+			}
+			$n = count( $laeufe );
+			if ( $n && $laeufe[ $n - 1 ]['typ'] === $typ ) {
+				$laeufe[ $n - 1 ]['kaesten'] = array_merge( $laeufe[ $n - 1 ]['kaesten'], $liste );
+			} else {
+				$laeufe[] = array( 'typ' => $typ, 'kaesten' => $liste );
+			}
+		}
+
+		// 2. Weichen in Äste teilen; eine Weiche mit nur einem Ast wird Hauptstrecke.
+		$out = array();
+		$nr  = 0;
+		foreach ( $laeufe as $l ) {
+			if ( 'weiche' === $l['typ'] ) {
+				$namen = array(); // norm => Anzeigename (erste Schreibweise)
+				foreach ( $l['kaesten'] as $k ) {
+					if ( '' !== $k['ast'] && ! isset( $namen[ self::norm( $k['ast'] ) ] ) ) {
+						$namen[ self::norm( $k['ast'] ) ] = $k['ast'];
+					}
+				}
+				if ( count( $namen ) >= 2 ) {
+					$erster = reset( $namen );
+					$aeste  = array();
+					foreach ( $namen as $name ) {
+						$aeste[ $name ] = array();
+					}
+					$ohne = array();
+					foreach ( $l['kaesten'] as $k ) {
+						if ( '' === $k['ast'] ) {
+							$ohne[]             = $k['id'];
+							$aeste[ $erster ][] = $k;
+						} else {
+							$aeste[ $namen[ self::norm( $k['ast'] ) ] ][] = $k;
+						}
+					}
+					$nr++;
+					$out[] = array( 'typ' => 'weiche', 'nr' => $nr, 'aeste' => $aeste, 'ohne_ast' => $ohne );
+					continue;
+				}
+			}
+			$n = count( $out );
+			if ( $n && 'stamm' === $out[ $n - 1 ]['typ'] ) {
+				$out[ $n - 1 ]['kaesten'] = array_merge( $out[ $n - 1 ]['kaesten'], $l['kaesten'] );
+			} else {
+				$out[] = array( 'typ' => 'stamm', 'kaesten' => $l['kaesten'] );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Wo liegt jeder Halt? id => [ 'weiche' => Nr (0 = Hauptstrecke), 'ast' => Name ]
+	 */
+	public static function lage( $kaesten ) {
+		$out = array();
+		foreach ( self::abschnitte( $kaesten ) as $a ) {
+			if ( 'stamm' === $a['typ'] ) {
+				foreach ( $a['kaesten'] as $k ) {
+					$out[ $k['id'] ] = array( 'weiche' => 0, 'ast' => '' );
+				}
+				continue;
+			}
+			foreach ( $a['aeste'] as $name => $liste ) {
+				foreach ( $liste as $k ) {
+					$out[ $k['id'] ] = array( 'weiche' => $a['nr'], 'ast' => (string) $name );
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Hinweise zu den Weichen für die Prüfliste.
+	 *
+	 * @return array id => [ [ 'stufe' => 'warn', 'text' => … ], … ]
+	 */
+	public static function weichen_befunde( $kaesten ) {
+		$out    = array();
+		$in_wei = array();
+		foreach ( self::abschnitte( $kaesten ) as $a ) {
+			if ( 'weiche' !== $a['typ'] ) {
+				continue;
+			}
+			$namen = array_keys( $a['aeste'] );
+			foreach ( $a['ohne_ast'] as $id ) {
+				$out[ $id ][] = array( 'stufe' => 'warn', 'text' => 'steht mitten in einer Weiche ohne Ast – fährt auf „' . $namen[0] . '“ mit. Ast eintragen oder Stufe ändern' );
+			}
+			if ( count( $namen ) > self::MAX_AESTE ) {
+				$erster = reset( $a['aeste'] );
+				$out[ $erster[0]['id'] ][] = array( 'stufe' => 'warn', 'text' => count( $namen ) . ' Äste an einer Weiche – mehr als ' . self::MAX_AESTE . ' werden nebeneinander zu schmal' );
+			}
+			foreach ( $a['aeste'] as $liste ) {
+				foreach ( $liste as $k ) {
+					$in_wei[ $k['id'] ] = true;
+				}
+			}
+		}
+		// Ast eingetragen, aber kein zweiter Ast daneben → läuft auf der Hauptstrecke.
+		foreach ( $kaesten as $k ) {
+			if ( '' !== $k['ast'] && empty( $in_wei[ $k['id'] ] ) ) {
+				$out[ $k['id'] ][] = array( 'stufe' => 'warn', 'text' => 'Ast „' . $k['ast'] . '“ hat keinen zweiten Ast daneben – keine Weiche, läuft auf der Hauptstrecke' );
+			}
+		}
 		return $out;
 	}
 
@@ -526,7 +675,8 @@ class BI_Fahrplan {
 	 * @return array id => [ [ 'stufe' => 'warn'|'fehler', 'text' => …, 'pflicht_bei' => id|'' ], … ]
 	 */
 	public static function voraussetzung_befunde( $kaesten, $voraus ) {
-		$out = array();
+		$out  = array();
+		$lage = self::lage( $kaesten );
 		foreach ( $kaesten as $k ) {
 			$gesehen = array();
 			foreach ( $voraus[ $k['id'] ] ?? array() as $v ) {
@@ -546,7 +696,12 @@ class BI_Fahrplan {
 				if ( self::halt_erfuellt( $k, $v ) && ! $ziel ) {
 					continue; // verweist auf sich selbst, z. B. Teil 2 setzt Teil 1 derselben Reihe voraus
 				}
-				if ( $ziel && $ziel['stufe'] >= $k['stufe'] ) {
+				$lz = $ziel ? ( $lage[ $ziel['id'] ] ?? null ) : null;
+				$lk = $lage[ $k['id'] ] ?? null;
+				if ( $ziel && $lz && $lk && $lz['weiche'] && $lz['weiche'] === $lk['weiche'] && $lz['ast'] !== $lk['ast'] ) {
+					$out[ $k['id'] ][] = array( 'stufe' => $v['formal'] ? 'fehler' : 'warn', 'pflicht_bei' => '',
+						'text' => '„' . $v['titel'] . '“ ' . ( $v['formal'] ? 'ist formal Voraussetzung' : 'wird vorher empfohlen' ) . ', liegt aber auf einem anderen Ast („' . $ziel['name'] . '“, Ast „' . $lz['ast'] . '“) – vor die Weiche legen' );
+				} elseif ( $ziel && $ziel['stufe'] >= $k['stufe'] ) {
 					$out[ $k['id'] ][] = $v['formal']
 						? array( 'stufe' => 'fehler', 'pflicht_bei' => '',
 							'text' => '„' . $v['titel'] . '“ ist formal Voraussetzung, liegt aber nicht vor diesem Halt („' . $ziel['name'] . '“) – Stufe erhöhen' )
@@ -745,7 +900,11 @@ class BI_Fahrplan {
 	public static function render_pruefung( $post ) {
 		$kaesten = self::kaesten( $post->ID );
 		$treffer = self::seminare_je_kasten( $kaesten, self::kommende_termine() );
-		$zeilen  = self::pruef_zeilen( $kaesten, $treffer, self::voraussetzung_befunde( $kaesten, self::voraussetzungen_je_kasten( $kaesten, $treffer ) ) );
+		$befunde = self::voraussetzung_befunde( $kaesten, self::voraussetzungen_je_kasten( $kaesten, $treffer ) );
+		foreach ( self::weichen_befunde( $kaesten ) as $id => $liste ) {
+			$befunde[ $id ] = array_merge( $befunde[ $id ] ?? array(), $liste );
+		}
+		$zeilen  = self::pruef_zeilen( $kaesten, $treffer, $befunde );
 		$zaehler = array( 'ok' => 0, 'warn' => 0, 'fehler' => 0 );
 		foreach ( $zeilen as $z ) {
 			$zaehler[ $z['stufe'] ]++;
@@ -803,9 +962,15 @@ class BI_Fahrplan {
 				<li><strong>Seminartitel</strong>: einer je Zeile, am besten über die Suche. Ein <code>*</code> am Ende heißt „beginnt mit“ (für alle Teile einer Reihe).</li>
 				<li><strong>Fragen</strong>: bis zu drei Ja/Nein-Fragen in Du-Form. Die erste Antwort „nein“ ist der Einstieg. „Fragen vorschlagen“ holt Vorschläge aus den Themen der Seminare.</li>
 				<li><strong>Voraussetzung</strong>: Haken setzen, wenn die Teilnahme formal Voraussetzung für spätere Halte ist. Die Prüfliste oben erkennt das aus dem Feld „Voraussetzungen“ der Seminare.</li>
+				<li><strong>Ast (Weiche)</strong>: leer = Hauptstrecke. Teilt sich der Weg, bekommt jeder Halt hinter der Weiche den Namen seines Astes, z. B. „Betriebspolitik“ und „Politische Bildung“ – Halte mit gleichem Namen fahren auf demselben Ast. Danach geht es auf der Hauptstrecke weiter (Halte ohne Ast mit höherer Stufe), oder die Äste enden. Auf der Website laufen die Äste nebeneinander; die Einstiegshilfe fragt an der Weiche nach der Richtung.</li>
 				<li>Referent*in und „optional, hilfreich“ werden nicht abgefragt.</li>
 			</ul>
 		</details>
+		<datalist id="bil-aeste-liste">
+			<?php foreach ( array_unique( array_filter( array_column( $kaesten, 'ast' ), 'strlen' ) ) as $a ) : ?>
+				<option value="<?php echo esc_attr( $a ); ?>"></option>
+			<?php endforeach; ?>
+		</datalist>
 		<div id="bil-kaesten">
 			<?php
 			foreach ( $kaesten as $k ) {
@@ -835,6 +1000,7 @@ class BI_Fahrplan {
 						<option value="<?php echo esc_attr( $a ); ?>" <?php selected( $k['art'], $a ); ?>><?php echo esc_html( $l ); ?></option>
 					<?php endforeach; ?>
 				</select></label>
+				<label title="Leer = Hauptstrecke. Halte mit verschiedenen Ästen in derselben Stufe bilden eine Weiche.">Ast <input type="text" data-f="ast" value="<?php echo esc_attr( $k['ast'] ); ?>" list="bil-aeste-liste" size="14" placeholder="Hauptstrecke"></label>
 				<label><input type="checkbox" data-f="regional" <?php checked( $k['regional'] ); ?>> regional</label>
 				<label title="Teilnahme ist formale Voraussetzung für den nächsten Schritt"><input type="checkbox" data-f="pflicht" <?php checked( $k['pflicht'] ); ?>> Voraussetzung</label>
 				<span class="bil-kf-knoepfe">
@@ -1328,18 +1494,34 @@ class BI_Fahrplan {
 	 * @param array $weg [titel, ziel, einleitung, entwurf, kaesten]
 	 */
 	public static function render_weg_daten( $weg, $anker, $termine, $als_tab = false, $versteckt = false ) {
-		$kaesten = $weg['kaesten'];
-		$treffer = self::seminare_je_kasten( $kaesten, $termine );
-		$halte   = self::halte( $kaesten );
+		$kaesten    = $weg['kaesten'];
+		$treffer    = self::seminare_je_kasten( $kaesten, $termine );
+		$abschnitte = self::abschnitte( $kaesten );
+		$lage       = self::lage( $kaesten );
 
+		// Halte werden durchgezählt; jeder Ast zählt ab der Weiche weiter,
+		// nach dem Zusammenlaufen geht es mit der höchsten Nummer weiter.
+		// Spalten der Gabel: so viele wie die breiteste Weiche des Weges. Die
+		// Hauptstrecke läuft dann in der Mitte dieser Spalten.
+		$spalten_n = 0;
+		foreach ( $abschnitte as $a ) {
+			if ( 'weiche' === $a['typ'] ) {
+				$spalten_n = max( $spalten_n, count( $a['aeste'] ) );
+			}
+		}
 		$strecke = '';
-		foreach ( $halte as $i => $h ) {
-			$k       = $h['kasten'];
-			$letzter = count( $halte ) - 1 === $i;
-			$label   = ( 1 === $h['nr'] ? 'Einstieg · ' : '' ) . $h['nr'] . '. Halt';
-			$strecke .= '<li class="bil-halt' . ( $letzter ? ' bil-halt--ziel' : '' ) . '" data-stufe="' . (int) $k['stufe'] . '">'
-				. '<span class="bil-halt__punkt" aria-hidden="true"></span>'
-				. '<ul class="bil-halt__stellen">' . self::render_kasten( $k, $treffer[ $k['id'] ], $label ) . '</ul></li>';
+		$nr      = 0;
+		foreach ( $abschnitte as $ai => $a ) {
+			$zuletzt = count( $abschnitte ) - 1 === $ai;
+			if ( 'stamm' === $a['typ'] ) {
+				foreach ( $a['kaesten'] as $ki => $k ) {
+					$nr++;
+					$strecke .= self::render_halt( $k, $treffer[ $k['id'] ], $nr, $zuletzt && count( $a['kaesten'] ) - 1 === $ki );
+				}
+				continue;
+			}
+			$strecke .= self::render_weiche( $a, $treffer, $nr, ! $zuletzt, $nr_danach, $spalten_n );
+			$nr       = $nr_danach;
 		}
 
 		$daten = array( 'kaesten' => array() );
@@ -1351,6 +1533,8 @@ class BI_Fahrplan {
 				'art'     => $k['art'],
 				'pflicht' => $k['pflicht'],
 				'fragen'  => self::fragen( $k ),
+				'weiche'  => $lage[ $k['id'] ]['weiche'],
+				'ast'     => $lage[ $k['id'] ]['ast'],
 			);
 		}
 
@@ -1367,9 +1551,92 @@ class BI_Fahrplan {
 			. '</header>'
 			. $einleitung
 			. self::einstieg_panel()
-			. '<ol class="bil-strecke" aria-label="Strecke">' . $strecke . '</ol>'
+			. '<ol class="bil-strecke' . ( $spalten_n ? ' bil-strecke--gabel bil-strecke--gabel' . min( 4, $spalten_n ) . ' bil-strecke--' . ( $spalten_n % 2 ? 'ungerade' : 'gerade' ) : '' ) . '"'
+			. ( $spalten_n ? ' style="--bil-gabel-n:' . (int) $spalten_n . '"' : '' ) . ' aria-label="Strecke">' . $strecke . '</ol>'
 			. '<script type="application/json" data-bil-daten>' . wp_json_encode( $daten, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP ) . '</script>'
 			. '</section>';
+	}
+
+	/** Ein Halt der Strecke mit seiner Haltestelle. */
+	private static function render_halt( $k, $t, $nr, $endhalt ) {
+		$label = ( 1 === $nr ? 'Einstieg · ' : '' ) . $nr . '. Halt';
+		return '<li class="bil-halt' . ( $endhalt ? ' bil-halt--ziel' : '' ) . '" data-stufe="' . (int) $k['stufe'] . '">'
+			. '<span class="bil-halt__punkt" aria-hidden="true"></span>'
+			. '<ul class="bil-halt__stellen">' . self::render_kasten( $k, $t, $label ) . '</ul></li>';
+	}
+
+	/**
+	 * Spalten, in denen die Äste einer Weiche laufen: gleichmäßig um die
+	 * Mitte, damit kein Ast wie die Hauptstrecke aussieht. Zwei Äste in drei
+	 * Spalten → außen links und außen rechts, die Mitte bleibt frei.
+	 *
+	 * @return int[] Spalte je Ast, ab 0
+	 */
+	public static function gabel_spalten( $anzahl, $spalten_n ) {
+		if ( $anzahl >= $spalten_n ) {
+			return range( 0, $anzahl - 1 );
+		}
+		$out = array();
+		for ( $i = 0; $i < $anzahl; $i++ ) {
+			$out[] = (int) round( $i * ( $spalten_n - 1 ) / max( 1, $anzahl - 1 ) );
+		}
+		return $out;
+	}
+
+	/**
+	 * Eine Weiche: Kopf mit Weichensymbol und Richtungsschildern (schmal als
+	 * Umschalter), darunter die Äste nebeneinander. Die Hauptstrecke kommt in
+	 * der Mitte an und gabelt sich nach links und rechts – kein Ast fährt
+	 * „geradeaus“. Laufen die Äste danach wieder zusammen ($zusammen), führen
+	 * sie unten in die Mitte zurück, sonst endet jeder Ast mit einem Endhalt.
+	 *
+	 * @param int $nr_danach höchste vergebene Halt-Nummer (Ausgabe)
+	 */
+	private static function render_weiche( $a, $treffer, $nr, $zusammen, &$nr_danach, $spalten_n = 2 ) {
+		$nr_danach = $nr;
+		$namen     = array_keys( $a['aeste'] );
+		$schilder  = '';
+		$spalten   = '';
+		$gesamt    = max( $spalten_n, count( $namen ) );
+		$lage      = self::gabel_spalten( count( $namen ), $gesamt );
+		$mitte     = ( $gesamt - 1 ) / 2;
+		foreach ( $namen as $i => $name ) {
+			$name     = (string) $name;
+			$liste    = $a['aeste'][ $name ];
+			$schilder .= '<button type="button" class="bil-richtung" data-bil-richtung="' . (int) $i . '" aria-pressed="' . ( 0 === $i ? 'true' : 'false' ) . '">'
+				. '<span class="bil-richtung__pfeil" aria-hidden="true">' . ( $lage[ $i ] < $mitte ? '↙' : ( $lage[ $i ] > $mitte ? '↘' : '↓' ) ) . '</span>' . esc_html( $name ) . '</button>';
+			$halte = '';
+			$n     = $nr;
+			foreach ( $liste as $ki => $k ) {
+				$n++;
+				$halte .= self::render_halt( $k, $treffer[ $k['id'] ], $n, ! $zusammen && count( $liste ) - 1 === $ki );
+			}
+			$nr_danach = max( $nr_danach, $n );
+			// Links der Mitte gespiegelt (Gleis rechts, Kasten links davon).
+			// --bil-k = ganze Spaltenbreiten zwischen Gleis und Mitte; den Rest
+			// (halber Abstand, Gleis) rechnet das CSS je nach gerader/ungerader Spaltenzahl.
+			$k         = $mitte - $lage[ $i ]; // > 0: links der Mitte, < 0: rechts
+			$seite     = $k > 0 ? 'links' : ( $k < 0 ? 'rechts' : 'mitte' );
+			$k         = abs( $k );
+			$k         = 0 === $gesamt % 2 ? $k - 0.5 : ( 'links' === $seite ? $k - 1 : $k );
+			$spalten  .= '<div class="bil-ast bil-ast--' . $seite . '" data-bil-ast="' . (int) $i . '" data-bil-ast-name="' . esc_attr( $name ) . '"'
+				. ' style="grid-column:' . ( $lage[ $i ] + 1 ) . ';--bil-k:' . max( 0, $k ) . '">'
+				. '<p class="bil-ast__schild"><span class="bil-ast__tafel"><span class="bil-ast__richtung">Richtung</span> ' . esc_html( $name ) . '</span></p>'
+				. '<ol class="bil-ast__strecke" aria-label="' . esc_attr( 'Ast ' . $name ) . '">' . $halte . '</ol>'
+				. ( $zusammen ? '<div class="bil-ast__zurueck" aria-hidden="true"></div>' : '' )
+				. '</div>';
+		}
+		$anzahl = count( $namen );
+		return '<li class="bil-weiche' . ( $zusammen ? ' bil-weiche--zusammen' : '' ) . '" data-bil-weiche="' . (int) $a['nr'] . '">'
+			. '<div class="bil-weiche__kopf">'
+			. '<span class="bil-halt__punkt bil-weiche__punkt" aria-hidden="true"></span>'
+			. '<p class="bil-weiche__titel"><span class="bil-weiche__wort">Weiche</span> Hier teilt sich der Weg in ' . ( 2 === $anzahl ? 'zwei' : ( 3 === $anzahl ? 'drei' : (int) $anzahl ) ) . ' Richtungen.'
+			. ( $zusammen ? ' Danach geht es gemeinsam weiter.' : '' ) . '</p>'
+			. '<div class="bil-weiche__schilder" role="group" aria-label="Richtung zeigen">' . $schilder . '</div>'
+			. '</div>'
+			. '<div class="bil-aeste">' . $spalten . '</div>'
+			. ( $zusammen ? '<p class="bil-weiche__zusammen"><span class="bil-weiche__wort">Zusammen</span> Hier laufen die Richtungen wieder zusammen.</p>' : '' )
+			. '</li>';
 	}
 
 	/** „Wo steigst du ein?“ – der Inhalt der Fragen kommt von fahrplan.js. */

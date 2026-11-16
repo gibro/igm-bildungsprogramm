@@ -4425,4 +4425,13 @@ Zusatzmodul `includes/class-bi-fahrplan.php`. Es zeigt die „Exemplarischen Bil
 - *Vorschau und Probelauf* unter dem Editor, auch ungespeichert.
 - *Duplizieren* in der Liste der Wege.
 
+**Weichen (seit 1.156.0): der Weg teilt sich**
+
+- Feld **„Ast"** am Halt, leer = Hauptstrecke. Bekommen Halte in derselben Stufe verschiedene Ast-Namen („Betriebspolitik", „Politische Bildung"), teilt sich dort der Weg. Gleicher Name = gleicher Ast, auch über mehrere Stufen (Groß/klein egal; schon vergebene Namen stehen zur Auswahl).
+- Kommen danach wieder Halte ohne Ast, laufen die Äste dort zusammen. Sonst endet jeder Ast mit seiner eigenen Zielflagge.
+- **Breit** laufen die Äste nebeneinander als gleichwertige Richtungen: Die Linie des Weges läuft in der Mitte über den Ästen, gabelt sich an der Weiche nach links und rechts und läuft nach den Ästen in der Mitte weiter. Kein Ast sieht aus wie die Hauptstrecke (bei drei Ästen fährt der mittlere geradeaus). Äste links der Mitte sind gespiegelt: Gleis rechts, Kästen links davon – so liegen beide Gleise eng an der Mitte. Über jedem Ast eine Zieltafel „Richtung …". **Schmal** (unter 700 px, bei drei Ästen unter 980 px) gibt es an der Weiche Richtungsschilder als Umschalter; sichtbar ist ein Ast, das Gleis bleibt eine Linie.
+- **„Wo steigst du ein?"** fragt an der Weiche „In welche Richtung willst du weiter?" (Knöpfe mit den Halten des Astes) und danach nur den gewählten Ast. Der andere Ast tritt zurück, „Als Nächstes" kommt nur vom gewählten Ast oder nach dem Zusammenlaufen.
+- **Prüfliste**: Halt ohne Ast mitten in einer Weiche (fährt auf dem ersten Ast mit), Ast ohne zweiten Ast daneben (keine Weiche), mehr als drei Äste, Voraussetzung auf einem anderen Ast.
+- Keine neuen Dateien; geändert: `includes/class-bi-fahrplan.php`, `assets/js/fahrplan.js`, `assets/js/fahrplan-admin.js`, `assets/css/fahrplan.css`. Die Startbelegung bleibt ohne Weichen.
+
 **Handdeploy – neue Dateien seit 1.154.0:** `includes/class-bi-fahrplan.php`, `assets/js/fahrplan.js`, `assets/js/fahrplan-admin.js`, `assets/css/fahrplan.css`, `assets/css/fahrplan-admin.css`, `assets/data/fahrplan-startbelegung.json`. Fehlt `class-bi-fahrplan.php`, lädt das Plugin trotzdem; der Fahrplan bleibt dann aus und das Fehlerprotokoll nennt die Datei.
