@@ -3,7 +3,7 @@
  * Plugin Name:       Bildungsprogramm
  * Plugin URI:        https://bildung.igmetall.de/
  * Description:        Eigenständiges Seminar-/Veranstaltungssystem: Such- & Filterleiste, CSV-Import für Präsenz- und Online-Seminare sowie PLZ-Geschäftsstellen, Anmeldeformular mit konfigurierbaren Mail-Triggern. Unabhängig von Formidable.
- * Version:           1.156.0
+ * Version:           1.157.0
  * Author:            IG Metall Bildung
  * Text Domain:       bi-seminarsuche
  * Requires at least: 5.8
@@ -46,7 +46,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Direktaufruf verhindern
 }
 
-define( 'BI_VERSION', '1.156.0' );
+define( 'BI_VERSION', '1.157.0' );
 define( 'BI_DB_VERSION', '9' ); // Schema-Version der eigenen Tabellen (Upgrade via dbDelta)
 define( 'BI_FILE', __FILE__ );
 define( 'BI_PATH', plugin_dir_path( __FILE__ ) );

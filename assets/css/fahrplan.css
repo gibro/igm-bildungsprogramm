@@ -5,7 +5,8 @@
 	--bil-gelb: #f2a900;
 	--bil-gruen: #6ab023;
 	--bil-blau: #0f9bd7;
-	--bil-rot: #e2231a;
+	--bil-rot: #e3051b;      /* IG-Metall-Rot, wie die Buttons der Website */
+	--bil-rot-dunkel: #b80416;
 	--bil-orange: #ec6608;
 	--bil-text: #1f2937;
 	--bil-leise: #6b7280;
@@ -105,7 +106,7 @@
 	font-weight: 700;
 }
 .bil-knopf--ja { background: var(--bil-rot); border-color: var(--bil-rot); color: #fff; }
-.bil-knopf--ja:hover { background: #b81b14; border-color: #b81b14; }
+.bil-knopf--ja:hover { background: var(--bil-rot-dunkel); border-color: var(--bil-rot-dunkel); }
 
 .bil-link {
 	font: inherit;
@@ -657,3 +658,64 @@
 	.bil-kasten { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
+/* ---------- Schutz gegen Knopf-Stile des Themes ----------
+ * Elementor setzt „.elementor-kit-N button { color: #fff }“, das Reset des
+ * Hello-Themes färbt Knöpfe bei :hover/:focus pink (#c36). Beides ist
+ * spezifischer als eine einzelne Klasse – ohne diesen Block stand weiße
+ * Schrift auf weißen Knöpfen. Deshalb hier alle Zustände ausdrücklich, mit
+ * .bil davor. */
+.bil .bil-wahl__knopf,
+.bil .bil-wahl__knopf:hover,
+.bil .bil-wahl__knopf:focus,
+.bil .bil-wahl__knopf:active,
+.bil .bil-knopf,
+.bil .bil-knopf:hover,
+.bil .bil-knopf:focus,
+.bil .bil-knopf:active,
+.bil .bil-richtung,
+.bil .bil-richtung:hover,
+.bil .bil-richtung:focus,
+.bil .bil-richtung:active {
+	background: #fff;
+	color: var(--bil-text);
+	text-decoration: none;
+	text-transform: none;
+	letter-spacing: normal;
+	box-shadow: none;
+}
+.bil .bil-wahl__knopf:hover,
+.bil .bil-knopf:hover { border-color: var(--bil-rot); }
+.bil .bil-richtung:hover { border-color: var(--bil-text); }
+.bil .bil-knopf span { color: var(--bil-leise); }
+
+.bil .bil-wahl__knopf[aria-selected="true"],
+.bil .bil-wahl__knopf[aria-selected="true"]:hover,
+.bil .bil-wahl__knopf[aria-selected="true"]:focus,
+.bil .bil-knopf--ja,
+.bil .bil-knopf--ja:focus,
+.bil .bil-knopf--ja:active {
+	background: var(--bil-rot);
+	border-color: var(--bil-rot);
+	color: #fff;
+}
+.bil .bil-knopf--ja:hover { background: var(--bil-rot-dunkel); border-color: var(--bil-rot-dunkel); color: #fff; }
+
+.bil .bil-richtung[aria-pressed="true"],
+.bil .bil-richtung[aria-pressed="true"]:hover,
+.bil .bil-richtung[aria-pressed="true"]:focus {
+	background: var(--bil-text);
+	border-color: var(--bil-text);
+	color: #fff;
+}
+
+.bil .bil-link,
+.bil .bil-link:hover,
+.bil .bil-link:focus,
+.bil .bil-link:active {
+	background: none;
+	border: 0;
+	color: var(--bil-text);
+	text-decoration: underline;
+	text-transform: none;
+	box-shadow: none;
+}

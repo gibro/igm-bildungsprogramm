@@ -132,6 +132,8 @@ class BI_Fahrplan {
 		add_action( 'admin_notices', array( __CLASS__, 'hinweis_startbelegung' ) );
 		add_action( 'admin_post_bi_fahrplan_start', array( __CLASS__, 'handle_startbelegung' ) );
 		add_action( 'admin_post_bi_fahrplan_export', array( __CLASS__, 'handle_export' ) );
+		add_action( 'admin_post_bi_fahrplan_import', array( __CLASS__, 'handle_import' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'render_austausch' ) );
 		add_action( 'admin_post_bi_fahrplan_kopie', array( __CLASS__, 'handle_kopie' ) );
 		add_action( 'wp_ajax_bi_fahrplan_suche', array( __CLASS__, 'ajax_suche' ) );
 		add_action( 'wp_ajax_bi_fahrplan_analyse', array( __CLASS__, 'ajax_analyse' ) );
@@ -731,6 +733,9 @@ class BI_Fahrplan {
 		}
 		$linien = array();
 		foreach ( $d['linien'] as $l ) {
+			if ( ! is_array( $l ) ) {
+				continue;
+			}
 			$schl = sanitize_key( $l['schluessel'] ?? '' );
 			if ( '' === $schl ) {
 				continue;
@@ -740,10 +745,43 @@ class BI_Fahrplan {
 				'titel'        => self::zeile( $l['titel'] ?? $schl ),
 				'zielgruppe'   => self::zeile( $l['zielgruppe'] ?? '' ),
 				'einleitung'   => (string) ( $l['einleitung'] ?? '' ),
+				'reihenfolge'  => isset( $l['reihenfolge'] ) ? (int) $l['reihenfolge'] : null,
 				'haltestellen' => self::sanitize_kaesten( $l['haltestellen'] ?? array() ),
 			);
 		}
 		return $linien ? array( 'linien' => $linien ) : null;
+	}
+
+	/**
+	 * Was ein Import tun würde – rein, ohne Datenbank.
+	 *
+	 * Schlüssel ist der Abgleich: Gibt es ihn schon, wird der Weg nur mit
+	 * $ueberschreiben ersetzt, sonst übersprungen. Neue Wege kommen als
+	 * Entwurf. Doppelte Schlüssel in der Datei: der erste zählt.
+	 *
+	 * @param array $linien         aus lies_paket()
+	 * @param array $da             Schlüssel => Beitrags-ID der vorhandenen Wege
+	 * @param bool  $ueberschreiben vorhandene Wege ersetzen
+	 * @return array [ [ 'aktion' => 'neu'|'ersetzen'|'behalten'|'doppelt', 'linie' => …, 'pid' => int ], … ]
+	 */
+	public static function import_plan( $linien, $da, $ueberschreiben ) {
+		$out     = array();
+		$gesehen = array();
+		foreach ( $linien as $l ) {
+			$schl = $l['schluessel'];
+			if ( isset( $gesehen[ $schl ] ) ) {
+				$out[] = array( 'aktion' => 'doppelt', 'linie' => $l, 'pid' => 0 );
+				continue;
+			}
+			$gesehen[ $schl ] = true;
+			$pid              = (int) ( $da[ $schl ] ?? 0 );
+			if ( ! $pid ) {
+				$out[] = array( 'aktion' => 'neu', 'linie' => $l, 'pid' => 0 );
+			} else {
+				$out[] = array( 'aktion' => $ueberschreiben ? 'ersetzen' : 'behalten', 'linie' => $l, 'pid' => $pid );
+			}
+		}
+		return $out;
 	}
 
 	/* ===================================================================
@@ -1146,28 +1184,174 @@ class BI_Fahrplan {
 			wp_die( 'Keine Berechtigung.' );
 		}
 		check_admin_referer( 'bi_fahrplan_export' );
-		$pid  = absint( $_GET['linie'] ?? 0 );
-		$post = $pid ? get_post( $pid ) : null;
-		if ( ! $post || self::CPT !== $post->post_type ) {
-			wp_die( 'Weg nicht gefunden.' );
+		// linie=ID: ein Weg (Knopf im Editor), ohne: alle Wege (Knopf in der Liste).
+		$pid = absint( $_GET['linie'] ?? 0 );
+		if ( $pid ) {
+			$post = get_post( $pid );
+			if ( ! $post || self::CPT !== $post->post_type ) {
+				wp_die( 'Weg nicht gefunden.' );
+			}
+			$posts = array( $post );
+			$schl  = (string) get_post_meta( $pid, self::META_SCHLUESSEL, true );
+			$datei = 'bildungsweg-' . sanitize_file_name( $schl ? $schl : 'weg-' . $pid );
+		} else {
+			$posts = get_posts( array(
+				'post_type'      => self::CPT,
+				'post_status'    => array( 'publish', 'draft', 'pending', 'private' ),
+				'posts_per_page' => -1,
+				'orderby'        => array( 'menu_order' => 'ASC', 'title' => 'ASC' ),
+				'no_found_rows'  => true,
+			) );
+			$datei = 'bildungswege-' . current_time( 'Y-m-d' );
 		}
-		$schl  = (string) get_post_meta( $pid, self::META_SCHLUESSEL, true );
+		$linien = array();
+		foreach ( $posts as $p ) {
+			$linien[] = array(
+				'schluessel'   => (string) get_post_meta( $p->ID, self::META_SCHLUESSEL, true ),
+				'titel'        => $p->post_title,
+				'zielgruppe'   => (string) get_post_meta( $p->ID, self::META_ZIELGRUPPE, true ),
+				'einleitung'   => $p->post_content,
+				'reihenfolge'  => (int) $p->menu_order,
+				'haltestellen' => self::kaesten( $p->ID ),
+			);
+		}
 		$paket = array(
 			'version' => 2,
 			'stand'   => current_time( 'Y-m-d' ),
-			'linien'  => array( array(
-				'schluessel'   => $schl,
-				'titel'        => $post->post_title,
-				'zielgruppe'   => (string) get_post_meta( $pid, self::META_ZIELGRUPPE, true ),
-				'einleitung'   => $post->post_content,
-				'haltestellen' => self::kaesten( $pid ),
-			) ),
+			'linien'  => $linien,
 		);
 		nocache_headers();
 		header( 'Content-Type: application/json; charset=utf-8' );
-		header( 'Content-Disposition: attachment; filename="bildungsweg-' . sanitize_file_name( $schl ? $schl : 'weg-' . $pid ) . '.json"' );
+		header( 'Content-Disposition: attachment; filename="' . $datei . '.json"' );
 		echo wp_json_encode( $paket, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT ); // phpcs:ignore WordPress.Security.EscapeOutput
 		exit;
+	}
+
+	/** Höchstens so groß darf eine Import-Datei sein (fünf Wege ≈ 40 KB). */
+	const IMPORT_MAX_BYTES = 2097152;
+
+	/**
+	 * Kasten „Exportieren / Importieren“ über der Liste der Wege. Steht als
+	 * Hinweis über dem Listenformular – ein Upload-Formular darf nicht in
+	 * einem anderen Formular stecken.
+	 */
+	public static function render_austausch() {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'edit-' . self::CPT !== $screen->id || ! current_user_can( BI_CAP ) ) {
+			return;
+		}
+		// Ergebnis des letzten Imports
+		$r = get_transient( 'bil_import_' . get_current_user_id() );
+		if ( is_array( $r ) ) {
+			delete_transient( 'bil_import_' . get_current_user_id() );
+			$ok = empty( $r['fehler'] );
+			echo '<div class="notice notice-' . ( $ok ? 'success' : 'error' ) . ' is-dismissible"><p><strong>Import Bildungswege:</strong> ' . esc_html( $r['text'] ) . '</p>';
+			if ( ! empty( $r['zeilen'] ) ) {
+				echo '<ul style="margin:0 0 8px 18px;list-style:disc">';
+				foreach ( $r['zeilen'] as $z ) {
+					echo '<li>' . esc_html( $z ) . '</li>';
+				}
+				echo '</ul>';
+			}
+			echo '</div>';
+		}
+		$n = (int) ( wp_count_posts( self::CPT )->publish ?? 0 ) + (int) ( wp_count_posts( self::CPT )->draft ?? 0 );
+		?>
+		<div class="notice notice-info bil-austausch" style="padding:10px 12px">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:0">
+				<strong>Bildungswege austauschen</strong>
+				<a class="button" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=bi_fahrplan_export' ), 'bi_fahrplan_export' ) ); ?>"<?php echo $n ? '' : ' aria-disabled="true" style="pointer-events:none;opacity:.5"'; ?>>Alle Wege exportieren (JSON)</a>
+				<span style="border-left:1px solid #c3c4c7;height:24px"></span>
+				<input type="hidden" name="action" value="bi_fahrplan_import">
+				<?php wp_nonce_field( 'bi_fahrplan_import', 'bil_import_nonce' ); ?>
+				<label>JSON-Datei <input type="file" name="bil_datei" accept=".json,application/json" required></label>
+				<label title="Ohne Haken bleiben Wege mit gleichem Schlüssel unverändert"><input type="checkbox" name="bil_ueberschreiben" value="1"> Wege mit gleichem Schlüssel ersetzen</label>
+				<button type="submit" class="button button-primary">Importieren</button>
+			</form>
+			<p class="description" style="margin:6px 0 0">Abgleich über den <em>Schlüssel</em>. Neue Wege kommen als Entwurf. Ersetzte Wege behalten ihren Status (veröffentlicht bleibt veröffentlicht), Titel, Einleitung, Zielgruppe und Halte kommen aus der Datei. Einzelne Wege exportiert der Knopf im Editor eines Weges.</p>
+		</div>
+		<?php
+	}
+
+	/** Import einer JSON-Datei (Form wie Export und Startbelegung). */
+	public static function handle_import() {
+		if ( ! current_user_can( BI_CAP ) ) {
+			wp_die( 'Keine Berechtigung.' );
+		}
+		check_admin_referer( 'bi_fahrplan_import', 'bil_import_nonce' );
+		$zurueck = admin_url( 'edit.php?post_type=' . self::CPT );
+		$melde   = function ( $text, $zeilen = array(), $fehler = false ) use ( $zurueck ) {
+			set_transient( 'bil_import_' . get_current_user_id(), array( 'text' => $text, 'zeilen' => $zeilen, 'fehler' => $fehler ), 300 );
+			wp_safe_redirect( $zurueck );
+			exit;
+		};
+
+		$f = $_FILES['bil_datei'] ?? null; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+		if ( ! $f || UPLOAD_ERR_OK !== (int) ( $f['error'] ?? UPLOAD_ERR_NO_FILE ) || ! is_uploaded_file( $f['tmp_name'] ) ) {
+			$melde( 'Keine Datei angekommen.', array(), true );
+		}
+		if ( (int) $f['size'] > self::IMPORT_MAX_BYTES ) {
+			$melde( 'Die Datei ist zu groß (höchstens 2 MB).', array(), true );
+		}
+		$paket = self::lies_paket( file_get_contents( $f['tmp_name'] ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		if ( ! $paket ) {
+			$melde( 'Die Datei ist keine Bildungswege-Datei (erwartet: JSON mit „linien“ und je Weg einem „schluessel“). Nichts geändert.', array(), true );
+		}
+
+		$ueber  = ! empty( $_POST['bil_ueberschreiben'] );
+		$plan   = self::import_plan( $paket['linien'], self::vorhandene_schluessel(), $ueber );
+		$zahl   = array( 'neu' => 0, 'ersetzen' => 0, 'behalten' => 0, 'doppelt' => 0 );
+		$zeilen = array();
+		foreach ( $plan as $schritt ) {
+			$l = $schritt['linie'];
+			if ( 'neu' === $schritt['aktion'] ) {
+				$id = wp_insert_post( array(
+					'post_type'    => self::CPT,
+					'post_status'  => 'draft',
+					'post_title'   => $l['titel'],
+					'post_content' => wp_kses_post( $l['einleitung'] ),
+					'menu_order'   => null !== $l['reihenfolge'] ? $l['reihenfolge'] : 0,
+				), true );
+				if ( is_wp_error( $id ) || ! $id ) {
+					$zeilen[] = '„' . $l['titel'] . '“: konnte nicht angelegt werden.';
+					continue;
+				}
+				update_post_meta( $id, self::META_SCHLUESSEL, $l['schluessel'] );
+				update_post_meta( $id, self::META_ZIELGRUPPE, $l['zielgruppe'] );
+				self::speichere_kaesten( $id, $l['haltestellen'] );
+				$zeilen[] = '„' . $l['titel'] . '“ (' . $l['schluessel'] . '): neu als Entwurf, ' . count( $l['haltestellen'] ) . ' Halte.';
+			} elseif ( 'ersetzen' === $schritt['aktion'] ) {
+				$daten = array(
+					'ID'           => $schritt['pid'],
+					'post_title'   => $l['titel'],
+					'post_content' => wp_kses_post( $l['einleitung'] ),
+				);
+				if ( null !== $l['reihenfolge'] ) {
+					$daten['menu_order'] = $l['reihenfolge'];
+				}
+				// save() hängt an save_post – ohne Nonce tut es nichts, die Meta schreiben wir hier.
+				$id = wp_update_post( $daten, true );
+				if ( is_wp_error( $id ) ) {
+					$zeilen[] = '„' . $l['titel'] . '“: konnte nicht ersetzt werden.';
+					continue;
+				}
+				update_post_meta( $schritt['pid'], self::META_ZIELGRUPPE, $l['zielgruppe'] );
+				self::speichere_kaesten( $schritt['pid'], $l['haltestellen'] );
+				$zeilen[] = '„' . $l['titel'] . '“ (' . $l['schluessel'] . '): ersetzt, ' . count( $l['haltestellen'] ) . ' Halte.';
+			} elseif ( 'behalten' === $schritt['aktion'] ) {
+				$zeilen[] = '„' . $l['titel'] . '“ (' . $l['schluessel'] . '): gibt es schon – unverändert.';
+			} else {
+				$zeilen[] = '„' . $l['titel'] . '“ (' . $l['schluessel'] . '): Schlüssel steht doppelt in der Datei – übersprungen.';
+			}
+			$zahl[ $schritt['aktion'] ]++;
+		}
+		$teile = array();
+		foreach ( array( 'neu' => 'neu angelegt', 'ersetzen' => 'ersetzt', 'behalten' => 'unverändert', 'doppelt' => 'doppelt' ) as $k => $wort ) {
+			if ( $zahl[ $k ] ) {
+				$teile[] = $zahl[ $k ] . ' ' . $wort;
+			}
+		}
+		$melde( ( $teile ? implode( ', ', $teile ) : 'nichts geändert' ) . '.' . ( $zahl['behalten'] ? ' Zum Ersetzen den Haken „Wege mit gleichem Schlüssel ersetzen“ setzen.' : '' ), $zeilen );
 	}
 
 	/* ===================================================================

@@ -4424,6 +4424,7 @@ Zusatzmodul `includes/class-bi-fahrplan.php`. Es zeigt die „Exemplarischen Bil
 - *Prüfliste*: Titel ohne kommenden Termin, fehlende Fragen und Voraussetzungen aus dem Feld „Voraussetzungen" der Seminare (fehlender Haken, falsche Reihenfolge, Voraussetzung auf keinem Halt).
 - *Vorschau und Probelauf* unter dem Editor, auch ungespeichert.
 - *Duplizieren* in der Liste der Wege.
+- *Exportieren / Importieren* (seit 1.157.0) im Kasten über der Liste der Wege: „Alle Wege exportieren" lädt eine JSON-Datei in der Form der Startbelegung (mit Reihenfolge und Ästen). „Importieren" liest so eine Datei ein, Abgleich über den Schlüssel: neue Wege kommen als Entwurf, vorhandene bleiben unverändert – außer mit Haken „Wege mit gleichem Schlüssel ersetzen", dann kommen Titel, Einleitung, Zielgruppe, Reihenfolge und Halte aus der Datei, der Status bleibt. Höchstens 2 MB. Ein einzelner Weg lässt sich weiter im Editor exportieren.
 
 **Weichen (seit 1.156.0): der Weg teilt sich**
 
