@@ -2003,6 +2003,9 @@ class BI_Filter {
 		if ( $is_online ) {
 			$ortzeile = $ortzeile ? 'Online · ' . $ortzeile : 'Online';
 		}
+		// Findet das Seminar nicht im zuständigen Bildungszentrum statt, steht
+		// dieses in Klammern hinter dem Veranstaltungsort.
+		$zustaendig = $is_online ? '' : BI_CPT::zustaendiges_bz_wenn_abweichend( $post_id );
 
 		// Dauer: mehrtägig in Tagen, eintägige Online-Termine als Uhrzeit-Spanne
 		$dauer       = '';
@@ -2034,7 +2037,7 @@ class BI_Filter {
 					<?php if ( $ausgebucht ) : ?><span class="bi-row-badge"><?php echo esc_html( $grund ); ?></span><?php endif; ?>
 				</h3>
 				<?php if ( $ortzeile ) : ?>
-					<div class="bi-row-ort"><?php echo esc_html( $ortzeile ); ?></div>
+					<div class="bi-row-ort"><?php echo esc_html( $ortzeile ); ?><?php if ( $zustaendig ) : ?> <span class="bi-row-zustaendig">(durchgeführt von <?php echo esc_html( $zustaendig ); ?>)</span><?php endif; ?></div>
 				<?php endif; ?>
 				<div class="bi-row-sub">
 					<?php if ( $prog && ! is_wp_error( $prog ) ) : ?><span><?php echo esc_html( $prog[0] ); ?></span><?php endif; ?>

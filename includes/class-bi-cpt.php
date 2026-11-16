@@ -414,6 +414,45 @@ class BI_CPT {
 	}
 
 	/**
+	 * Das zuständige Bildungszentrum – aber nur, wenn das Seminar woanders
+	 * stattfindet.
+	 *
+	 * Steht in `_bi_seminarort` ein anderer Ort als das Bildungszentrum aus der
+	 * Taxonomie (Hotel, Tagungshaus, anderes Bildungszentrum), liefert die
+	 * Funktion den Namen des zuständigen Bildungszentrums, damit die Liste
+	 * „Hotel Xy (durchgeführt von Bildungszentrum Beverungen)" zeigen kann. Ist kein
+	 * abweichender Ort gepflegt, das Bildungszentrum „Andere" oder meinen beide
+	 * Angaben dasselbe Haus („Beverungen" vs. „Bildungszentrum Beverungen"),
+	 * kommt ein Leerstring zurück.
+	 */
+	public static function zustaendiges_bz_wenn_abweichend( $post_id ) {
+		$ort = trim( (string) get_post_meta( $post_id, '_bi_seminarort', true ) );
+		if ( '' === $ort ) {
+			return '';
+		}
+		$terms = wp_get_object_terms( $post_id, BI_TAX_ORT, array( 'fields' => 'names' ) );
+		if ( is_wp_error( $terms ) || ! $terms ) {
+			return '';
+		}
+		$bz = trim( (string) $terms[0] );
+		if ( '' === $bz || self::ANDERE === $bz ) {
+			return '';
+		}
+		// Dasselbe Haus, nur anders geschrieben?
+		if ( self::bz_norm( $ort ) === self::bz_norm( $bz ) ) {
+			return '';
+		}
+		$zentrum = self::zentrum_fuer( $bz );
+		if ( '' !== $zentrum && self::zentrum_fuer( $ort ) === $zentrum ) {
+			return '';
+		}
+		if ( 0 !== stripos( $bz, 'Bildungszentrum' ) ) {
+			$bz = 'Bildungszentrum ' . $bz;
+		}
+		return $bz;
+	}
+
+	/**
 	 * Freistellungen in der Reihenfolge, in der sie einem Menschen gezeigt
 	 * werden – Detailseite und Seminardetails-PDF.
 	 *

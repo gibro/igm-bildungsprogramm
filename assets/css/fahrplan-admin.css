@@ -1,0 +1,130 @@
+/* Bildungswege – Pflege (Weg bearbeiten) */
+
+/* Prüfliste */
+.bil-summe { display: flex; gap: 8px; flex-wrap: wrap; }
+.bil-chip {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 12px;
+	font-weight: 600;
+	font-size: 12px;
+}
+.bil-chip.bil-ok { background: #e2efda; color: #2f5c1f; }
+.bil-chip.bil-warn { background: #fff2cc; color: #7a5b00; }
+.bil-chip.bil-fehler { background: #f8d7da; color: #8a1c24; }
+.bil-pruef-tabelle tr.bil-fehler td:first-child { border-left: 4px solid #c4161c; }
+.bil-pruef-tabelle tr.bil-warn td:first-child { border-left: 4px solid #e0a800; }
+
+/* Kasten-Editor */
+.bil-kasten-form {
+	border: 1px solid #dcdcde;
+	border-left: 6px solid #6ab023;
+	border-radius: 4px;
+	padding: 10px 12px;
+	margin: 0 0 12px;
+	background: #fff;
+}
+.bil-kasten-form.bil-art--einstieg { border-left-color: #f2a900; }
+.bil-kasten-form.bil-art--grundlage { border-left-color: #6ab023; }
+.bil-kasten-form.bil-art--spezialisierung { border-left-color: #0f9bd7; }
+.bil-kasten-form.bil-art--politisch { border-left-color: #e2231a; }
+.bil-kasten-form.bil-art--referent { border-left-color: #ec6608; border-left-style: double; }
+.bil-kasten-form.bil-art--optional { border-left-color: #f2a900; border-left-style: dashed; }
+
+.bil-kf-kopf {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 14px;
+	margin-bottom: 8px;
+}
+.bil-kf-kopf .bil-kf-name { flex: 1 1 260px; font-weight: 600; }
+.bil-kf-knoepfe { margin-left: auto; white-space: nowrap; }
+.bil-kf-knoepfe .button-link { margin-left: 6px; }
+.bil-kf-knoepfe .bil-loeschen { color: #b32d2e; }
+
+.bil-kf-raster {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px 16px;
+}
+.bil-kf-raster label { display: flex; flex-direction: column; gap: 2px; font-weight: 600; font-size: 12px; }
+.bil-kf-raster textarea { font-weight: 400; width: 100%; }
+.bil-kf-raster .bil-voll { grid-column: 1 / -1; }
+@media (max-width: 900px) {
+	.bil-kf-raster { grid-template-columns: 1fr; }
+}
+
+/* Neuer Halt aus Seminar, Hilfe */
+.bil-neu-aus-seminar {
+	background: #f0f6fc;
+	border: 1px solid #c5d9ed;
+	border-radius: 4px;
+	padding: 10px 12px;
+	margin: 0 0 12px;
+}
+.bil-neu-aus-seminar .description { margin: 4px 0 0; }
+.bil-hilfe { margin: 0 0 12px; }
+.bil-hilfe summary { cursor: pointer; font-weight: 600; }
+.bil-hilfe ul { list-style: disc; margin: 6px 0 0 20px; }
+
+/* Seminarsuche */
+.bil-suche { position: relative; margin-top: 4px; }
+.bil-suche input[type="search"] { width: 100%; }
+.bil-suche__treffer {
+	position: absolute;
+	z-index: 50;
+	left: 0;
+	right: 0;
+	top: 100%;
+	max-height: 340px;
+	overflow-y: auto;
+	margin: 2px 0 0;
+	padding: 0;
+	list-style: none;
+	background: #fff;
+	border: 1px solid #8c8f94;
+	border-radius: 4px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, .15);
+}
+.bil-suche__treffer li { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 0 8px 0 0; border-bottom: 1px solid #f0f0f1; }
+.bil-suche__treffer li:last-child { border-bottom: 0; }
+.bil-suche__wahl {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	text-align: left;
+	background: none;
+	border: 0;
+	padding: 7px 10px;
+	cursor: pointer;
+	font: inherit;
+}
+.bil-suche__wahl:hover,
+.bil-suche__wahl:focus { background: #f0f6fc; }
+.bil-suche__wahl span { font-size: 12px; color: #646970; }
+.bil-suche__stern { white-space: nowrap; font-size: 12px; padding-top: 9px !important; }
+.bil-suche__leer { padding: 8px 10px !important; color: #646970; }
+
+/* Vorschläge */
+.bil-kf-titel { display: flex; flex-direction: column; gap: 2px; }
+.bil-kf-hilfen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.bil-vorschlaege {
+	flex-basis: 100%;
+	background: #fcf9e8;
+	border: 1px solid #f0e6a8;
+	border-radius: 4px;
+	padding: 6px 12px;
+	font-weight: 400;
+}
+.bil-vorschlaege p { margin: 6px 0; }
+.bil-vs-liste { margin: 0 0 6px 4px; list-style: none; }
+.bil-vs-liste li { margin: 2px 0; }
+.bil-vs-liste .button-link { text-align: left; }
+.bil-vs-liste .button-link:disabled { color: #8c8f94; text-decoration: line-through; }
+
+/* Live-Vorschau */
+.bil-vorschau { border-top: 1px solid #dcdcde; padding-top: 12px; min-height: 40px; }
+.bil-vorschau.is-laedt { opacity: .5; }
+.bil-vorschau .bil-weg__titel { font-size: 24px; }

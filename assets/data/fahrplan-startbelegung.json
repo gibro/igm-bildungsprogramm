@@ -1,0 +1,714 @@
+{
+ "version": 2,
+ "stand": "2026-11-13",
+ "quelle": "Bildungsprogramm 2027, „Exemplarische Bildungswege“",
+ "linien": [
+  {
+   "schluessel": "jav",
+   "titel": "Jugend- und Auszubildendenvertretung",
+   "farbe": "",
+   "zielgruppe": "Für Jugend- und Auszubildendenvertreter*innen",
+   "einleitung": "<p>So kann dein Bildungsweg aussehen. Die Kästen zeigen, was nacheinander sinnvoll ist. Fängst du neu an, beginnst du beim ersten Kasten. Hast du schon Erfahrung, beantworte ein paar kurze Fragen: Dann siehst du, wo du einsteigen kannst.</p>",
+   "haltestellen": [
+    {
+     "id": "J01",
+     "name": "JAV-Seminar",
+     "stufe": 1,
+     "art": "einstieg",
+     "punkte": [
+      "Die Arbeit der Jugend- und Auszubildendenvertretung"
+     ],
+     "titel": [],
+     "regional": true,
+     "pflicht": true,
+     "fragen": [
+      "Eine Auszubildende muss ständig ausbildungsfremde Arbeiten machen. Weißt du, was die JAV tun kann und wie ihr den Betriebsrat einschaltet?",
+      "Kennst du die Rechte der JAV: Teilnahme an Betriebsratssitzungen, Stimmrecht, eigene Sitzungen und JAV-Versammlung?",
+      "Weißt du, was Berufsbildungsgesetz und Ausbildungsvertrag regeln, etwa Ausbildungsplan und Freistellung für die Berufsschule?"
+     ]
+    },
+    {
+     "id": "J02",
+     "name": "Jugend I",
+     "stufe": 1,
+     "art": "einstieg",
+     "punkte": [
+      "Situation und Interessen junger Arbeitnehmer*innen im Betrieb I"
+     ],
+     "titel": [],
+     "regional": true,
+     "pflicht": true,
+     "fragen": [
+      "Könntest du erklären, was die IG Metall im Betrieb für dich als junge*n Beschäftigte*n tut?",
+      "Weißt du, was ein Tarifvertrag für deine Ausbildungsvergütung oder dein Entgelt bedeutet?",
+      "Kennst du den Unterschied zwischen Betriebsrat, JAV und IG Metall?"
+     ]
+    },
+    {
+     "id": "J03",
+     "name": "Weiterführende JAV-Seminare",
+     "stufe": 2,
+     "art": "spezialisierung",
+     "punkte": [
+      "Qualität der Ausbildung",
+      "Arbeitsorganisation",
+      "Zielgruppen",
+      "Kommunikation"
+     ],
+     "titel": [
+      "JAV - *",
+      "Berufsausbildung mitbestimmen und durchsetzen",
+      "Stark im Betrieb - durch Beteiligung die Jugend bewegen*"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Ihr wollt die Ausbildungsqualität verbessern. Wüsstest du, wie ihr eine Befragung macht und daraus Forderungen ableitet?",
+      "Könntest du eine JAV-Sitzung so planen und leiten, dass am Ende klare Aufgaben verteilt sind?",
+      "Wüsstest du, wie ihr Auszubildende und dual Studierende erreicht, die sich bisher nicht für die JAV interessieren?"
+     ]
+    },
+    {
+     "id": "J04",
+     "name": "Jugend II",
+     "stufe": 2,
+     "art": "politisch",
+     "punkte": [
+      "Zwischen Solidarität und Konkurrenz",
+      "Situation und Interessen junger Arbeitnehmer*innen im Betrieb II"
+     ],
+     "titel": [
+      "Jugend II - Zwischen Solidarität und Konkurrenz*"
+     ],
+     "regional": false,
+     "pflicht": true,
+     "fragen": [
+      "Jemand sagt: „Jeder ist sich selbst der Nächste.“ Könntest du erklären, warum Solidarität im Betrieb trotzdem trägt?",
+      "Weißt du, wie Konkurrenz zwischen Standorten oder Beschäftigtengruppen entsteht und wem sie nützt?"
+     ]
+    },
+    {
+     "id": "J05",
+     "name": "Jugend III",
+     "stufe": 3,
+     "art": "politisch",
+     "punkte": [
+      "Aus der Geschichte lernen",
+      "Global denken – lokal handeln!"
+     ],
+     "titel": [
+      "Jugend III*"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Könntest du erzählen, wie Gewerkschaften Rechte erkämpft haben, die heute selbstverständlich sind?",
+      "Weißt du, wie Arbeitsbedingungen in anderen Ländern mit deinem Betrieb zusammenhängen, etwa über Lieferketten?"
+     ]
+    },
+    {
+     "id": "J06",
+     "name": "Politische Bildung",
+     "stufe": 3,
+     "art": "politisch",
+     "punkte": [
+      "Politische Jugendseminare",
+      "Respekt! Kein Platz für Rassismus"
+     ],
+     "titel": [
+      "\"Solidarität? Tamam, hayde!\"*",
+      "Arbeit zwischen Herrschaft und Eigensinn",
+      "Erinnern, was noch zu tun ist*",
+      "Frauen im Nationalsozialismus",
+      "Geschichte der DDR – Das andere Deutschland?*",
+      "Politik und Demokratie auf dem Prüfstand",
+      "Mentale Gesundheit – wie politisch sind Belastungen durch Arbeit und Gesellschaft?"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "In der Berufsschule wird eine Mitschülerin wegen ihrer Herkunft beleidigt. Wüsstest du, wie du eingreifst?",
+      "Könntest du erklären, warum Demokratie im Betrieb und in der Gesellschaft zusammengehören?"
+     ]
+    },
+    {
+     "id": "J07",
+     "name": "Referent*innenqualifizierung Jugend",
+     "stufe": 4,
+     "art": "referent",
+     "punkte": [
+      "in Abstimmung mit deiner Geschäftsstelle"
+     ],
+     "titel": [
+      "Wie organisiert man politische Lernprozesse?",
+      "Jugendbildungskongress 2027"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": []
+    }
+   ]
+  },
+  {
+   "schluessel": "betriebsrat",
+   "titel": "Betriebsrat",
+   "farbe": "",
+   "zielgruppe": "Für Betriebsrät*innen",
+   "einleitung": "<p>So kann dein Bildungsweg aussehen. Die Kästen zeigen, was nacheinander sinnvoll ist. Fängst du neu an, beginnst du beim ersten Kasten. Hast du schon Erfahrung, beantworte ein paar kurze Fragen: Dann siehst du, wo du einsteigen kannst.</p>",
+   "haltestellen": [
+    {
+     "id": "B01",
+     "name": "Einstieg für Betriebsrät*innen (BR Einstieg)",
+     "stufe": 1,
+     "art": "einstieg",
+     "punkte": [
+      "früher BR I",
+      "auch als Online-Seminar"
+     ],
+     "titel": [
+      "Einführung in die Betriebsratsarbeit (BR I)"
+     ],
+     "regional": true,
+     "pflicht": true,
+     "fragen": [
+      "Ein Kollege fragt dich, wofür der Betriebsrat zuständig ist und wofür nicht. Könntest du ihm das erklären?",
+      "Weißt du, wie zu einer Betriebsratssitzung eingeladen wird und wann ein Beschluss gültig ist?",
+      "Kennst du deine Rechte und Pflichten als Betriebsratsmitglied, etwa Freistellung für Seminare und Schweigepflicht?"
+     ]
+    },
+    {
+     "id": "B02",
+     "name": "Grundlagenbildung: BR kompakt",
+     "stufe": 2,
+     "art": "grundlage",
+     "punkte": [
+      "Ausbildungsreihe BR kompakt (6 Module)"
+     ],
+     "titel": [
+      "Mitbestimmung und Betriebsratshandeln",
+      "Personelle Maßnahmen und Betriebsratshandeln",
+      "Tarifverträge erfolgreich anwenden und umsetzen",
+      "Arbeitszeit - Gestaltungsmöglichkeiten des Betriebsrats",
+      "Arbeitsbedingungen gestalten",
+      "Betriebsänderung, Interessenausgleich und Sozialplan",
+      "BR kompakt *"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Der Arbeitgeber will kurzfristig Überstunden anordnen. Weißt du, wo der Betriebsrat mitbestimmt und wie ihr reagiert?",
+      "Eine Einstellung liegt auf deinem Tisch. Kennst du die Frist und die Gründe, aus denen ihr die Zustimmung verweigern könnt?",
+      "Die Geschäftsleitung plant, eine Abteilung zu verlagern. Weißt du, was Interessenausgleich und Sozialplan bedeuten?"
+     ]
+    },
+    {
+     "id": "B03",
+     "name": "Grundlagen Arbeitsrecht, Wirtschaft und Arbeits- und Gesundheitsschutz",
+     "stufe": 3,
+     "art": "grundlage",
+     "punkte": [
+      "Grundlagen des Arbeitsrechts I–III",
+      "Grundlagen des Arbeits- und Gesundheitsschutzes"
+     ],
+     "titel": [
+      "Grundlagen des Arbeitsrechts I",
+      "Grundlagen des Arbeitsrechts II",
+      "Grundlagen des Arbeitsrechts III",
+      "Grundlagen des Arbeits- und Gesundheitsschutzes"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Eine Kollegin bekommt eine Abmahnung. Kannst du einschätzen, ob sie wirksam ist und was die Kollegin tun kann?",
+      "Weißt du, was eine Gefährdungsbeurteilung ist und wer sie im Betrieb machen muss?",
+      "Könntest du anhand der Zahlen grob sagen, wie es eurem Unternehmen wirtschaftlich geht?"
+     ]
+    },
+    {
+     "id": "B04",
+     "name": "Betriebspolitische Spezialisierung",
+     "stufe": 4,
+     "art": "spezialisierung",
+     "punkte": [
+      "Kommunikation, Beratung, Öffentlichkeitsarbeit",
+      "Mitbestimmung und Gestaltung betrieblicher Themen",
+      "Tarif, Wirtschaft, Technologie",
+      "Arbeits- und Gesundheitsschutz",
+      "Schwerbehindertenvertretung",
+      "JAV"
+     ],
+     "titel": [
+      "Einführung in die Arbeit des Wirtschaftsausschusses",
+      "Künstliche Intelligenz: Betriebliche Anwendungen und Mitbestimmung",
+      "Teil 1: Datenschutz Einstieg*",
+      "Die Organisation des Arbeits- und Gesundheitsschutzes",
+      "Die Vorhaben des Betriebsrats und der SBV: Von der Planung zur Realisierung",
+      "Präsentationstechniken für den Betriebsrat und SBV"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Du sitzt im Wirtschaftsausschuss oder einem Fachausschuss, etwa Arbeitsschutz oder IT. Weißt du genau, was dort deine Aufgaben und Rechte sind?",
+      "Der Arbeitgeber will eine neue Software mit KI einführen. Weißt du, wo ihr mitbestimmt und was in eine Betriebsvereinbarung gehört?",
+      "Könntest du eine Betriebsversammlung oder eine Info für die Belegschaft so vorbereiten, dass sie ankommt?"
+     ]
+    },
+    {
+     "id": "B05",
+     "name": "Politische Bildung",
+     "stufe": 4,
+     "art": "politisch",
+     "punkte": [
+      "Gesellschaft, Ökonomie und Zukunft der Arbeit",
+      "Geschichte und politische Kultur",
+      "Respekt! Kein Platz für Rassismus"
+     ],
+     "titel": [
+      "Geschichte, Entwicklung und Zukunft der Mitbestimmung",
+      "Die Entstehung der Arbeiterbewegung als Lernprozess",
+      "Aktiv gegen Ausgrenzung und Spaltung im Betrieb",
+      "Ausgrenzung, Diskriminierung, Schikane…",
+      "Betriebliche Interessenvertretung und wirtschaftspolitische Rahmensetzung",
+      "Neuaufteilung der Welt",
+      "Herausforderung: Klimakrise",
+      "Kampf um Demokratie und Arbeiterrechte"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Im Pausenraum fallen abfällige Sprüche über Geflüchtete. Wüsstest du, wie du ruhig und mit Argumenten dagegenhältst?",
+      "Könntest du erklären, wie die Mitbestimmung in Deutschland entstanden ist und warum sie keine Selbstverständlichkeit ist?",
+      "Kannst du einschätzen, wie Weltwirtschaft, Klima- und Industriepolitik gerade deinen Betrieb verändern?"
+     ]
+    },
+    {
+     "id": "B06",
+     "name": "Referent*innenqualifizierung",
+     "stufe": 5,
+     "art": "referent",
+     "punkte": [
+      "Grundlagen: Wie organisiert man politische Lernprozesse?",
+      "Konzeptschulungen für einzelne Themen",
+      "in Abstimmung mit deiner Geschäftsstelle"
+     ],
+     "titel": [
+      "Wie organisiert man politische Lernprozesse?",
+      "Seminare \"Einstieg für Betriebsrät*innen (BR Einstieg)\" leiten und gestalten",
+      "Fit als Referent*in des Seminars \"Arbeits- und Gesundheitsschutz I\"",
+      "Gewerkschaftspolitische Einführungsseminare und \"A I\" durchführen"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": []
+    }
+   ]
+  },
+  {
+   "schluessel": "sbv",
+   "titel": "Schwerbehindertenvertretung",
+   "farbe": "",
+   "zielgruppe": "Für die Schwerbehindertenvertretung",
+   "einleitung": "<p>So kann dein Bildungsweg aussehen. Die Kästen zeigen, was nacheinander sinnvoll ist. Fängst du neu an, beginnst du beim ersten Kasten. Hast du schon Erfahrung, beantworte ein paar kurze Fragen: Dann siehst du, wo du einsteigen kannst.</p>",
+   "haltestellen": [
+    {
+     "id": "S01",
+     "name": "Teilhabepraxis I (THP I)",
+     "stufe": 1,
+     "art": "einstieg",
+     "punkte": [
+      "Zentrale Aufgaben der Schwerbehindertenvertretung"
+     ],
+     "titel": [
+      "Zentrale Aufgaben der Schwerbehindertenvertretung*"
+     ],
+     "regional": false,
+     "pflicht": true,
+     "fragen": [
+      "Ein Kollege hat einen Grad der Behinderung von 30. Weißt du, wie er eine Gleichstellung beantragt und was sie ihm bringt?",
+      "Weißt du, wann der Arbeitgeber dich als SBV beteiligen muss und was passiert, wenn er es nicht tut?",
+      "Kennst du deine eigenen Rechte als Vertrauensperson, etwa Freistellung und Schulungsanspruch?"
+     ]
+    },
+    {
+     "id": "S02",
+     "name": "Aufbauseminar (THP II)",
+     "stufe": 2,
+     "art": "grundlage",
+     "punkte": [
+      "Beschäftigungssicherung und Arbeitsgestaltung für Menschen mit einer (Schwer-)Behinderung"
+     ],
+     "titel": [
+      "Beschäftigungssicherung und Arbeitsgestaltung für Menschen mit einer (Schwer-) Behinderung"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Eine schwerbehinderte Kollegin kann ihren Arbeitsplatz nicht mehr wie bisher ausfüllen. Wüsstest du, welche Hilfen es gibt und wer sie bezahlt?",
+      "Weißt du, wie du mit Inklusionsamt und Reha-Trägern zusammenarbeitest?",
+      "Könntest du an einer Inklusionsvereinbarung mitarbeiten?"
+     ]
+    },
+    {
+     "id": "S03",
+     "name": "Optional, hilfreich",
+     "stufe": 3,
+     "art": "optional",
+     "punkte": [
+      "Besuch eines Seminars zum Arbeits- und Gesundheitsschutz oder BR I"
+     ],
+     "titel": [
+      "Grundlagen des Arbeits- und Gesundheitsschutzes",
+      "Einführung in die Betriebsratsarbeit (BR I)"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": []
+    },
+    {
+     "id": "S04",
+     "name": "Aufbauseminar (THP III)",
+     "stufe": 4,
+     "art": "grundlage",
+     "punkte": [
+      "Betriebliches Eingliederungsmanagement (BEM) – Arbeitsfähigkeit erhalten und sichern"
+     ],
+     "titel": [
+      "Betriebliches Eingliederungsmanagement (BEM)*"
+     ],
+     "regional": false,
+     "pflicht": true,
+     "fragen": [
+      "Ein Kollege war dieses Jahr acht Wochen krank. Weißt du, wie ein BEM abläuft und welche Rolle du dabei hast?",
+      "Kennst du die Regeln für den Datenschutz im BEM?"
+     ]
+    },
+    {
+     "id": "S05",
+     "name": "Vertiefungsseminare THP",
+     "stufe": 5,
+     "art": "spezialisierung",
+     "punkte": [
+      "Qualitätscheck des BEM",
+      "Update Behindertenrecht",
+      "Gesundheitsschutz für SBVen",
+      "Rhetorikseminare"
+     ],
+     "titel": [
+      "Update Behindertenrecht 2027",
+      "Gesundheitsschutz für Schwerbehindertenvertretungen",
+      "BEM: Beratungsgespräche professionell führen",
+      "Kommunikation und Gesprächsführung für die SBV*",
+      "Das Kündigungsverfahren - Beteiligungsrechte der SBV",
+      "Die Inklusionsvereinbarung - ein Schritt zum Erfolg"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Kennst du die aktuellen Änderungen im Schwerbehindertenrecht und was sie für deine Arbeit bedeuten?",
+      "Wüsstest du, wie du ein schwieriges Beratungsgespräch führst, etwa wenn jemand Angst um den Arbeitsplatz hat?"
+     ]
+    },
+    {
+     "id": "S06",
+     "name": "Referent*innenqualifizierung",
+     "stufe": 6,
+     "art": "referent",
+     "punkte": [
+      "THP I leiten und gestalten",
+      "in Abstimmung mit deiner Geschäftsstelle"
+     ],
+     "titel": [
+      "Erfahrungsaustausch für Referent*innen der Seminare \"Teilhabepraxis I\"",
+      "Wie organisiert man politische Lernprozesse?"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": []
+    }
+   ]
+  },
+  {
+   "schluessel": "junge",
+   "titel": "Junge Beschäftigte",
+   "farbe": "",
+   "zielgruppe": "Für junge Arbeitnehmer*innen bis 27 Jahre",
+   "einleitung": "<p>So kann dein Bildungsweg aussehen. Die Kästen zeigen, was nacheinander sinnvoll ist. Fängst du neu an, beginnst du beim ersten Kasten. Hast du schon Erfahrung, beantworte ein paar kurze Fragen: Dann siehst du, wo du einsteigen kannst.</p>",
+   "haltestellen": [
+    {
+     "id": "Y01",
+     "name": "Jugend I",
+     "stufe": 1,
+     "art": "einstieg",
+     "punkte": [
+      "Situation und Interessen junger Arbeitnehmer*innen im Betrieb I"
+     ],
+     "titel": [],
+     "regional": true,
+     "pflicht": true,
+     "fragen": [
+      "Könntest du erklären, was die IG Metall im Betrieb für dich als junge*n Beschäftigte*n tut?",
+      "Weißt du, was ein Tarifvertrag für deine Ausbildungsvergütung oder dein Entgelt bedeutet?",
+      "Kennst du den Unterschied zwischen Betriebsrat, JAV und IG Metall?"
+     ]
+    },
+    {
+     "id": "Y02",
+     "name": "Regionale Tages- und Wochenendschulungen",
+     "stufe": 1,
+     "art": "optional",
+     "punkte": [
+      "bei deiner Geschäftsstelle oder im Bezirk"
+     ],
+     "titel": [],
+     "regional": true,
+     "pflicht": false,
+     "fragen": []
+    },
+    {
+     "id": "Y03",
+     "name": "Jugend II",
+     "stufe": 2,
+     "art": "politisch",
+     "punkte": [
+      "Zwischen Solidarität und Konkurrenz",
+      "Situation und Interessen junger Arbeitnehmer*innen im Betrieb II"
+     ],
+     "titel": [
+      "Jugend II - Zwischen Solidarität und Konkurrenz*"
+     ],
+     "regional": false,
+     "pflicht": true,
+     "fragen": [
+      "Jemand sagt: „Jeder ist sich selbst der Nächste.“ Könntest du erklären, warum Solidarität im Betrieb trotzdem trägt?",
+      "Weißt du, wie Konkurrenz zwischen Standorten oder Beschäftigtengruppen entsteht und wem sie nützt?"
+     ]
+    },
+    {
+     "id": "Y04",
+     "name": "Jugend III",
+     "stufe": 3,
+     "art": "politisch",
+     "punkte": [
+      "Aus der Geschichte lernen",
+      "Global denken – lokal handeln!"
+     ],
+     "titel": [
+      "Jugend III*"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Könntest du erzählen, wie Gewerkschaften Rechte erkämpft haben, die heute selbstverständlich sind?",
+      "Weißt du, wie Arbeitsbedingungen in anderen Ländern mit deinem Betrieb zusammenhängen, etwa über Lieferketten?"
+     ]
+    },
+    {
+     "id": "Y05",
+     "name": "Politische Bildung",
+     "stufe": 3,
+     "art": "politisch",
+     "punkte": [
+      "Politische Jugendseminare",
+      "Respekt! Kein Platz für Rassismus"
+     ],
+     "titel": [
+      "\"Solidarität? Tamam, hayde!\"*",
+      "Arbeit zwischen Herrschaft und Eigensinn",
+      "Erinnern, was noch zu tun ist*",
+      "Frauen im Nationalsozialismus",
+      "Geschichte der DDR – Das andere Deutschland?*",
+      "Politik und Demokratie auf dem Prüfstand",
+      "Mentale Gesundheit – wie politisch sind Belastungen durch Arbeit und Gesellschaft?"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "In der Berufsschule wird eine Mitschülerin wegen ihrer Herkunft beleidigt. Wüsstest du, wie du eingreifst?",
+      "Könntest du erklären, warum Demokratie im Betrieb und in der Gesellschaft zusammengehören?"
+     ]
+    },
+    {
+     "id": "Y06",
+     "name": "Referent*innenqualifizierung Jugend",
+     "stufe": 4,
+     "art": "referent",
+     "punkte": [
+      "in Abstimmung mit deiner Geschäftsstelle"
+     ],
+     "titel": [
+      "Wie organisiert man politische Lernprozesse?",
+      "Jugendbildungskongress 2027"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": []
+    }
+   ]
+  },
+  {
+   "schluessel": "vertrauensleute",
+   "titel": "Vertrauensleute",
+   "farbe": "",
+   "zielgruppe": "Für Vertrauensleute (VL) und aktive Beschäftigte",
+   "einleitung": "<p>So kann dein Bildungsweg aussehen. Die Kästen zeigen, was nacheinander sinnvoll ist. Fängst du neu an, beginnst du beim ersten Kasten. Hast du schon Erfahrung, beantworte ein paar kurze Fragen: Dann siehst du, wo du einsteigen kannst.</p>",
+   "haltestellen": [
+    {
+     "id": "V01",
+     "name": "Arbeitnehmer*innen I (A I)",
+     "stufe": 1,
+     "art": "einstieg",
+     "punkte": [
+      "Situation und Interessen von Arbeitnehmer*innen in Betrieb, Wirtschaft und Gesellschaft I"
+     ],
+     "titel": [],
+     "regional": true,
+     "pflicht": false,
+     "fragen": [
+      "Eine Kollegin fragt dich, warum sie in die IG Metall eintreten soll. Hättest du überzeugende Antworten?",
+      "Könntest du erklären, wie ein Tarifvertrag zustande kommt und warum dabei die Mitglieder zählen?",
+      "Weißt du, was Vertrauensleute im Betrieb tun und wie sie mit dem Betriebsrat zusammenarbeiten?"
+     ]
+    },
+    {
+     "id": "V02",
+     "name": "Regionale Einstiegsseminare",
+     "stufe": 1,
+     "art": "optional",
+     "punkte": [
+      "z. B. VL aktiv im Betrieb",
+      "AO-Seminar",
+      "Bildungsblitz"
+     ],
+     "titel": [],
+     "regional": true,
+     "pflicht": false,
+     "fragen": []
+    },
+    {
+     "id": "V03",
+     "name": "Grundlagenbildung: VL kompakt",
+     "stufe": 2,
+     "art": "grundlage",
+     "punkte": [
+      "Ausbildungsreihe VL kompakt (4 Module)"
+     ],
+     "titel": [
+      "Grundlagen der Tarifpolitik - direkte Kommunikation",
+      "Gute Arbeit sichern – Zukunft gemeinsam gestalten",
+      "Stark durch Demokratie - stark für Demokratie!",
+      "Ökonomische Grundkenntnisse: Zusammenhänge verstehen - betrieblich aktiv werden!",
+      "Besondere Seminartermine der Reihe VL kompakt"
+     ],
+     "regional": false,
+     "pflicht": true,
+     "fragen": [
+      "Die Tarifrunde beginnt. Wüsstest du, wie du Kolleg*innen direkt ansprichst und für eine Aktion gewinnst?",
+      "Könntest du erklären, wie Gewinne, Löhne und Investitionen im Unternehmen zusammenhängen?",
+      "Jemand sagt: „Die da oben machen eh, was sie wollen.“ Wüsstest du, wie du darauf reagierst?"
+     ]
+    },
+    {
+     "id": "V04",
+     "name": "Beteiligung und weiterführende Angebote",
+     "stufe": 3,
+     "art": "grundlage",
+     "punkte": [
+      "Qualifizierungsreihe Beteiligungskompetenz und betriebliche Durchsetzungsfähigkeit",
+      "Seminare für VK-Leitungen",
+      "Seminare zur Ansprache"
+     ],
+     "titel": [
+      "Teil 1 : Selbstverständnis und Aufgaben der VK-Leitung",
+      "Teil 2: Betriebliche Arbeit analysieren und organisieren",
+      "Teil 3: Öffentlichkeitsarbeit und Kommunikation",
+      "Teil 4: Erfolgreiche Arbeit kommunizieren",
+      "Teil 5: Reflexion und Abschluss",
+      "Teil 1 Organisation der Vertrauensleutearbeit*",
+      "Teil 2 Wir informieren und beteiligen unsere Mitglieder",
+      "Teil 3 Gesprächsführung und Moderation von Konflikten",
+      "Angestellte Kolleg*innen für Beteiligung motivieren",
+      "Stärker werden im Betrieb"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Ihr wollt ein Problem im Betrieb gemeinsam mit den Beschäftigten lösen. Wüsstest du, wie ihr eine Beteiligungsaktion plant?",
+      "Weißt du, wie man einen Vertrauenskörper organisiert: Sitzungen, Aufgaben, neue Vertrauensleute?"
+     ]
+    },
+    {
+     "id": "V05",
+     "name": "Betriebspolitische Spezialisierung (Auswahl)",
+     "stufe": 4,
+     "art": "spezialisierung",
+     "punkte": [
+      "Antidiskriminierung",
+      "Tarifpolitik (in einigen Bezirken)",
+      "Grundlagen Wirtschaftsausschuss",
+      "Arbeits- und Gesundheitsschutz"
+     ],
+     "titel": [
+      "Teil 1: Zusammenhalt stärken*",
+      "Einführung in die Arbeit des Wirtschaftsausschusses",
+      "Einführung in den Manteltarivertrag (MTV)",
+      "Grundlagen des Arbeits- und Gesundheitsschutzes"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Eine Kollegin wird wegen ihres Kopftuchs abfällig behandelt. Wüsstest du, welche Rechte sie hat und was ihr als Vertrauensleute tun könnt?",
+      "Weißt du, was der Manteltarifvertrag in deinem Bereich regelt, etwa Arbeitszeit und Zuschläge?"
+     ]
+    },
+    {
+     "id": "V06",
+     "name": "Politische Bildung",
+     "stufe": 4,
+     "art": "politisch",
+     "punkte": [
+      "Gesellschaft, Ökonomie und Zukunft der Arbeit",
+      "Geschichte und politische Kultur",
+      "Respekt! Kein Platz für Rassismus"
+     ],
+     "titel": [
+      "Geschichte, Entwicklung und Zukunft der Mitbestimmung",
+      "Die Entstehung der Arbeiterbewegung als Lernprozess",
+      "Aktiv gegen Ausgrenzung und Spaltung im Betrieb",
+      "Ausgrenzung, Diskriminierung, Schikane…",
+      "Betriebliche Interessenvertretung und wirtschaftspolitische Rahmensetzung",
+      "Neuaufteilung der Welt",
+      "Herausforderung: Klimakrise",
+      "Kampf um Demokratie und Arbeiterrechte"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": [
+      "Im Pausenraum fallen abfällige Sprüche über Geflüchtete. Wüsstest du, wie du ruhig und mit Argumenten dagegenhältst?",
+      "Könntest du erklären, wie die Mitbestimmung in Deutschland entstanden ist und warum sie keine Selbstverständlichkeit ist?",
+      "Kannst du einschätzen, wie Weltwirtschaft, Klima- und Industriepolitik gerade deinen Betrieb verändern?"
+     ]
+    },
+    {
+     "id": "V07",
+     "name": "Referent*innenqualifizierung",
+     "stufe": 5,
+     "art": "referent",
+     "punkte": [
+      "Grundlagen: Wie organisiert man politische Lernprozesse?",
+      "Konzeptschulungen für einzelne Themen",
+      "in Abstimmung mit deiner Geschäftsstelle"
+     ],
+     "titel": [
+      "Wie organisiert man politische Lernprozesse?",
+      "Seminare \"Einstieg für Betriebsrät*innen (BR Einstieg)\" leiten und gestalten",
+      "Fit als Referent*in des Seminars \"Arbeits- und Gesundheitsschutz I\"",
+      "Gewerkschaftspolitische Einführungsseminare und \"A I\" durchführen"
+     ],
+     "regional": false,
+     "pflicht": false,
+     "fragen": []
+    }
+   ]
+  }
+ ]
+}

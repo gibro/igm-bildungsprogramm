@@ -37,6 +37,7 @@
 /* Seminarform „Online" – ruhiges Blau, damit „Ausgebucht" die auffällige Marke bleibt */
 .bi-row-badge--online { color: #1e40af; background: #dbeafe; }
 .bi-row-ort { font-size: 15px; color: #374151; margin-bottom: 4px; }
+.bi-row-zustaendig { color: #6b7280; }
 .bi-row-sub { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--bi-muted); }
 .bi-row-sub strong { font-weight: 600; }
 

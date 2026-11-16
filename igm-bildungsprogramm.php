@@ -3,7 +3,7 @@
  * Plugin Name:       Bildungsprogramm
  * Plugin URI:        https://bildung.igmetall.de/
  * Description:        Eigenständiges Seminar-/Veranstaltungssystem: Such- & Filterleiste, CSV-Import für Präsenz- und Online-Seminare sowie PLZ-Geschäftsstellen, Anmeldeformular mit konfigurierbaren Mail-Triggern. Unabhängig von Formidable.
- * Version:           1.153.0
+ * Version:           1.155.0
  * Author:            IG Metall Bildung
  * Text Domain:       bi-seminarsuche
  * Requires at least: 5.8
@@ -38,6 +38,7 @@
  *    class-bi-sync.php          – Abgleich mehrerer Installationen (Sprockhövel/Berlin → Zentrale)
  *    class-bi-cache.php         – Seiten-Cache leeren, wenn sich Seminardaten ändern
  *    class-bi-admin.php         – Admin-Menü-Struktur
+ *    class-bi-fahrplan.php      – Bildungsfahrplan: Bildungswege aus dem Heft, Hilfe zum Quereinstieg (nur Zentrale)
  * ============================================================
  */
 
@@ -45,7 +46,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Direktaufruf verhindern
 }
 
-define( 'BI_VERSION', '1.153.0' );
+define( 'BI_VERSION', '1.155.0' );
 define( 'BI_DB_VERSION', '9' ); // Schema-Version der eigenen Tabellen (Upgrade via dbDelta)
 define( 'BI_FILE', __FILE__ );
 define( 'BI_PATH', plugin_dir_path( __FILE__ ) );
@@ -211,6 +212,14 @@ if ( file_exists( $bi_regeln_datei ) ) {
 	require_once $bi_regeln_datei;
 } else {
 	error_log( 'Bildungsprogramm: includes/class-bi-regeln.php fehlt – es gelten die alten Regeln aus 1.146.0, die Seite „Regeln“ fehlt. Datei nachträglich hochladen.' );
+}
+// Bildungsfahrplan: ein Zusatzmodul. Fehlt die Datei nach einem Handdeploy,
+// gibt es eben keine Linien – Suche, Reihen und Anmeldung bleiben unberührt.
+$bi_fahrplan_datei = BI_PATH . 'includes/class-bi-fahrplan.php';
+if ( file_exists( $bi_fahrplan_datei ) ) {
+	require_once $bi_fahrplan_datei;
+} else {
+	error_log( 'Bildungsprogramm: includes/class-bi-fahrplan.php fehlt – der Bildungsfahrplan bleibt aus. Datei nachträglich hochladen.' );
 }
 
 /** DB-Schema bei Plugin-Update aktualisieren (Aktivierungshook läuft bei Updates nicht) */
@@ -512,6 +521,12 @@ add_action( 'plugins_loaded', function () {
 	// class_exists: siehe die Begründung beim Laden weiter oben.
 	if ( class_exists( 'BI_Themenplan' ) ) {
 		BI_Themenplan::init();
+	}
+	// Nach dem Abgleich: Der Fahrplan fragt BI_Sync, ob diese Installation eine
+	// Quelle ist – dort bleibt er stumm.
+	// class_exists: siehe die Begründung beim Laden weiter oben.
+	if ( class_exists( 'BI_Fahrplan' ) ) {
+		BI_Fahrplan::init();
 	}
 } );
 

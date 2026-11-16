@@ -4395,3 +4395,34 @@ Die erste zutreffende Regel gewinnt. **Die Fristregel gehört deshalb nach oben*
 Der Hinweis auf der Übersichtsseite rechnet jetzt wie der Versand selbst: erst die Adresse am Seminar (*E-Mail zuständiges Bildungszentrum*), dann die E-Mail am Begriff des Bildungszentrums. Er erscheint nur noch, wenn bei **kommenden, veröffentlichten Seminaren** keine der beiden Stufen eine gültige Adresse liefert, also wirklich eine Benachrichtigung verloren ginge. Er nennt die betroffenen Bildungszentren mit Anzahl, jeweils verlinkt auf die gefilterte Seminarliste.
 
 Vorher gab es zwei getrennte Prüfungen. Die eine meldete Bildungszentren ohne Adresse am Begriff, auch wenn jedes ihrer Seminare eine eigene Adresse trug. Die andere lief nur beim Alt-Typ „ansprechpartner“ und blieb deshalb stumm.
+
+## Ergebnisliste: „durchgeführt von …" (seit 1.154.0)
+
+Findet ein Präsenzseminar nicht im zuständigen Bildungszentrum statt (Hotel, Tagungshaus, anderes Haus), zeigt die Ergebnisliste hinter dem Ort in Klammern, wer es durchführt: „Hotel Xy (durchgeführt von Bildungszentrum Beverungen)". Grundlage ist `BI_CPT::zustaendiges_bz_wenn_abweichend()`: Es vergleicht `_bi_seminarort` mit dem Bildungszentrum aus der Taxonomie. Nichts erscheint, wenn kein abweichender Ort gepflegt ist, das Bildungszentrum „Andere" heißt oder beide Angaben dasselbe Haus meinen („Beverungen" und „Bildungszentrum Beverungen"). Online-Seminare zeigen den Zusatz nie.
+
+## Bildungsfahrplan: die Bildungswege aus dem Heft (seit 1.155.0)
+
+Zusatzmodul `includes/class-bi-fahrplan.php`. Es zeigt die „Exemplarischen Bildungswege" aus dem Bildungsprogramm als Bahnlinie und hilft beim Quereinstieg. Suche, Detailseiten und Reihen bleiben unverändert; der Fahrplan liest nur.
+
+**Auf einer Seite einbinden**
+
+- `[bi_fahrplan]` – alle veröffentlichten Wege, oben Knöpfe „Für …" zur Auswahl. Der gewählte Weg steht im Anker (`#bildungsweg-betriebsrat`).
+- `[bi_fahrplan linie="betriebsrat"]` – nur ein Weg. Mitgeliefert: `jav`, `betriebsrat`, `sbv`, `junge`, `vertrauensleute`.
+
+**Was man sieht**
+
+- Eine senkrechte Strecke. Jede Haltestelle ist ein eigener Halt neben ihrem Punkt an der Linie, der letzte Halt hat eine Zielflagge. Farbe der Art wie im Heft: Einstieg, Grundlagenbildung, Spezialisierung, Politische Bildung, Referent*in, optional.
+- Je Halt aufklappbar **„Abfahrten"**: die passenden Seminare mit Terminzahl und nächstem Termin, verlinkt auf den nächsten Termin.
+- **„Wo steigst du ein?"**: „Ich fange neu an" markiert den Anfang. „Ich habe schon Vorwissen" stellt je Halt bis zu drei Ja/Nein-Fragen in Fahrtrichtung, Abschnitt für Abschnitt. Die erste Antwort „nein" ist der Einstieg. Übersprungene Halte mit formaler Voraussetzung werden nie freigegeben, sondern als „Quereinstieg klären" markiert. Nichts wird gespeichert oder an den Server geschickt.
+
+**Pflege** (nur auf der Zentrale oder einer Einzelinstallation; auf einer Quelle bleibt das Modul stumm): *Bildungsprogramm → Bildungswege*. Beim ersten Öffnen legt der Knopf **„Als Entwurf anlegen"** die fünf Wege aus `assets/data/fahrplan-startbelegung.json` an. Je Halt: ID, Überschrift, Stufe (gleiche Stufe = nacheinander im selben Abschnitt), Art, regional, Voraussetzung, Punkte, Seminartitel (ein `*` am Ende heißt „beginnt mit", nie mitten im Wort), Fragen.
+
+**Hilfen beim Anlegen**
+
+- *Neuer Halt aus einem Seminar*: Suche über Titel, Seminarnummer oder Themenfeld. Ein Klick legt den Halt an, mit Art-Vorschlag, Punkten und drei Fragen aus „Themen im Seminar".
+- *Fragen vorschlagen* in jedem Halt: Vorschläge aus den Themen, per Klick übernehmen, eigene Fragen bleiben möglich. Ohne KI.
+- *Prüfliste*: Titel ohne kommenden Termin, fehlende Fragen und Voraussetzungen aus dem Feld „Voraussetzungen" der Seminare (fehlender Haken, falsche Reihenfolge, Voraussetzung auf keinem Halt).
+- *Vorschau und Probelauf* unter dem Editor, auch ungespeichert.
+- *Duplizieren* in der Liste der Wege.
+
+**Handdeploy – neue Dateien seit 1.154.0:** `includes/class-bi-fahrplan.php`, `assets/js/fahrplan.js`, `assets/js/fahrplan-admin.js`, `assets/css/fahrplan.css`, `assets/css/fahrplan-admin.css`, `assets/data/fahrplan-startbelegung.json`. Fehlt `class-bi-fahrplan.php`, lädt das Plugin trotzdem; der Fahrplan bleibt dann aus und das Fehlerprotokoll nennt die Datei.
