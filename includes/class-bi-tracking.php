@@ -249,11 +249,7 @@ class BI_Tracking {
 	/** Slug der Kampagne, aus der der aktuelle Besuch stammt ('' = keine) */
 	public static function current_slug() {
 		$cur = self::current();
-		if ( ! $cur ) {
-			return '';
-		}
-		$kampagne = self::get_kampagne( $cur['id'] );
-		return $kampagne ? $kampagne['slug'] : '';
+		return $cur['slug'] ?? '';
 	}
 
 	private static function log( $kampagne_id, $token, $typ, $seminar_id = 0, $anmeldung_id = 0 ) {
@@ -279,24 +275,40 @@ class BI_Tracking {
 		) );
 	}
 
-	/** Aktueller Pfad aus dem Cookie: ['id' => Kampagne, 'token' => Pfad] oder null */
+	/** Nur unveränderte, von dieser Site ausgestellte Pfade aktiver Kampagnen akzeptieren. */
 	private static function current() {
-		$raw = sanitize_text_field( bi_cookie( self::COOKIE ) );
-		if ( '' === $raw || ! preg_match( '/^(\d+)\.([A-Za-z0-9]{8,32})$/', $raw, $m ) ) {
+		$raw = bi_cookie( self::COOKIE );
+		if ( ! preg_match( '/\Av1\.([1-9][0-9]{0,18})\.([A-Za-z0-9]{24})\.([0-9]{1,12})\.([a-f0-9]{64})\z/', $raw, $m ) ) {
 			return null;
 		}
-		return array( 'id' => (int) $m[1], 'token' => $m[2] );
+		list( , $id, $token, $expires, $signature ) = $m;
+		if ( (int) $expires <= time() || ! hash_equals( self::cookie_signature( $id, $token, $expires ), $signature ) ) {
+			return null;
+		}
+
+		$kampagne = self::get_kampagne( (int) $id );
+		if ( empty( $kampagne['aktiv'] ) ) {
+			return null;
+		}
+		return array( 'id' => (int) $id, 'token' => $token, 'slug' => $kampagne['slug'] );
+	}
+
+	private static function cookie_signature( $id, $token, $expires ) {
+		// Site und Ablauf mit signieren, damit das Cookie nicht zwischen Sites
+		// übernommen oder seine Lebensdauer clientseitig verlängert werden kann.
+		$payload = 'bi_track:v1:' . get_current_blog_id() . ':' . $id . '.' . $token . '.' . $expires;
+		return hash_hmac( 'sha256', $payload, wp_salt( 'auth' ) );
 	}
 
 	private static function set_cookie( $kampagne_id, $token ) {
-		$value  = $kampagne_id . '.' . $token;
 		$expire = time() + self::COOKIE_DAYS * DAY_IN_SECONDS;
+		$value  = 'v1.' . $kampagne_id . '.' . $token . '.' . $expire . '.' . self::cookie_signature( $kampagne_id, $token, $expire );
 
-		if ( ! headers_sent() ) {
-			setcookie( self::COOKIE, $value, $expire, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true );
+		if ( ! headers_sent() && setcookie( self::COOKIE, $value, $expire, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true ) ) {
+			// Der Redirect enthält einen besucherspezifischen Cookie.
+			nocache_headers();
+			$_COOKIE[ self::COOKIE ] = $value;
 		}
-		// Damit spätere Hooks im selben Request den Pfad schon kennen.
-		$_COOKIE[ self::COOKIE ] = $value;
 	}
 
 	/**
