@@ -17,11 +17,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BI_Registration {
 
+	private static $error_response_private = false;
+
 	public static function init() {
 		add_shortcode( 'bi_anmeldung', array( __CLASS__, 'shortcode' ) );
 		add_action( 'admin_post_nopriv_bi_anmeldung', array( __CLASS__, 'handle_submit' ) );
 		add_action( 'admin_post_bi_anmeldung', array( __CLASS__, 'handle_submit' ) );
 		add_action( 'admin_post_bi_export_anmeldungen', array( __CLASS__, 'handle_export' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'protect_error_response' ), 0 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'register_assets' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'budget_notice' ) );
 	}
@@ -360,15 +363,6 @@ class BI_Registration {
 				: self::render_success( $seminar_id );
 		}
 
-		// Auf Fehlerseiten stehen wieder Eingaben im Formular – die dürfen kein
-		// Seiten-Cache und kein Proxy zwischenspeichern und an Dritte ausliefern.
-		if ( in_array( $state, array( 'err', 'limit', 'fail' ), true ) ) {
-			if ( ! defined( 'DONOTCACHEPAGE' ) ) {
-				define( 'DONOTCACHEPAGE', true );
-			}
-			nocache_headers();
-		}
-
 		/* ---- Reihenanmeldung: eine Auswahl, ein Formular, mehrere Anmeldungen ---- */
 		if ( $reihe_id ) {
 			$pruefung = BI_Reihen::auswahl_pruefen( $reihe_id, self::termine_aus_request() );
@@ -450,7 +444,9 @@ class BI_Registration {
 
 		// Fehlerzustand: In der URL steht nur noch ein Zufallstoken, die Eingaben
 		// selbst liegen serverseitig (siehe store_error_state).
-		$old = in_array( $state, array( 'err', 'limit', 'fail' ), true ) ? self::read_error_state( bi_get( 'e' ) ) : array();
+		$old = self::$error_response_private && in_array( $state, array( 'err', 'limit', 'fail' ), true )
+			? self::read_error_state( bi_get( 'e' ) )
+			: array();
 
 		$notice = '';
 		if ( 'err' === $state ) {
@@ -460,7 +456,7 @@ class BI_Registration {
 				. 'Bitte versuche es in etwa einer Stunde erneut – oder wende dich direkt an deine Geschäftsstelle.';
 		} elseif ( 'fail' === $state ) {
 			$notice = 'Deine Anmeldung konnte aus technischen Gründen nicht gespeichert werden. '
-				. 'Deine Eingaben stehen noch im Formular – bitte schicke sie erneut ab. '
+				. 'Bitte prüfe deine Eingaben und schicke das Formular erneut ab. '
 				. 'Klappt es weiterhin nicht, wende dich bitte an deine Geschäftsstelle.';
 		}
 
@@ -957,6 +953,19 @@ class BI_Registration {
 	/** Option, die einen ausgelösten Mail-Notaus für die Adminmeldung festhält */
 	const BUDGET_OPTION = 'bi_mail_budget_tripped';
 
+	/** Cache-Header vor der Theme-Ausgabe setzen, bevor Eingaben wieder angezeigt werden. */
+	public static function protect_error_response() {
+		if ( headers_sent() || ! in_array( bi_get( 'bi_anmeldung' ), array( 'err', 'limit', 'fail' ), true ) ) {
+			return;
+		}
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+		nocache_headers();
+		header( 'Cache-Control: private, no-store, max-age=0', true );
+		self::$error_response_private = true;
+	}
+
 	/**
 	 * Fehlerhafte Eingaben serverseitig zwischenlagern.
 	 *
@@ -964,22 +973,57 @@ class BI_Registration {
 	 * standen Name, Anschrift, Telefon, Mailadressen, Betrieb und – besonders
 	 * heikel – die Angabe zur Gewerkschaftsmitgliedschaft in Browserverlauf,
 	 * Server- und Proxy-Logs, Referrern und in jeder geteilten URL. Zurück geht
-	 * jetzt nur ein Zufallstoken, das nach zehn Minuten wertlos ist.
+	 * nur eine Vorgangskennung. Zum Lesen gehört ein zweites Geheimnis, das
+	 * ausschließlich als Cookie im Browser des Absenders liegt.
 	 */
 	private static function store_error_state( array $data ) {
+		if ( headers_sent() ) {
+			return '';
+		}
+
 		$token = wp_generate_password( 20, false, false );
-		set_transient( 'bi_reg_err_' . $token, $data, self::ERR_TTL );
+		$proof = wp_generate_password( 32, false, false );
+		$key   = self::error_state_key( $token );
+		if ( ! set_transient( $key, array( 'proof_hash' => hash( 'sha256', $proof ), 'values' => $data ), self::ERR_TTL ) ) {
+			return '';
+		}
+		// Ein Cookie pro Vorgang hält Fehlerzustände in mehreren offenen Tabs getrennt.
+		if ( ! setcookie( $key, $proof, array(
+			'expires'  => time() + self::ERR_TTL,
+			'path'     => COOKIEPATH ? COOKIEPATH : '/',
+			'secure'   => is_ssl(),
+			'httponly' => true,
+			'samesite' => 'Lax',
+		) ) ) {
+			delete_transient( $key );
+			return '';
+		}
 		return $token;
 	}
 
-	/** Zwischengelagerte Eingaben zu einem Token (leeres Array = unbekannt/abgelaufen) */
+	private static function error_state_key( $token ) {
+		return 'bi_reg_err_v2_' . get_current_blog_id() . '_' . $token;
+	}
+
+	/** Einmalige Wiederanzeige nur im Browser, der den Vorgang ausgelöst hat. */
 	private static function read_error_state( $token ) {
-		$token = preg_replace( '/[^A-Za-z0-9]/', '', (string) $token );
-		if ( '' === $token ) {
+		if ( ! preg_match( '/\A[A-Za-z0-9]{20}\z/', $token ) ) {
 			return array();
 		}
-		$data = get_transient( 'bi_reg_err_' . $token );
-		return is_array( $data ) ? $data : array();
+		$key   = self::error_state_key( $token );
+		$proof = bi_cookie( $key );
+		if ( ! preg_match( '/\A[A-Za-z0-9]{32}\z/', $proof ) ) {
+			return array();
+		}
+		$state = get_transient( $key );
+		if ( ! is_array( $state )
+			|| ! is_string( $state['proof_hash'] ?? null )
+			|| ! is_array( $state['values'] ?? null )
+			|| ! hash_equals( $state['proof_hash'], hash( 'sha256', $proof ) )
+			|| ! delete_transient( $key ) ) {
+			return array();
+		}
+		return $state['values'];
 	}
 
 	/** Abbruch mit Zustand ($state = err|limit|fail) und optional gemerkten Eingaben */
@@ -997,7 +1041,11 @@ class BI_Registration {
 			$args['termine'] = implode( ',', self::termine_aus_request() );
 		}
 		if ( $data ) {
-			$args['e'] = self::store_error_state( $data );
+			$token = self::store_error_state( $data );
+			if ( '' !== $token ) {
+				$args['e'] = $token;
+				nocache_headers();
+			}
 		}
 		wp_safe_redirect( add_query_arg( $args, $redirect ) );
 		exit;
