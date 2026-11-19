@@ -12,8 +12,8 @@
  *   formular  → Anmeldeformular geöffnet („Jetzt buchen" gedrückt)
  *   anmeldung → Anmeldung abgeschickt
  *
- * Zuordnung über ein Cookie (bi_track = "<kampagne-id>.<zufalls-token>", 30 Tage).
- * Gespeichert wird nur dieser Zufalls-Token – keine IP, kein User-Agent, kein Name.
+ * Das signierte Cookie bi_track enthält Kampagnen-ID, Zufallskennung und Ablauf.
+ * Bei einer Anmeldung kann die Anmelde-ID das Ereignis mit der Anmeldezeile verbinden.
  * Die Anmeldung selbst merkt sich zusätzlich den Kampagnen-Slug in der Spalte
  * `kampagne` von wp_bi_anmeldungen: Die Zahl „echte Anmeldungen je Kampagne" bleibt
  * dadurch auch dann gültig, wenn Ereignisse später aufgeräumt werden.
@@ -249,11 +249,7 @@ class BI_Tracking {
 	/** Slug der Kampagne, aus der der aktuelle Besuch stammt ('' = keine) */
 	public static function current_slug() {
 		$cur = self::current();
-		if ( ! $cur ) {
-			return '';
-		}
-		$kampagne = self::get_kampagne( $cur['id'] );
-		return $kampagne ? $kampagne['slug'] : '';
+		return $cur['slug'] ?? '';
 	}
 
 	private static function log( $kampagne_id, $token, $typ, $seminar_id = 0, $anmeldung_id = 0 ) {
@@ -279,24 +275,40 @@ class BI_Tracking {
 		) );
 	}
 
-	/** Aktueller Pfad aus dem Cookie: ['id' => Kampagne, 'token' => Pfad] oder null */
+	/** Nur unveränderte, von dieser Site ausgestellte Pfade aktiver Kampagnen akzeptieren. */
 	private static function current() {
-		$raw = sanitize_text_field( bi_cookie( self::COOKIE ) );
-		if ( '' === $raw || ! preg_match( '/^(\d+)\.([A-Za-z0-9]{8,32})$/', $raw, $m ) ) {
+		$raw = bi_cookie( self::COOKIE );
+		if ( ! preg_match( '/\Av1\.([1-9][0-9]{0,18})\.([A-Za-z0-9]{24})\.([0-9]{1,12})\.([a-f0-9]{64})\z/', $raw, $m ) ) {
 			return null;
 		}
-		return array( 'id' => (int) $m[1], 'token' => $m[2] );
+		list( , $id, $token, $expires, $signature ) = $m;
+		if ( (int) $expires <= time() || ! hash_equals( self::cookie_signature( $id, $token, $expires ), $signature ) ) {
+			return null;
+		}
+
+		$kampagne = self::get_kampagne( (int) $id );
+		if ( empty( $kampagne['aktiv'] ) ) {
+			return null;
+		}
+		return array( 'id' => (int) $id, 'token' => $token, 'slug' => $kampagne['slug'] );
+	}
+
+	private static function cookie_signature( $id, $token, $expires ) {
+		// Site und Ablauf mit signieren, damit das Cookie nicht zwischen Sites
+		// übernommen oder seine Lebensdauer clientseitig verlängert werden kann.
+		$payload = 'bi_track:v1:' . get_current_blog_id() . ':' . $id . '.' . $token . '.' . $expires;
+		return hash_hmac( 'sha256', $payload, wp_salt( 'auth' ) );
 	}
 
 	private static function set_cookie( $kampagne_id, $token ) {
-		$value  = $kampagne_id . '.' . $token;
 		$expire = time() + self::COOKIE_DAYS * DAY_IN_SECONDS;
+		$value  = 'v1.' . $kampagne_id . '.' . $token . '.' . $expire . '.' . self::cookie_signature( $kampagne_id, $token, $expire );
 
-		if ( ! headers_sent() ) {
-			setcookie( self::COOKIE, $value, $expire, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true );
+		if ( ! headers_sent() && setcookie( self::COOKIE, $value, $expire, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true ) ) {
+			// Der Redirect enthält einen besucherspezifischen Cookie.
+			nocache_headers();
+			$_COOKIE[ self::COOKIE ] = $value;
 		}
-		// Damit spätere Hooks im selben Request den Pfad schon kennen.
-		$_COOKIE[ self::COOKIE ] = $value;
 	}
 
 	/**
@@ -676,10 +688,10 @@ class BI_Tracking {
 		?>
 		<div style="background:#fff;border:1px solid #ccd0d4;padding:12px 16px;margin:16px 0;max-width:900px">
 			<h2 style="margin-top:0;font-size:14px">Datenschutz &amp; Aufräumen</h2>
-			<p style="margin:0 0 8px">Gespeichert wird je Besuch nur eine Zufallskennung im First-Party-Cookie
-				<code><?php echo esc_html( self::COOKIE ); ?></code> (<?php echo (int) self::COOKIE_DAYS; ?> Tage Laufzeit) –
-				keine IP-Adresse, kein Gerät, kein Name. Die Kennung lässt sich keiner Person zuordnen; erst die
-				abgeschickte Anmeldung enthält Personendaten und speichert dazu den Kampagnen-Namen.
+			<p style="margin:0 0 8px">Das signierte First-Party-Cookie
+				<code><?php echo esc_html( self::COOKIE ); ?></code> enthält eine Zufallskennung, die Kampagnennummer
+				und den Ablaufzeitpunkt (<?php echo (int) self::COOKIE_DAYS; ?> Tage Laufzeit).
+				Beim Anmelden verbindet die gespeicherte Anmelde-ID das Ereignis mit der Anmeldezeile.
 				Derzeit <strong><?php echo (int) $total; ?></strong> Ereignisse gespeichert.</p>
 			<p style="margin:0 0 8px">Ereignisse älter als <?php echo (int) self::KEEP_DAYS; ?> Tage werden
 				<strong>täglich automatisch gelöscht</strong>; die Anmeldezahlen der Kampagnen bleiben davon

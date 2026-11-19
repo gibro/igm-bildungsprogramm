@@ -1668,7 +1668,7 @@ class BI_Settings {
 				. 'keine automatische Löschung eingestellt] und löschen sie anschließend.';
 		}
 		$verb = ( 'anonymize' === BI_Retention::mode() )
-			? 'anonymisiert, sodass sie sich anschließend keiner Person mehr zuordnen lassen'
+			? 'um direkte Kontaktdaten und gespeicherte Formulareingaben bereinigt. Seminar, Zeitpunkt und Kampagnenbezug bleiben erhalten'
 			: 'gelöscht';
 		return sprintf(
 			'Die Anmeldedaten werden %d Tage nach Ende des Seminars automatisch %s. '
@@ -1701,6 +1701,11 @@ class BI_Settings {
 						. 'Geschäftsstelle sowie – soweit für das Seminar eingerichtet – an das durchführende '
 						. 'Bildungszentrum und an die hinterlegte Ansprechperson. Eine Bestätigung geht an die von dir angegebene E-Mail-Adresse. Eine Übermittlung '
 						. 'in Drittstaaten findet nicht statt.',
+					'Bei einem Formularfehler können wir deine Eingaben für die Wiederanzeige kurz zwischenspeichern. '
+						. 'Eine Vorgangskennung im Link und ein separates Cookie in deinem Browser gehören zusammen. '
+						. 'Beim Wiederanzeigen werden die zwischengespeicherten Eingaben verworfen. '
+						. 'Die Zwischenspeicherung und das Cookie haben eine Laufzeit von bis zu '
+						. (int) ( BI_Registration::ERR_TTL / MINUTE_IN_SECONDS ) . ' Minuten.',
 					self::retention_paragraph(),
 				),
 			),
@@ -1732,14 +1737,14 @@ class BI_Settings {
 					'Links, mit denen wir in Newslettern, Mailings oder Anzeigen auf unser Seminarangebot hinweisen, können '
 						. 'eine Kampagnenkennung enthalten (Adressen der Form https://…/?' . $param . '=…). Rufst du einen solchen '
 						. 'Link auf, speichern wir in deinem Browser das Cookie „' . $cookie . '". Es enthält eine zufällig '
-						. 'erzeugte Kennung und die Nummer der Kampagne, wird ausschließlich von dieser Website gesetzt '
+						. 'erzeugte Kennung, die Nummer der Kampagne, einen Ablaufzeitpunkt und eine Signatur, wird von dieser Website gesetzt '
 						. '(First-Party-Cookie) und läuft nach ' . $tage . ' Tagen ab.',
 					'Anhand dieser Kennung halten wir fest, welche Schritte auf den Klick folgen: der Aufruf des Links, das '
 						. 'Ansehen einer Seminarseite, das Öffnen des Anmeldeformulars und das Absenden einer Anmeldung – '
 						. 'jeweils mit Zeitpunkt und betroffenem Seminar. Weder deine IP-Adresse noch Angaben zu Browser oder '
-						. 'Gerät werden dabei gespeichert. Die Kennung ist eine Zufallsfolge ohne Bezug zu deiner Person. '
-						. 'Erst wenn du eine Anmeldung absendest, wird bei dieser Anmeldung zusätzlich die Bezeichnung der '
-						. 'Kampagne vermerkt.',
+						. 'Gerät werden dabei gespeichert. Beim Absenden einer Anmeldung speichern wir die Anmelde-ID im '
+						. 'Kampagnenereignis und das Kampagnenkürzel in der Anmeldung. Darüber lässt sich der erfasste '
+						. 'Kampagnenpfad der Anmeldung zuordnen.',
 					'Zweck ist die Reichweitenmessung: Wir möchten auswerten, wie viele Anmeldungen auf ein bestimmtes '
 						. 'Mailing zurückgehen, um unsere Informationsangebote gezielter zu gestalten. Das Speichern des '
 						. 'Cookies und das Auslesen der darin enthaltenen Information erfolgen auf Grundlage deiner '
@@ -1845,8 +1850,10 @@ class BI_Settings {
 				<tr><td><code><?php echo esc_html( BI_Tracking::table_kampagnen() ); ?></code></td>
 					<td>Die von euch angelegten Kampagnen (Bezeichnung, Kürzel, Ziel) – keine Personendaten.</td></tr>
 				<tr><td>Cookie <code><?php echo esc_html( BI_Tracking::COOKIE ); ?></code></td>
-					<td>Zufallskennung + Kampagnennummer, <?php echo (int) BI_Tracking::COOKIE_DAYS; ?> Tage Laufzeit,
+					<td>Zufallskennung, Kampagnennummer, Ablaufzeitpunkt und Signatur, <?php echo (int) BI_Tracking::COOKIE_DAYS; ?> Tage Laufzeit,
 						First-Party, nur gesetzt nach Klick auf einen Kampagnen-Link.</td></tr>
+				<tr><td>Fehlerzustand im Formular</td><td>Formulareingaben im WordPress-Transient, Vorgangskennung im Link,
+					separater Zufallswert im HttpOnly-Cookie. Laufzeit bis zu <?php echo (int) ( BI_Registration::ERR_TTL / MINUTE_IN_SECONDS ); ?> Minuten.</td></tr>
 				<tr><td><code><?php echo esc_html( BI_PLZ::table() ); ?></code></td>
 					<td>Zuordnung Postleitzahl → Geschäftsstelle samt E-Mail. Stammdaten der Organisation,
 						keine Daten der Anmeldenden.</td></tr>

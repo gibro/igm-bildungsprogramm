@@ -17,11 +17,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BI_Registration {
 
+	private static $error_response_private = false;
+
 	public static function init() {
 		add_shortcode( 'bi_anmeldung', array( __CLASS__, 'shortcode' ) );
 		add_action( 'admin_post_nopriv_bi_anmeldung', array( __CLASS__, 'handle_submit' ) );
 		add_action( 'admin_post_bi_anmeldung', array( __CLASS__, 'handle_submit' ) );
 		add_action( 'admin_post_bi_export_anmeldungen', array( __CLASS__, 'handle_export' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'protect_error_response' ), 0 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'register_assets' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'budget_notice' ) );
 	}
@@ -360,15 +363,6 @@ class BI_Registration {
 				: self::render_success( $seminar_id );
 		}
 
-		// Auf Fehlerseiten stehen wieder Eingaben im Formular – die dürfen kein
-		// Seiten-Cache und kein Proxy zwischenspeichern und an Dritte ausliefern.
-		if ( in_array( $state, array( 'err', 'limit', 'fail' ), true ) ) {
-			if ( ! defined( 'DONOTCACHEPAGE' ) ) {
-				define( 'DONOTCACHEPAGE', true );
-			}
-			nocache_headers();
-		}
-
 		/* ---- Reihenanmeldung: eine Auswahl, ein Formular, mehrere Anmeldungen ---- */
 		if ( $reihe_id ) {
 			$pruefung = BI_Reihen::auswahl_pruefen( $reihe_id, self::termine_aus_request() );
@@ -450,7 +444,9 @@ class BI_Registration {
 
 		// Fehlerzustand: In der URL steht nur noch ein Zufallstoken, die Eingaben
 		// selbst liegen serverseitig (siehe store_error_state).
-		$old = in_array( $state, array( 'err', 'limit', 'fail' ), true ) ? self::read_error_state( bi_get( 'e' ) ) : array();
+		$old = self::$error_response_private && in_array( $state, array( 'err', 'limit', 'fail' ), true )
+			? self::read_error_state( bi_get( 'e' ) )
+			: array();
 
 		$notice = '';
 		if ( 'err' === $state ) {
@@ -460,7 +456,7 @@ class BI_Registration {
 				. 'Bitte versuche es in etwa einer Stunde erneut – oder wende dich direkt an deine Geschäftsstelle.';
 		} elseif ( 'fail' === $state ) {
 			$notice = 'Deine Anmeldung konnte aus technischen Gründen nicht gespeichert werden. '
-				. 'Deine Eingaben stehen noch im Formular – bitte schicke sie erneut ab. '
+				. 'Bitte prüfe deine Eingaben und schicke das Formular erneut ab. '
 				. 'Klappt es weiterhin nicht, wende dich bitte an deine Geschäftsstelle.';
 		}
 
@@ -957,6 +953,19 @@ class BI_Registration {
 	/** Option, die einen ausgelösten Mail-Notaus für die Adminmeldung festhält */
 	const BUDGET_OPTION = 'bi_mail_budget_tripped';
 
+	/** Cache-Header vor der Theme-Ausgabe setzen, bevor Eingaben wieder angezeigt werden. */
+	public static function protect_error_response() {
+		if ( headers_sent() || ! in_array( bi_get( 'bi_anmeldung' ), array( 'err', 'limit', 'fail' ), true ) ) {
+			return;
+		}
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+		nocache_headers();
+		header( 'Cache-Control: private, no-store, max-age=0', true );
+		self::$error_response_private = true;
+	}
+
 	/**
 	 * Fehlerhafte Eingaben serverseitig zwischenlagern.
 	 *
@@ -964,22 +973,57 @@ class BI_Registration {
 	 * standen Name, Anschrift, Telefon, Mailadressen, Betrieb und – besonders
 	 * heikel – die Angabe zur Gewerkschaftsmitgliedschaft in Browserverlauf,
 	 * Server- und Proxy-Logs, Referrern und in jeder geteilten URL. Zurück geht
-	 * jetzt nur ein Zufallstoken, das nach zehn Minuten wertlos ist.
+	 * nur eine Vorgangskennung. Zum Lesen gehört ein zweites Geheimnis, das
+	 * ausschließlich als Cookie im Browser des Absenders liegt.
 	 */
 	private static function store_error_state( array $data ) {
+		if ( headers_sent() ) {
+			return '';
+		}
+
 		$token = wp_generate_password( 20, false, false );
-		set_transient( 'bi_reg_err_' . $token, $data, self::ERR_TTL );
+		$proof = wp_generate_password( 32, false, false );
+		$key   = self::error_state_key( $token );
+		if ( ! set_transient( $key, array( 'proof_hash' => hash( 'sha256', $proof ), 'values' => $data ), self::ERR_TTL ) ) {
+			return '';
+		}
+		// Ein Cookie pro Vorgang hält Fehlerzustände in mehreren offenen Tabs getrennt.
+		if ( ! setcookie( $key, $proof, array(
+			'expires'  => time() + self::ERR_TTL,
+			'path'     => COOKIEPATH ? COOKIEPATH : '/',
+			'secure'   => is_ssl(),
+			'httponly' => true,
+			'samesite' => 'Lax',
+		) ) ) {
+			delete_transient( $key );
+			return '';
+		}
 		return $token;
 	}
 
-	/** Zwischengelagerte Eingaben zu einem Token (leeres Array = unbekannt/abgelaufen) */
+	private static function error_state_key( $token ) {
+		return 'bi_reg_err_v2_' . get_current_blog_id() . '_' . $token;
+	}
+
+	/** Einmalige Wiederanzeige nur im Browser, der den Vorgang ausgelöst hat. */
 	private static function read_error_state( $token ) {
-		$token = preg_replace( '/[^A-Za-z0-9]/', '', (string) $token );
-		if ( '' === $token ) {
+		if ( ! preg_match( '/\A[A-Za-z0-9]{20}\z/', $token ) ) {
 			return array();
 		}
-		$data = get_transient( 'bi_reg_err_' . $token );
-		return is_array( $data ) ? $data : array();
+		$key   = self::error_state_key( $token );
+		$proof = bi_cookie( $key );
+		if ( ! preg_match( '/\A[A-Za-z0-9]{32}\z/', $proof ) ) {
+			return array();
+		}
+		$state = get_transient( $key );
+		if ( ! is_array( $state )
+			|| ! is_string( $state['proof_hash'] ?? null )
+			|| ! is_array( $state['values'] ?? null )
+			|| ! hash_equals( $state['proof_hash'], hash( 'sha256', $proof ) )
+			|| ! delete_transient( $key ) ) {
+			return array();
+		}
+		return $state['values'];
 	}
 
 	/** Abbruch mit Zustand ($state = err|limit|fail) und optional gemerkten Eingaben */
@@ -997,7 +1041,11 @@ class BI_Registration {
 			$args['termine'] = implode( ',', self::termine_aus_request() );
 		}
 		if ( $data ) {
-			$args['e'] = self::store_error_state( $data );
+			$token = self::store_error_state( $data );
+			if ( '' !== $token ) {
+				$args['e'] = $token;
+				nocache_headers();
+			}
 		}
 		wp_safe_redirect( add_query_arg( $args, $redirect ) );
 		exit;
@@ -1236,62 +1284,61 @@ class BI_Registration {
 		$ok_mail = bi_rate_hit( 'bi_mail|' . strtolower( $data['email'] ?? '' ), (int) apply_filters( 'bi_limit_per_email', 5 ), HOUR_IN_SECONDS );
 		$ok_ip   = bi_rate_hit( 'bi_ip|' . bi_client_ip(), (int) apply_filters( 'bi_limit_per_ip', 20 ), HOUR_IN_SECONDS );
 		if ( ! $ok_mail || ! $ok_ip ) {
+			// Ohne Buchung darf ein erneuter Versuch nicht als Duplikat-Erfolg enden.
+			bi_rate_release( $dupe );
 			self::fail( 'limit', $redirect, $seminar_id, $data, $reihe_id );
 		}
 
-		// Eine Zeile je Teil; bei der Einzelanmeldung ist das genau eine.
-		$termine   = $reihe_termine ? $reihe_termine : array( 0 => $seminar_id );
-		$angelegt  = array();
-		$sammel_id = 0;
-
-		foreach ( $termine as $teil => $sid ) {
-			$row_id = self::zeile_anlegen( (int) $sid, $data, $reihe_id, $durchgang, (int) $teil, $sammel_id );
-
-			// Scheitert ein Insert (volle Platte, Schemaabweichung, DB-Fehler), darf
-			// die Seite keinen Erfolg melden: die Person hielte sich sonst für
-			// angemeldet, ohne dass es einen Datensatz gibt. Bei einer Reihe werden
-			// die schon angelegten Zeilen wieder entfernt – eine halb gebuchte Reihe
-			// wäre schlimmer als gar keine, weil niemand ihr ansieht, dass sie
-			// unvollständig ist.
-			if ( ! $row_id ) {
-				self::zeilen_entfernen( $angelegt );
-				// Duplikatsperre wieder lösen: Es gibt keine erste Anmeldung, gegen
-				// die sie schützen müsste. Ohne diese Freigabe liefe der zweite
-				// Versuch in die Sperre und bekäme einen Erfolg gemeldet, den es
-				// nicht gibt.
-				bi_rate_release( $dupe );
-				self::fail( 'fail', $redirect, $seminar_id, $data, $reihe_id );
-			}
-
-			// Die erste Zeile ist die Klammer über alle weiteren.
-			if ( $reihe_id && ! $sammel_id ) {
-				$sammel_id = $row_id;
-				self::sammel_id_setzen( $row_id, $row_id );
-			}
-
-			// Kampagnen-Trichter: EIN Erfolg je Anmeldevorgang, nicht einer je Teil.
-			// Die Frage lautet „wie viele Menschen hat dieser Link zur Anmeldung
-			// gebracht?" – eine Person ist eine Antwort, auch wenn dabei vier
-			// Zeilen entstehen.
-			if ( ! $angelegt ) {
-				BI_Tracking::track( 'anmeldung', (int) $sid, $row_id );
-			}
-			$angelegt[] = $row_id;
+		$termine = $reihe_termine ? $reihe_termine : array( 0 => $seminar_id );
+		$row_id  = self::buchung_speichern( $termine, $data, $reihe_id, $durchgang );
+		if ( ! $row_id ) {
+			// Nach einem Speicherfehler muss der nächste Versuch wieder speichern können.
+			bi_rate_release( $dupe );
+			self::fail( 'fail', $redirect, $seminar_id, $data, $reihe_id );
 		}
 
-		// Der Notaus greift erst hier: gespeichert ist die Anmeldung in jedem Fall,
-		// nur der automatische Versand entfällt, wenn das Stundenbudget erschöpft ist.
+		// Erst die vollständige Buchung zählen, bei einer Reihe genau einmal.
+		BI_Tracking::track( 'anmeldung', $seminar_id, $row_id );
+
+		// Das Mailbudget begrenzt nur den Versand. Die Buchung ist hier gespeichert.
 		if ( self::mail_budget_ok() ) {
-			if ( $sammel_id ) {
+			if ( $reihe_id ) {
 				// Je Empfängeradresse eine Mail – nicht eine je Teil.
-				BI_Mailer::dispatch_reihe( self::sammlung( $sammel_id ) );
+				BI_Mailer::dispatch_reihe( self::sammlung( $row_id ) );
 			} else {
-				BI_Mailer::dispatch( self::get( $angelegt[0] ) );
+				BI_Mailer::dispatch( self::get( $row_id ) );
 			}
 		}
 
 		wp_safe_redirect( add_query_arg( self::erfolg_args( $seminar_id, $reihe_id, $termine ), $redirect ) );
 		exit;
+	}
+
+	/** Eine Zeile je Termin speichern. Liefert die erste Zeilen-ID oder 0 bei Fehler. */
+	private static function buchung_speichern( array $termine, array $data, $reihe_id, $durchgang ) {
+		$angelegt  = array();
+		$sammel_id = 0;
+
+		foreach ( $termine as $teil => $seminar_id ) {
+			$row_id = self::zeile_anlegen( (int) $seminar_id, $data, $reihe_id, $durchgang, (int) $teil, $sammel_id );
+			if ( ! $row_id ) {
+				self::zeilen_entfernen( $angelegt );
+				return 0;
+			}
+			$angelegt[] = $row_id;
+			if ( $reihe_id && ! $sammel_id ) {
+				$sammel_id = $row_id;
+			}
+		}
+
+		// Die erste Zeile gehört zur eigenen Sammlung. Fehlt sie dort,
+		// wären Verwaltung und Benachrichtigung der Reihe unvollständig.
+		if ( $sammel_id && ! self::sammel_id_setzen( $sammel_id ) ) {
+			self::zeilen_entfernen( $angelegt );
+			return 0;
+		}
+
+		return $angelegt[0] ?? 0;
 	}
 
 	/**
@@ -1340,22 +1387,29 @@ class BI_Registration {
 		) );
 
 		if ( false === $ok || ! $wpdb->insert_id ) {
-			error_log( 'BI_Registration: Anmeldung konnte nicht gespeichert werden. ' . $wpdb->last_error ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( 'BI_Registration: Anmeldung konnte nicht gespeichert werden.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			return 0;
 		}
 		return (int) $wpdb->insert_id;
 	}
 
-	private static function sammel_id_setzen( $row_id, $sammel_id ) {
+	private static function sammel_id_setzen( $row_id ) {
 		global $wpdb;
-		$wpdb->update( self::table(), array( 'sammel_id' => (int) $sammel_id ), array( 'id' => (int) $row_id ), array( '%d' ), array( '%d' ) );
+		$updated = $wpdb->update( self::table(), array( 'sammel_id' => $row_id ), array( 'id' => $row_id ), array( '%d' ), array( '%d' ) );
+		if ( 1 !== $updated ) {
+			error_log( 'BI_Registration: Sammel-ID konnte nicht gesetzt werden.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			return false;
+		}
+		return true;
 	}
 
 	/** Zurücknehmen halb angelegter Sammelanmeldungen. */
 	private static function zeilen_entfernen( $ids ) {
 		global $wpdb;
-		foreach ( (array) $ids as $id ) {
-			$wpdb->delete( self::table(), array( 'id' => (int) $id ), array( '%d' ) );
+		foreach ( $ids as $id ) {
+			if ( false === $wpdb->delete( self::table(), array( 'id' => $id ), array( '%d' ) ) ) {
+				error_log( 'BI_Registration: Teilbuchung konnte nicht zurückgenommen werden (ID ' . (int) $id . ').' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
 		}
 	}
 
