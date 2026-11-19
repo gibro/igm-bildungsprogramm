@@ -1236,62 +1236,61 @@ class BI_Registration {
 		$ok_mail = bi_rate_hit( 'bi_mail|' . strtolower( $data['email'] ?? '' ), (int) apply_filters( 'bi_limit_per_email', 5 ), HOUR_IN_SECONDS );
 		$ok_ip   = bi_rate_hit( 'bi_ip|' . bi_client_ip(), (int) apply_filters( 'bi_limit_per_ip', 20 ), HOUR_IN_SECONDS );
 		if ( ! $ok_mail || ! $ok_ip ) {
+			// Ohne Buchung darf ein erneuter Versuch nicht als Duplikat-Erfolg enden.
+			bi_rate_release( $dupe );
 			self::fail( 'limit', $redirect, $seminar_id, $data, $reihe_id );
 		}
 
-		// Eine Zeile je Teil; bei der Einzelanmeldung ist das genau eine.
-		$termine   = $reihe_termine ? $reihe_termine : array( 0 => $seminar_id );
-		$angelegt  = array();
-		$sammel_id = 0;
-
-		foreach ( $termine as $teil => $sid ) {
-			$row_id = self::zeile_anlegen( (int) $sid, $data, $reihe_id, $durchgang, (int) $teil, $sammel_id );
-
-			// Scheitert ein Insert (volle Platte, Schemaabweichung, DB-Fehler), darf
-			// die Seite keinen Erfolg melden: die Person hielte sich sonst für
-			// angemeldet, ohne dass es einen Datensatz gibt. Bei einer Reihe werden
-			// die schon angelegten Zeilen wieder entfernt – eine halb gebuchte Reihe
-			// wäre schlimmer als gar keine, weil niemand ihr ansieht, dass sie
-			// unvollständig ist.
-			if ( ! $row_id ) {
-				self::zeilen_entfernen( $angelegt );
-				// Duplikatsperre wieder lösen: Es gibt keine erste Anmeldung, gegen
-				// die sie schützen müsste. Ohne diese Freigabe liefe der zweite
-				// Versuch in die Sperre und bekäme einen Erfolg gemeldet, den es
-				// nicht gibt.
-				bi_rate_release( $dupe );
-				self::fail( 'fail', $redirect, $seminar_id, $data, $reihe_id );
-			}
-
-			// Die erste Zeile ist die Klammer über alle weiteren.
-			if ( $reihe_id && ! $sammel_id ) {
-				$sammel_id = $row_id;
-				self::sammel_id_setzen( $row_id, $row_id );
-			}
-
-			// Kampagnen-Trichter: EIN Erfolg je Anmeldevorgang, nicht einer je Teil.
-			// Die Frage lautet „wie viele Menschen hat dieser Link zur Anmeldung
-			// gebracht?" – eine Person ist eine Antwort, auch wenn dabei vier
-			// Zeilen entstehen.
-			if ( ! $angelegt ) {
-				BI_Tracking::track( 'anmeldung', (int) $sid, $row_id );
-			}
-			$angelegt[] = $row_id;
+		$termine = $reihe_termine ? $reihe_termine : array( 0 => $seminar_id );
+		$row_id  = self::buchung_speichern( $termine, $data, $reihe_id, $durchgang );
+		if ( ! $row_id ) {
+			// Nach einem Speicherfehler muss der nächste Versuch wieder speichern können.
+			bi_rate_release( $dupe );
+			self::fail( 'fail', $redirect, $seminar_id, $data, $reihe_id );
 		}
 
-		// Der Notaus greift erst hier: gespeichert ist die Anmeldung in jedem Fall,
-		// nur der automatische Versand entfällt, wenn das Stundenbudget erschöpft ist.
+		// Erst die vollständige Buchung zählen, bei einer Reihe genau einmal.
+		BI_Tracking::track( 'anmeldung', $seminar_id, $row_id );
+
+		// Das Mailbudget begrenzt nur den Versand. Die Buchung ist hier gespeichert.
 		if ( self::mail_budget_ok() ) {
-			if ( $sammel_id ) {
+			if ( $reihe_id ) {
 				// Je Empfängeradresse eine Mail – nicht eine je Teil.
-				BI_Mailer::dispatch_reihe( self::sammlung( $sammel_id ) );
+				BI_Mailer::dispatch_reihe( self::sammlung( $row_id ) );
 			} else {
-				BI_Mailer::dispatch( self::get( $angelegt[0] ) );
+				BI_Mailer::dispatch( self::get( $row_id ) );
 			}
 		}
 
 		wp_safe_redirect( add_query_arg( self::erfolg_args( $seminar_id, $reihe_id, $termine ), $redirect ) );
 		exit;
+	}
+
+	/** Eine Zeile je Termin speichern. Liefert die erste Zeilen-ID oder 0 bei Fehler. */
+	private static function buchung_speichern( array $termine, array $data, $reihe_id, $durchgang ) {
+		$angelegt  = array();
+		$sammel_id = 0;
+
+		foreach ( $termine as $teil => $seminar_id ) {
+			$row_id = self::zeile_anlegen( (int) $seminar_id, $data, $reihe_id, $durchgang, (int) $teil, $sammel_id );
+			if ( ! $row_id ) {
+				self::zeilen_entfernen( $angelegt );
+				return 0;
+			}
+			$angelegt[] = $row_id;
+			if ( $reihe_id && ! $sammel_id ) {
+				$sammel_id = $row_id;
+			}
+		}
+
+		// Die erste Zeile gehört zur eigenen Sammlung. Fehlt sie dort,
+		// wären Verwaltung und Benachrichtigung der Reihe unvollständig.
+		if ( $sammel_id && ! self::sammel_id_setzen( $sammel_id ) ) {
+			self::zeilen_entfernen( $angelegt );
+			return 0;
+		}
+
+		return $angelegt[0] ?? 0;
 	}
 
 	/**
@@ -1340,22 +1339,29 @@ class BI_Registration {
 		) );
 
 		if ( false === $ok || ! $wpdb->insert_id ) {
-			error_log( 'BI_Registration: Anmeldung konnte nicht gespeichert werden. ' . $wpdb->last_error ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( 'BI_Registration: Anmeldung konnte nicht gespeichert werden.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			return 0;
 		}
 		return (int) $wpdb->insert_id;
 	}
 
-	private static function sammel_id_setzen( $row_id, $sammel_id ) {
+	private static function sammel_id_setzen( $row_id ) {
 		global $wpdb;
-		$wpdb->update( self::table(), array( 'sammel_id' => (int) $sammel_id ), array( 'id' => (int) $row_id ), array( '%d' ), array( '%d' ) );
+		$updated = $wpdb->update( self::table(), array( 'sammel_id' => $row_id ), array( 'id' => $row_id ), array( '%d' ), array( '%d' ) );
+		if ( 1 !== $updated ) {
+			error_log( 'BI_Registration: Sammel-ID konnte nicht gesetzt werden.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			return false;
+		}
+		return true;
 	}
 
 	/** Zurücknehmen halb angelegter Sammelanmeldungen. */
 	private static function zeilen_entfernen( $ids ) {
 		global $wpdb;
-		foreach ( (array) $ids as $id ) {
-			$wpdb->delete( self::table(), array( 'id' => (int) $id ), array( '%d' ) );
+		foreach ( $ids as $id ) {
+			if ( false === $wpdb->delete( self::table(), array( 'id' => $id ), array( '%d' ) ) ) {
+				error_log( 'BI_Registration: Teilbuchung konnte nicht zurückgenommen werden (ID ' . (int) $id . ').' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
 		}
 	}
 
