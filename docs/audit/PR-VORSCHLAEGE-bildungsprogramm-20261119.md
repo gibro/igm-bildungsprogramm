@@ -15,7 +15,21 @@ Ausgangspunkt ist `7e46b50b8d0d15c4900c180bfb3996b7c8132ac9` (Plugin 1.155.0). D
 | SEC-013, Teilfix | `e87db50` | Öffentlicher PDF-Download akzeptiert skalare Seminar-IDs über `bi_get()`. Array-Eingaben werden als fehlende ID behandelt. |
 | CQ-008, Teilfix | `376fcdc` | Formularmigration markiert einen Lauf erst nach bestätigtem gespeicherten Zustand. Bestehende Formulare und Feldreihenfolge bleiben maßgeblich. |
 
-Jeder Commit enthält die Begründung, die getesteten Fälle und die offenen Abnahmen. Die Änderungen wurden isoliert mit PHP 8.4.24 und synthetischen Fixtures geprüft. Die Fixtures sind bisher keine versionierte Suite. WordPress- und Browserabnahmen stehen aus. Git hat für jeden Code-Commit bestätigt, dass sein Patch einzeln auf den Audit-Ausgangscommit anwendbar ist. Für den Test-PR kann der Zweig als Ganzes dienen. Für die Übernahme jeweils die passenden Code-Commits auf dem bestätigten Zielbranch übernehmen und separat reviewen. Die Report-Dateien bilden einen eigenen Commit.
+Jeder Commit enthält die Begründung, die getesteten Fälle und die offenen Abnahmen. Die Änderungen wurden isoliert mit PHP 8.4.24 und synthetischen Fixtures geprüft. Die Fixtures sind bisher keine versionierte Suite. Die ergänzende WordPress-/MariaDB-Prüfung ist im folgenden Abschnitt dokumentiert. Git hat für jeden Code-Commit bestätigt, dass sein Patch einzeln auf den Audit-Ausgangscommit anwendbar ist. Für den Test-PR kann der Zweig als Ganzes dienen. Für die Übernahme jeweils die passenden Code-Commits auf dem bestätigten Zielbranch übernehmen und separat reviewen. Die Report-Dateien bilden einen eigenen Commit.
+
+## Gegenprüfung vor dem Push
+
+Der Code-Stand `e46696d` wurde aus einem Git-Archiv in einer frischen WordPress-Installation aktiviert. WordPress 7.0.2, PHP 8.4.24 und MariaDB 11.8.8 liefen in einem internen Docker-Netz mit synthetischen Daten. Die fünf vorbereiteten Code-Commits sind oben den Befunden zugeordnet.
+
+| Prüfweg | Beobachtetes Ergebnis |
+| --- | --- |
+| WordPress und DB | Pluginaktivierung, Einzelbuchung und Speicherung einer zweiteiligen Reihe erfolgreich. Beide Teilzeilen ließen sich unter dem Anker der ersten Zeile lesen. |
+| Fehlerzustand | Mit echten WordPress-Transients wurde die Wiederanzeige ohne Cookie verweigert. Mit passendem Nachweis war sie einmal möglich. Ein separater HTTP-Abruf des Fehlerzustands enthielt `Cache-Control: private, no-store`. |
+| Kampagne und Migration | Der signierte Cookie ergab bei einer aktiven DB-Kampagne den erwarteten Slug. Nach Deaktivierung entfiel die Zuordnung. Im Formular-Altbestand folgte der Migrationsmarker dem eingefügten Feld. |
+| Defensive Regression | Die isolierten PHP-Prüfungen für Insert-/Updatefehler, Rücknahme, erneute Einreichung, Tokenvalidierung und PDF-ID bestanden. Der DB-Integrationstest rief die Speicherfunktionen auf. Die vollständige Benutzerreise im Browser bleibt offen. |
+| Abgleich der Datenschutzhinweise | Der bisherige Text überging das Fehler-Cookie und die Verbindung des Kampagnenereignisses mit der Anmelde-ID. Der Review-Commit beschreibt beide Datenflüsse im Plugin. Die historischen Berichte beziehen sich weiter auf den oben genannten Ausgangscommit. |
+
+**Offene Abnahme für Claude.** Parallele Buchungen und Prozessabbrüche aus SEC-001/008 mit der vereinbarten Quoten- und Transaktionssemantik prüfen. Die aktuelle Gegenprüfung belegt sequenzielle Abläufe. Das Formular zusätzlich im Browser mit mehreren Tabs, Cache/CDN und gegebenenfalls eingebettet testen. Empfänger, Retention und Einwilligung mit dem Betrieb abgleichen. Der Prüfstand ist für den Audit-Branch bestimmt.
 
 ## P0 · Buchungsaufnahme und Regressionsbasis
 

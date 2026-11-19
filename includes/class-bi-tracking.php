@@ -12,8 +12,8 @@
  *   formular  → Anmeldeformular geöffnet („Jetzt buchen" gedrückt)
  *   anmeldung → Anmeldung abgeschickt
  *
- * Zuordnung über ein Cookie (bi_track = "<kampagne-id>.<zufalls-token>", 30 Tage).
- * Gespeichert wird nur dieser Zufalls-Token – keine IP, kein User-Agent, kein Name.
+ * Das signierte Cookie bi_track enthält Kampagnen-ID, Zufallskennung und Ablauf.
+ * Bei einer Anmeldung kann die Anmelde-ID das Ereignis mit der Anmeldezeile verbinden.
  * Die Anmeldung selbst merkt sich zusätzlich den Kampagnen-Slug in der Spalte
  * `kampagne` von wp_bi_anmeldungen: Die Zahl „echte Anmeldungen je Kampagne" bleibt
  * dadurch auch dann gültig, wenn Ereignisse später aufgeräumt werden.
@@ -688,10 +688,10 @@ class BI_Tracking {
 		?>
 		<div style="background:#fff;border:1px solid #ccd0d4;padding:12px 16px;margin:16px 0;max-width:900px">
 			<h2 style="margin-top:0;font-size:14px">Datenschutz &amp; Aufräumen</h2>
-			<p style="margin:0 0 8px">Gespeichert wird je Besuch nur eine Zufallskennung im First-Party-Cookie
-				<code><?php echo esc_html( self::COOKIE ); ?></code> (<?php echo (int) self::COOKIE_DAYS; ?> Tage Laufzeit) –
-				keine IP-Adresse, kein Gerät, kein Name. Die Kennung lässt sich keiner Person zuordnen; erst die
-				abgeschickte Anmeldung enthält Personendaten und speichert dazu den Kampagnen-Namen.
+			<p style="margin:0 0 8px">Das signierte First-Party-Cookie
+				<code><?php echo esc_html( self::COOKIE ); ?></code> enthält eine Zufallskennung, die Kampagnennummer
+				und den Ablaufzeitpunkt (<?php echo (int) self::COOKIE_DAYS; ?> Tage Laufzeit).
+				Beim Anmelden verbindet die gespeicherte Anmelde-ID das Ereignis mit der Anmeldezeile.
 				Derzeit <strong><?php echo (int) $total; ?></strong> Ereignisse gespeichert.</p>
 			<p style="margin:0 0 8px">Ereignisse älter als <?php echo (int) self::KEEP_DAYS; ?> Tage werden
 				<strong>täglich automatisch gelöscht</strong>; die Anmeldezahlen der Kampagnen bleiben davon
