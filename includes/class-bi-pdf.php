@@ -443,7 +443,8 @@ class BI_PDF {
 	 * Seminare bekommt nur, wer sie auch im Backend sehen dürfte.
 	 */
 	public static function download() {
-		$seminar_id = isset( $_GET['seminar'] ) ? (int) $_GET['seminar'] : 0;
+		// Arrays sind keine IDs. Ein direkter int-Cast könnte daraus die ID 1 machen.
+		$seminar_id = (int) bi_get( 'seminar' );
 		$post       = $seminar_id ? get_post( $seminar_id ) : null;
 
 		if ( ! $post || ! bi_is_seminar_post( $seminar_id ) ) {
