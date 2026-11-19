@@ -118,6 +118,7 @@ class BI_Formulare {
 		}
 		$alle = get_option( self::OPTION, array() );
 		if ( is_array( $alle ) && $alle ) {
+			$geaendert = false;
 			foreach ( $alle as $fk => $f ) {
 				$ziel_s = -1;
 				$ziel_i = -1;
@@ -140,8 +141,13 @@ class BI_Formulare {
 				array_splice( $alle[ $fk ]['seiten'][ $ziel_s ]['felder'], $ziel_i + 1, 0, array(
 					array( 'key' => 'einwilligung', 'req' => 1, 'col' => 12, 'wenn' => 'mitglied=nein' ),
 				) );
+				$geaendert = true;
 			}
-			update_option( self::OPTION, $alle );
+			// Erst nach der bestätigten Speicherung abschließen. update_option()
+			// liefert auch false, wenn ein anderer Aufruf den Zielstand schon gespeichert hat.
+			if ( $geaendert && ! update_option( self::OPTION, $alle ) && $alle !== get_option( self::OPTION ) ) {
+				return;
+			}
 		}
 		update_option( self::OPTION_EINWILLIGUNG, '1.148.0' );
 	}
